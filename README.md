@@ -1,5 +1,7 @@
 # Shima
 
+**繁體中文** · [简体中文](docs/README.zh-CN.md) · [English](docs/README.en.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md) · [Español](docs/README.es.md) · [Français](docs/README.fr.md) · [Deutsch](docs/README.de.md) · [Português](docs/README.pt.md) · [Italiano](docs/README.it.md) · [Русский](docs/README.ru.md)
+
 Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞，滑鼠移上去展開成播放面板。
 
 ![膠囊](docs/screenshots/pill.png)
@@ -111,7 +113,7 @@ Claude 是 Anthropic 的商標；島上的 Claude 角色是致敬之作，本專
 python3 tools/strings.py
 ```
 
-會寫出 `src/Shima/Assets/strings.tsv`，並檢查程式用到的每一句都有翻譯。要加語言就多一欄，再到 `Loc.Languages` 登記。
+會寫出 `src/Shima/Assets/strings.tsv`，並檢查程式用到的每一句都有翻譯。要加語言就多一欄，再到 `Loc.Languages` 登記。其他語言的精簡版介紹由 `tools/readme.py` 產生。
 
 ## 測試
 
