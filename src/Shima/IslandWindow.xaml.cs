@@ -51,6 +51,8 @@ public partial class IslandWindow : Window
     {
         _smoke = smoke;
         InitializeComponent();
+        FontFamily = Loc.Font;
+        Loc.Translate(this);
 
         Place();
 
@@ -65,6 +67,7 @@ public partial class IslandWindow : Window
         InitChat();
         InitTools();
         InitSettings();
+        InitStatus();
         InitAgents();
         Loaded += async (_, _) =>
         {
@@ -87,7 +90,7 @@ public partial class IslandWindow : Window
         Closed += (_, _) => _meter.Dispose();
         foreach (var (id, name) in Mascot.All)
         {
-            var item = new System.Windows.Controls.MenuItem { Header = name, IsCheckable = true, IsChecked = id == Buddy.Kind, Tag = id };
+            var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == Buddy.Kind, Tag = id };
             item.Click += (_, _) =>
             {
                 Buddy.Kind = AppSettings.Current.Character = id;
@@ -100,7 +103,7 @@ public partial class IslandWindow : Window
         }
         foreach (var (id, name) in ((string, string)[])[("translation", "中文翻譯"), ("romaji", "羅馬拼音"), ("none", "不顯示")])
         {
-            var item = new System.Windows.Controls.MenuItem { Header = name, IsCheckable = true, IsChecked = id == AppSettings.Current.LyricsSecondLine, Tag = id };
+            var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == AppSettings.Current.LyricsSecondLine, Tag = id };
             item.Click += (_, _) =>
             {
                 AppSettings.Current.LyricsSecondLine = id;
@@ -146,7 +149,7 @@ public partial class IslandWindow : Window
         }
         else
         {
-            TitleText.Text = "沒有正在播放的音樂";
+            TitleText.Text = L.T("沒有正在播放的音樂");
             ArtistText.Text = SourceText.Text = Elapsed.Text = Remaining.Text = "";
             BarFill.Width = 0;
             Cover.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
@@ -200,6 +203,7 @@ public partial class IslandWindow : Window
             WatchFullscreen();
             _discord.Update(_track);   // 拖了進度的話這裡會發現
             _ = _notifications.PollAsync();
+            if (_ticks % 20 == 0) PollStatus();
             // 只在真的有歌在播、島也看得到的時候才擷取聲音
             bool listen = AppSettings.Current.AudioReactive && _track?.Playing == true && !_hiddenForFullscreen;
             if (listen && !_meter.Running) _meter.Start(); else if (!listen && _meter.Running) _meter.Stop();
@@ -273,11 +277,11 @@ public partial class IslandWindow : Window
     private DateTime _toastUntil;
 
     /// <summary>膠囊上暫時顯示一句話（例如「Claude Code 完成了」）。</summary>
-    private void Toast(string text, double seconds = 6)
+    private void Toast(string text, double seconds = 6, bool cheer = true)
     {
         _toast = text;
         _toastUntil = DateTime.Now.AddSeconds(seconds);
-        Buddy.Cheer();
+        if (cheer) Buddy.Cheer();
         UpdateTexts();
     }
 
@@ -402,13 +406,13 @@ public partial class IslandWindow : Window
     /// <summary>點來源那一行：換到 Roon 的下一個播放區域。</summary>
     private void Source_Click(object sender, MouseButtonEventArgs e)
     {
-        if (_media.NextZone() is { Length: > 0 } zone) Toast($"播放區域：{zone}", 3);
+        if (_media.NextZone() is { Length: > 0 } zone) Toast(L.F("播放區域：{0}", zone), 3);
     }
 
     /// <summary>在音樂分頁滾滾輪：調 Roon 的音量。</summary>
     private void Music_MouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_media.Nudge(e.Delta > 0 ? 1 : -1) is { } volume) { Toast($"音量 {volume}", 2); e.Handled = true; }
+        if (_media.Nudge(e.Delta > 0 ? 1 : -1) is { } volume) { Toast(L.F("音量 {0}", volume), 2); e.Handled = true; }
     }
     private void Next_Click(object sender, RoutedEventArgs e) => _media.Next();
     private void Previous_Click(object sender, RoutedEventArgs e) => _media.Previous();
@@ -441,14 +445,14 @@ public partial class IslandWindow : Window
         var key = _trackKey;
         var all = await _lyrics.AllAsync(track);
         if (key != _trackKey) return;
-        if (all.Count == 0) { Toast("找不到其他歌詞", 3); return; }
+        if (all.Count == 0) { Toast(L.T("找不到其他歌詞"), 3); return; }
         var next = all[(all.FindIndex(h => h.Provider == _lyricsFrom) + 1) % all.Count];
         AppSettings.Current.LyricsPick[LyricsFinder.IdOf(track)] = next.Provider;
         AppSettings.Current.Save();
         _sheet = next.Sheet;
         _lyricsFrom = next.Provider;
         _lyricIndex = int.MinValue;
-        Toast(all.Count == 1 ? $"只有 {next.Provider} 有這首歌的歌詞" : $"歌詞：{next.Provider}", 3);
+        Toast(all.Count == 1 ? L.F("只有 {0} 有這首歌的歌詞", next.Provider) : L.F("歌詞：{0}", next.Provider), 3);
         Morph();
     }
 
@@ -463,7 +467,7 @@ public partial class IslandWindow : Window
         var id = LyricsFinder.IdOf(track);
         if (total == 0) AppSettings.Current.LyricsShift.Remove(id); else AppSettings.Current.LyricsShift[id] = total;
         AppSettings.Current.Save();
-        Toast(total == 0 ? "歌詞時間：原本" : $"歌詞{(total > 0 ? "提早" : "延後")} {Math.Abs(total) / 1000.0:0.0} 秒", 2);
+        Toast(total == 0 ? L.T("歌詞時間：原本") : L.F(total > 0 ? "歌詞提早 {0} 秒" : "歌詞延後 {0} 秒", (Math.Abs(total) / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)), 2);
     }
 
     private void LyricsReset_Click(object sender, RoutedEventArgs e)

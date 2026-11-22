@@ -61,7 +61,7 @@ public sealed class VoiceAssistant
             var compiled = await recognizer.CompileConstraintsAsync();
             if (compiled.Status != SpeechRecognitionResultStatus.Success)
             {
-                Said?.Invoke("語音辨識無法使用：請到 Windows 設定 → 隱私權 → 語音，開啟線上語音辨識");
+                Said?.Invoke(L.T("語音辨識無法使用：請到 Windows 設定 → 隱私權 → 語音，開啟線上語音辨識"));
                 return;
             }
             recognizer.Timeouts.InitialSilenceTimeout = TimeSpan.FromSeconds(12);
@@ -69,7 +69,7 @@ public sealed class VoiceAssistant
 
             while (!_stop.IsCancellationRequested)
             {
-                Said?.Invoke("聆聽中…");
+                Said?.Invoke(L.T("聆聽中…"));
                 var heard = await recognizer.RecognizeAsync();
                 if (_stop.IsCancellationRequested) break;
                 if (heard.Status != SpeechRecognitionResultStatus.Success || heard.Confidence == SpeechRecognitionConfidence.Rejected || string.IsNullOrWhiteSpace(heard.Text))
@@ -86,13 +86,13 @@ public sealed class VoiceAssistant
                 if (Once) break;
             }
         }
-        catch (AnthropicUnauthorizedException) { Said?.Invoke("API 金鑰無效"); }
-        catch (AnthropicRateLimitException) { Said?.Invoke("用量已達上限，請稍後再試"); }
-        catch (AnthropicApiException e) { Said?.Invoke("Claude API 錯誤"); Log.Write("voice api: " + e.Message); }
+        catch (AnthropicUnauthorizedException) { Said?.Invoke(L.T("API 金鑰無效")); }
+        catch (AnthropicRateLimitException) { Said?.Invoke(L.T("用量已達上限，請稍後再試")); }
+        catch (AnthropicApiException e) { Said?.Invoke(L.T("Claude API 錯誤")); Log.Write("voice api: " + e.Message); }
         catch (Exception e) when (!_stop.IsCancellationRequested)
         {
             // 0x80045509：這個語言的語音辨識沒有安裝；0x80070005：麥克風權限被關掉
-            Said?.Invoke(e.HResult == unchecked((int)0x80070005) ? "沒有麥克風權限：請到 Windows 設定 → 隱私權 → 麥克風開啟" : "語音助手無法啟動");
+            Said?.Invoke(e.HResult == unchecked((int)0x80070005) ? L.T("沒有麥克風權限：請到 Windows 設定 → 隱私權 → 麥克風開啟") : L.T("語音助手無法啟動"));
             Log.Write($"voice: 0x{e.HResult:X8} {e.Message}");
         }
         catch { /* 使用者按了停止 */ }
@@ -131,6 +131,15 @@ public sealed class VoiceAssistant
         },
     };
 
+    /// <summary>打字問一句（不聽也不唸）。API 的錯誤轉成給人看的一句話。</summary>
+    public async Task<string> AskAsync(string question)
+    {
+        try { return await ThinkAsync(question); }
+        catch (AnthropicUnauthorizedException) { return L.T("API 金鑰無效"); }
+        catch (AnthropicRateLimitException) { return L.T("用量已達上限，請稍後再試"); }
+        catch (Exception e) { Log.Write("ask: " + e.Message); return L.T("Claude API 錯誤"); }
+    }
+
     private async Task<string> ThinkAsync(string heard)
     {
         _messages.Add(new UserMessageParam { Content = heard });
@@ -140,8 +149,9 @@ public sealed class VoiceAssistant
             {
                 Model = Model,
                 MaxTokens = 16000,
-                System = "你是 Shima 的語音助手，住在使用者 Windows 桌面頂端的小島裡。你的回答會被語音唸出來，所以用口語、簡短的句子，" +
-                         "通常一到三句；不要用 Markdown、條列、表情符號或網址。使用者用什麼語言說話就用什麼語言回答，中文一律用臺灣的繁體中文用語。" +
+                System = "你是 Shima 的助手，住在使用者 Windows 桌面頂端的小島裡。你的回答會顯示在很小的面板上或被語音唸出來，所以用口語、簡短的句子，" +
+                         "通常一到三句；不要用 Markdown、條列、表情符號或網址。使用者用什麼語言說話就用什麼語言回答" +
+                         (Loc.Lang == "zh-TW" ? "，中文一律用臺灣的繁體中文用語。" : $"；聽不出語言時用 {_language}。") +
                          "使用者說的話來自語音辨識，可能有同音錯字，請依上下文理解。",
                 OutputConfig = new OutputConfig { Effort = Effort.Low },
                 Tools = [MusicTool],
@@ -151,7 +161,7 @@ public sealed class VoiceAssistant
             if (response.StopReason == "refusal")
             {
                 _messages.RemoveAt(_messages.Count - 1);
-                return "這個我沒辦法幫忙。";
+                return L.T("這個我沒辦法幫忙。");
             }
 
             // 回應原封不動放回對話（包含思考區塊），下一輪才接得上
@@ -170,10 +180,10 @@ public sealed class VoiceAssistant
                 }
             }
             _messages.Add(new AssistantMessageParam { Content = echo });
-            if (results.Count == 0) return string.Join(" ", spoken).Trim() is { Length: > 0 } said ? said : "嗯。";
+            if (results.Count == 0) return string.Join(" ", spoken).Trim() is { Length: > 0 } said ? said : L.T("嗯。");
             _messages.Add(new UserMessageParam { Content = results });
         }
-        return "我有點卡住了，再說一次好嗎？";
+        return L.T("我有點卡住了，再說一次好嗎？");
     }
 
     private async Task SpeakAsync(string text)

@@ -66,7 +66,7 @@ public sealed class NotificationMirror
     /// <summary>膠囊上的一行：「程式 · 標題：內文」，太長就截短。</summary>
     public static string Line(string app, string title, string body)
     {
-        var text = body.Length > 0 ? $"{app} · {title}：{body}" : $"{app} · {title}";
+        var text = body.Length > 0 ? L.F("{0} · {1}：{2}", app, title, body) : $"{app} · {title}";
         text = text.Replace('\n', ' ').Replace('\r', ' ');
         return text.Length > 60 ? text[..59] + "…" : text;
     }

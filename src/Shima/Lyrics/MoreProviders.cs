@@ -60,7 +60,7 @@ public sealed class QQProvider : ILyricsProvider
         string Lyric(string name) => l.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? WebUtility.HtmlDecode(v.GetString() ?? "") : "";
         var lines = Lrc.Parse(Lrc.StripCredits(Lyric("lyric"), items[index].Title));
         if (lines.Count == 0) return null;
-        var sheet = new LyricSheet(lines, true) { Translation = Lrc.Align(lines, Lrc.Parse(Chinese.ToTraditional(Lrc.StripCredits(Lyric("trans"))))) };
+        var sheet = new LyricSheet(lines, true) { Translation = Lrc.Align(lines, Lrc.Parse(Chinese.Localize(Lrc.StripCredits(Lyric("trans"))))) };
         return new LyricsHit(sheet, exact, Name);
     }
 }

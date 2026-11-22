@@ -89,6 +89,9 @@ public partial class IslandWindow
             TodoBox.Children.Add(row);
         }
         UpdateTimer();
+        Month.Today = DateTime.Today;
+        MonthTitle.Text = DateTime.Today.ToString("Y", Loc.Culture);
+        Month.InvalidateVisual();
         if (_tab == Tab.Tools && _expanded) Morph();
     }
 
@@ -110,7 +113,7 @@ public partial class IslandWindow
         if (_pomodoro.Tick(DateTime.Now))
         {
             System.Media.SystemSounds.Asterisk.Play();
-            Toast(_pomodoro.Resting ? "休息一下" : "回來專注", 8);
+            Toast(_pomodoro.Resting ? L.T("休息一下") : L.T("回來專注"), 8);
         }
         var left = _pomodoro.Left(DateTime.Now);
         TimerText.Text = $"{(int)left.TotalMinutes}:{left.Seconds:00}";
@@ -123,7 +126,7 @@ public partial class IslandWindow
     {
         if (!_pomodoro.Running) return null;
         var left = _pomodoro.Left(DateTime.Now);
-        return $"{(_pomodoro.Resting ? "休息" : "專注")} {(int)left.TotalMinutes}:{left.Seconds:00}";
+        return $"{(_pomodoro.Resting ? L.T("休息") : L.T("專注"))} {(int)left.TotalMinutes}:{left.Seconds:00}";
     }
 }
 

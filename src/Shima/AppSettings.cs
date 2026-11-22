@@ -54,6 +54,15 @@ public sealed class AppSettings
     /// <summary>哪些程式的通知要顯示：程式名稱裡有這些字就算。</summary>
     public List<string> NotificationApps { get; set; } = ["Discord", "LINE", "Telegram", "Messenger", "WhatsApp", "Slack", "Teams", "Signal"];
 
+    /// <summary>介面語言（Loc.Languages 的代碼）；空字串：跟著 Windows。</summary>
+    public string Language { get; set; } = "";
+
+    /// <summary>喝水提醒：每隔幾分鐘提醒一次。</summary>
+    public bool Water { get; set; }
+    public int WaterMinutes { get; set; } = 60;
+    /// <summary>音量、亮度、電量、網路、播放裝置有變化時在島上顯示。</summary>
+    public bool SystemStatus { get; set; } = true;
+
     /// <summary>歌詞下面多一行：translation（中文翻譯）、romaji（羅馬拼音）或 none。</summary>
     public string LyricsSecondLine { get; set; } = "translation";
 
@@ -63,7 +72,8 @@ public sealed class AppSettings
     public string ChatSite { get; set; } = "claude";
 
     /// <summary>語音助手聽與說的語言。</summary>
-    public string VoiceLanguage { get; set; } = "zh-TW";
+    /// <remarks>空字串：跟著介面語言。</remarks>
+    public string VoiceLanguage { get; set; } = "";
     /// <summary>Anthropic API 金鑰，用 Windows 的 DPAPI 加密後存放（只有這個 Windows 帳號解得開）。</summary>
     public string AnthropicKey { get; set; } = "";
 

@@ -65,7 +65,7 @@ public static class AgentHooks
             {
                 if (File.Exists(target.SettingsPath) && Read(target.SettingsPath) == null)
                 {
-                    problem = $"{target.SettingsPath} 不是有效的 JSON，沒有更動";
+                    problem = L.F("{0} 不是有效的 JSON，沒有更動", target.SettingsPath);
                     continue;
                 }
                 if (change(target) is not { } updated) continue;

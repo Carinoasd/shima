@@ -78,7 +78,7 @@ public partial class IslandWindow
             Log.Write("chat: " + e.Message);
             ChatHost.Child = new TextBlock
             {
-                Text = "無法啟動內嵌瀏覽器（需要 Microsoft Edge WebView2）", Foreground = Brushes.White, FontSize = 13,
+                Text = L.T("無法啟動內嵌瀏覽器（需要 Microsoft Edge WebView2）"), Foreground = Brushes.White, FontSize = 13,
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
         }

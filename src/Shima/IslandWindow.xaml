@@ -282,8 +282,9 @@
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="VoiceButton" Style="{StaticResource Key}" Width="52" Height="52" FontSize="20" Content="&#xE720;" ToolTip="語音助手" Click="Voice_Click"/>
-                <TextBlock x:Name="VoiceText" Grid.Column="2" FontSize="13" Foreground="#B8FFFFFF" VerticalAlignment="Center" TextWrapping="Wrap" MaxHeight="52" TextTrimming="CharacterEllipsis"/>
+                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 Claude，按 Enter"/>
               </Grid>
+              <TextBlock x:Name="VoiceText" FontSize="13" Foreground="#D0FFFFFF" TextWrapping="Wrap" MaxHeight="150" TextTrimming="CharacterEllipsis" Margin="4,10,4,0" Visibility="Collapsed"/>
               <Grid Height="32" Margin="0,12,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="32"/>
@@ -319,14 +320,25 @@
               </Border>
               <StackPanel x:Name="TodoBox" Margin="0,10,0,0"/>
               <TextBox x:Name="TodoInput" Style="{StaticResource Input}" Height="30" Margin="0,6,0,0" KeyDown="TodoInput_KeyDown" ToolTip="新增待辦，按 Enter"/>
+              <TextBlock x:Name="MonthTitle" FontSize="13" FontWeight="SemiBold" Margin="6,14,0,2"/>
+              <s:MonthView x:Name="Month"/>
             </StackPanel>
 
             <!-- 設定 -->
             <StackPanel x:Name="SettingsPage" Grid.Row="2" Visibility="Collapsed">
+              <DockPanel Height="32" Margin="2,0,0,2">
+                <Button x:Name="LanguageButton" DockPanel.Dock="Right" Style="{StaticResource Pill}" Height="26" Padding="12,0" Click="Language_Click"/>
+                <TextBlock Text="語言" FontSize="13" VerticalAlignment="Center"/>
+              </DockPanel>
               <CheckBox x:Name="StartupSwitch" Style="{StaticResource Switch}" Content="開機時啟動" Click="Switch_Click"/>
               <CheckBox x:Name="FullscreenSwitch" Style="{StaticResource Switch}" Content="全螢幕時隱藏" Click="Switch_Click"/>
               <CheckBox x:Name="AudioSwitch" Style="{StaticResource Switch}" Content="跟著聲音動" Click="Switch_Click"/>
               <CheckBox x:Name="NotifySwitch" Style="{StaticResource Switch}" Content="顯示訊息通知" Click="Notify_Click"/>
+              <CheckBox x:Name="SystemSwitch" Style="{StaticResource Switch}" Content="顯示音量、電量、網路的變化" Click="Switch_Click"/>
+              <DockPanel Height="32">
+                <TextBox x:Name="WaterBox" DockPanel.Dock="Right" Style="{StaticResource Input}" Height="26" Width="52" Margin="8,0,0,0" LostFocus="SettingsText_LostFocus" ToolTip="每隔幾分鐘"/>
+                <CheckBox x:Name="WaterSwitch" Style="{StaticResource Switch}" Content="喝水提醒" Click="Switch_Click"/>
+              </DockPanel>
               <TextBlock Text="歌詞來源" FontSize="12" Foreground="#90FFFFFF" Margin="2,10,0,6"/>
               <WrapPanel x:Name="SourcesBox"/>
               <DockPanel Margin="2,12,0,6">

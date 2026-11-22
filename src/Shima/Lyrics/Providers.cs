@@ -209,7 +209,7 @@ public sealed class NetEaseProvider : ILyricsProvider
             l.RootElement.TryGetProperty(name, out var e) && e.TryGetProperty("lyric", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
         var sheet = new LyricSheet(lines, true)
         {
-            Translation = Lrc.Align(lines, Lrc.Parse(Chinese.ToTraditional(Lrc.StripCredits(Extra("tlyric"))))),
+            Translation = Lrc.Align(lines, Lrc.Parse(Chinese.Localize(Lrc.StripCredits(Extra("tlyric"))))),
             Romaji = Lrc.Align(lines, Lrc.Parse(Lrc.StripCredits(Extra("romalrc")))),
         };
         return new LyricsHit(sheet, exact, Name);

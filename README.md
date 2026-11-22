@@ -27,10 +27,12 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 - **小角色**：住在膠囊裡，跟著實際的聲音跳（右鍵 → 角色）。預設是向 Claude Code 吉祥物致敬的像素小 Claude，像 GIF 一樣一格一格動
 - **跟著聲音動**：音量條與角色依電腦實際播出的聲音起伏，掃光與進度條的顏色取自封面
 - **Discord 狀態**：在個人狀態顯示正在聽的歌、封面與進度
-- **工具**：番茄鐘、檔案暫存架（把檔案拖到島上暫放，再拖出去）、待辦清單
+- **工具**：番茄鐘、檔案暫存架（把檔案拖到島上暫放，再拖出去）、待辦清單、月曆、喝水提醒
+- **系統狀態**：音量、亮度、電量、網路、播放裝置（接上或拔掉耳機）有變化時在島上顯示
+- **11 種語言**：繁體中文、简体中文、English、日本語、한국어、Español、Français、Deutsch、Português、Italiano、Русский；預設跟著 Windows，設定頁可以改
 - **聊天**：把 Claude、Gemini、ChatGPT 的網頁版放進島裡，登入一次就好
 - **Claude Code**：權限請求顯示在島上，按「允許／拒絕／回終端機」；顯示它的待辦進度（3/5 · 正在做的事），做完會通知
-- **語音助手**：對麥克風說話，Claude 回答並唸出來，可以幫忙切歌；按 Ctrl+Alt+V 隨時問一句
+- **問 Claude**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來；可以幫忙切歌；按 Ctrl+Alt+V 隨時問一句
 - **訊息通知**：Discord、LINE、Telegram 等通訊軟體的通知在島上閃一下（設定頁開啟）
 - **可以拖**：按住膠囊拖到任何位置、任何螢幕，會記住；右鍵可以回到正中間
 - 前景是全螢幕程式（遊戲、影片）時自動隱藏
@@ -81,6 +83,9 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `LyricsProviders` | `["local", "lrclib", "netease", "qq", "kugou"]` | 歌詞來源與順序 |
 | `LyricsFolders` | `[]` | 另外要找 `.lrc` 的資料夾（含子資料夾），例如音樂庫 |
 | `HideInFullscreen` | `true` | |
+| `Language` | 空 | 介面語言：`zh-TW`、`zh-CN`、`en`、`ja`、`ko`、`es`、`fr`、`de`、`pt`、`it`、`ru`；留空跟著 Windows |
+| `Water` / `WaterMinutes` | `false` / `60` | 喝水提醒 |
+| `SystemStatus` | `true` | 顯示音量、電量、網路等變化 |
 | `Character` | `claude` | `claude`、`eyes`、`cat`、`ghost`、`none` |
 | `AudioReactive` | `true` | 擷取電腦播出的聲音讓角色與音量條跟著跳 |
 | `LyricsSecondLine` | `translation` | `translation`、`romaji`、`none` |
@@ -88,7 +93,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `DiscordCover` | `true` | 到 iTunes Search 查封面給 Discord 用 |
 | `FocusMinutes` / `BreakMinutes` | `25` / `5` | 番茄鐘 |
 | `ChatSite` | `claude` | `claude`、`gemini`、`chatgpt` |
-| `VoiceLanguage` | `zh-TW` | 語音助手聽與說的語言 |
+| `VoiceLanguage` | 空 | 語音助手聽與說的語言；留空跟著介面語言 |
 
 自己的歌詞放在 `%APPDATA%\Shima\lyrics`，檔名用 `歌名.lrc`、`藝人 - 歌名.lrc` 或 `01 歌名.lrc`。
 
@@ -97,6 +102,16 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 Discord 狀態要先到 [Developer Portal](https://discord.com/developers/applications) 建立一個應用程式（名稱就是「正在聽 ___」顯示的字），把 Application ID 填進 `DiscordClientId`。
 
 Claude 是 Anthropic 的商標；島上的 Claude 角色是致敬之作，本專案與 Anthropic 沒有關係。
+
+## 翻譯
+
+介面文字在 `tools/strings.py`：一句一列，欄位依序是繁體中文與各語言。改完執行
+
+```bash
+python3 tools/strings.py
+```
+
+會寫出 `src/Shima/Assets/strings.tsv`，並檢查程式用到的每一句都有翻譯。要加語言就多一欄，再到 `Loc.Languages` 登記。
 
 ## 測試
 

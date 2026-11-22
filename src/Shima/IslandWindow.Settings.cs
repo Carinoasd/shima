@@ -26,8 +26,8 @@ public partial class IslandWindow
         try
         {
             var menu = new System.Windows.Forms.ContextMenuStrip();
-            menu.Items.Add("顯示／隱藏", null, (_, _) => ToggleHidden());
-            menu.Items.Add("結束", null, (_, _) => Close());
+            menu.Items.Add(L.T("顯示／隱藏"), null, (_, _) => ToggleHidden());
+            menu.Items.Add(L.T("結束"), null, (_, _) => Close());
             _tray = new System.Windows.Forms.NotifyIcon
             {
                 Text = "Shima",
@@ -54,9 +54,13 @@ public partial class IslandWindow
         FullscreenSwitch.IsChecked = s.HideInFullscreen;
         AudioSwitch.IsChecked = s.AudioReactive;
         NotifySwitch.IsChecked = s.Notifications;
+        SystemSwitch.IsChecked = s.SystemStatus;
+        WaterSwitch.IsChecked = s.Water;
+        WaterBox.Text = s.WaterMinutes.ToString();
         DiscordBox.Text = s.DiscordClientId;
         FocusBox.Text = s.FocusMinutes.ToString();
         BreakBox.Text = s.BreakMinutes.ToString();
+        LanguageButton.Content = (Loc.Languages.FirstOrDefault(l => l.Code == s.Language).Name ?? L.T("跟著 Windows")) + "  \u25BE";
         _loadingSettings = false;
 
         // 歌詞來源：點一下開關，亮的才會問
@@ -66,7 +70,7 @@ public partial class IslandWindow
             bool on = s.LyricsProviders.Contains(name);
             var chip = new Button
             {
-                Content = name switch { "local" => "自己的 .lrc", "lrclib" => "LRCLIB", "netease" => "網易雲", "qq" => "QQ 音樂", "kugou" => "酷狗", _ => name },
+                Content = name switch { "local" => L.T("自己的 .lrc"), "lrclib" => "LRCLIB", "netease" => L.T("網易雲"), "qq" => L.T("QQ 音樂"), "kugou" => L.T("酷狗"), _ => name },
                 Style = (Style)FindResource("Pill"), Height = 28, Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(11, 0, 11, 0),
                 Background = on ? Brushes.White : new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)),
                 Foreground = on ? Brushes.Black : Brushes.White,
@@ -86,7 +90,7 @@ public partial class IslandWindow
         FoldersBox.Children.Clear();
         foreach (var folder in s.LyricsFolders.ToList())
         {
-            var chip = new Button { Content = folder, ToolTip = "按一下移除", Style = (Style)FindResource("Pill"), Height = 26, Margin = new Thickness(0, 0, 0, 6), HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 400 };
+            var chip = new Button { Content = folder, ToolTip = L.T("按一下移除"), Style = (Style)FindResource("Pill"), Height = 26, Margin = new Thickness(0, 0, 0, 6), HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 400 };
             chip.Click += (_, _) => { s.LyricsFolders.Remove(folder); s.Save(); _lyrics = new LyricsFinder(); RefreshSettings(); };
             FoldersBox.Children.Add(chip);
         }
@@ -100,6 +104,8 @@ public partial class IslandWindow
         Startup.Enabled = StartupSwitch.IsChecked == true;
         s.HideInFullscreen = FullscreenSwitch.IsChecked == true;
         s.AudioReactive = AudioSwitch.IsChecked == true;
+        s.SystemStatus = SystemSwitch.IsChecked == true;
+        if (s.Water != (WaterSwitch.IsChecked == true)) { s.Water = WaterSwitch.IsChecked == true; _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes); }
         s.Save();
     }
 
@@ -108,16 +114,35 @@ public partial class IslandWindow
         if (_loadingSettings) return;
         bool on = NotifySwitch.IsChecked == true;
         // 打開時 Windows 會問要不要允許；不允許就維持關閉
-        if (on && !await _notifications.StartAsync()) { on = false; Toast("Windows 沒有允許通知存取", 4); }
+        if (on && !await _notifications.StartAsync()) { on = false; Toast(L.T("Windows 沒有允許通知存取"), 4); }
         if (!on) _notifications.Stop();
         AppSettings.Current.Notifications = on;
         AppSettings.Current.Save();
         NotifySwitch.IsChecked = on;
     }
 
+    private void Language_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = LanguageButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        foreach (var (code, name) in Loc.Languages.Prepend(("", L.T("跟著 Windows"))))
+        {
+            var item = new MenuItem { Header = name, IsCheckable = true, IsChecked = code == AppSettings.Current.Language };
+            item.Click += (_, _) =>
+            {
+                if (code == AppSettings.Current.Language) return;
+                AppSettings.Current.Language = code;
+                AppSettings.Current.Save();
+                // 介面是啟動時翻譯的：真的換了語言才重新啟動
+                if (Loc.Resolve(code) != Loc.Lang) ((App)Application.Current).Restart(); else RefreshSettings();
+            };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
     private void AddFolder_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "放 .lrc 歌詞檔的資料夾" };
+        var dialog = new Microsoft.Win32.OpenFolderDialog { Title = L.T("放 .lrc 歌詞檔的資料夾") };
         if (dialog.ShowDialog(this) != true) return;
         var s = AppSettings.Current;
         if (!s.LyricsFolders.Contains(dialog.FolderName)) s.LyricsFolders.Add(dialog.FolderName);
@@ -145,7 +170,36 @@ public partial class IslandWindow
             s.BreakMinutes = Math.Clamp(rest, 1, 60);
             _pomodoro = new Pomodoro { Focus = TimeSpan.FromMinutes(s.FocusMinutes), Break = TimeSpan.FromMinutes(s.BreakMinutes) };
         }
+        if (int.TryParse(WaterBox.Text, out int water) && water != s.WaterMinutes)
+        {
+            s.WaterMinutes = Math.Clamp(water, 5, 480);
+            _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes);
+        }
         s.Save();
         RefreshSettings();
+    }
+
+    // ---------------------------------------------------------------- 喝水提醒、系統狀態
+
+    private readonly SystemWatch _system = new();
+    private DateTime _waterAt = DateTime.Now.AddMinutes(Math.Clamp(AppSettings.Current.WaterMinutes, 5, 480));
+
+    private void InitStatus()
+    {
+        if (_smoke) return;
+        _system.Changed += line => Dispatcher.BeginInvoke(() => { if (AppSettings.Current.SystemStatus) Toast(line, 2.5, cheer: false); });
+        _system.Start();
+        Closed += (_, _) => _system.Dispose();
+    }
+
+    /// <summary>約每兩秒呼叫。</summary>
+    private void PollStatus()
+    {
+        _system.Poll();
+        var s = AppSettings.Current;
+        if (!s.Water || DateTime.Now < _waterAt) return;
+        _waterAt = DateTime.Now.AddMinutes(Math.Clamp(s.WaterMinutes, 5, 480));
+        System.Media.SystemSounds.Asterisk.Play();
+        Toast(L.T("該喝水了"), 10);
     }
 }

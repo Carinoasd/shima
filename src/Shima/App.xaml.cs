@@ -10,6 +10,20 @@ public partial class App : Application
 {
     private Mutex? _single;
 
+    /// <summary>換語言要重新啟動：先放掉「只開一個」的鎖，新的那個才起得來。</summary>
+    public void Restart()
+    {
+        try
+        {
+            _single?.ReleaseMutex();
+            _single?.Dispose();
+            _single = null;
+            if (Environment.ProcessPath is { } exe) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = false });
+        }
+        catch (Exception e) { Log.Write("restart: " + e.Message); }
+        MainWindow?.Close();
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -24,6 +38,8 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, x) => Log.Write("fatal: " + x.ExceptionObject);
         TaskScheduler.UnobservedTaskException += (_, x) => { Log.Write("task: " + x.Exception.Message); x.SetObserved(); };
 
+        int lang = Array.IndexOf(e.Args, "--lang");
+        Loc.Init(lang >= 0 && lang + 1 < e.Args.Length ? e.Args[lang + 1] : AppSettings.Current.Language);
         MainWindow = new IslandWindow(smoke, shotFolder);
         MainWindow.Show();
     }

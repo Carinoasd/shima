@@ -309,3 +309,84 @@ public class NotificationTests
         Assert.Equal(60, Shima.NotificationMirror.Line("Discord", "小明", new string('哈', 200)).Length);
     }
 }
+
+public class LocTests
+{
+    private static string Table()
+    {
+        using var stream = typeof(Shima.Loc).Assembly.GetManifestResourceStream("Shima.Assets.strings.tsv")!;
+        using var reader = new System.IO.StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
+    [Fact]
+    public void 每一句在每種語言都有翻譯_參數也一樣()
+    {
+        var lines = Table().Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var codes = lines[0].Split('\t');
+        Assert.Equal(Shima.Loc.Languages.Select(l => l.Code), codes);
+        foreach (var line in lines.Skip(1))
+        {
+            var cells = line.Split('\t');
+            Assert.Equal(codes.Length, cells.Length);
+            var marks = System.Text.RegularExpressions.Regex.Matches(cells[0], @"\{\d+\}").Select(m => m.Value).Order().ToList();
+            foreach (var cell in cells)
+            {
+                Assert.False(string.IsNullOrWhiteSpace(cell), cells[0]);
+                Assert.Equal(marks, System.Text.RegularExpressions.Regex.Matches(cell, @"\{\d+\}").Select(m => m.Value).Order().ToList());
+            }
+        }
+    }
+
+    [Fact]
+    public void 讀出指定語言那一欄()
+    {
+        var en = Shima.Loc.Parse(Table(), "en");
+        Assert.Equal("Settings", en["設定"]);
+        Assert.Equal("設定", Shima.Loc.Parse(Table(), "ja")["設定"]);
+        Assert.Empty(Shima.Loc.Parse(Table(), "xx"));
+    }
+
+    [Theory]
+    [InlineData("", "zh-TW", "zh-TW")]
+    [InlineData("", "zh-HK", "zh-TW")]
+    [InlineData("", "zh-CN", "zh-CN")]
+    [InlineData("", "zh-Hans-SG", "zh-CN")]
+    [InlineData("", "ja-JP", "ja")]
+    [InlineData("", "ko-KR", "ko")]
+    [InlineData("", "pt-BR", "pt")]
+    [InlineData("", "th-TH", "en")]
+    [InlineData("ja", "en-US", "ja")]
+    [InlineData("nonsense", "fr-FR", "fr")]
+    public void 跟著_Windows_的語言_沒有的用英文(string setting, string windows, string expected) =>
+        Assert.Equal(expected, Shima.Loc.Resolve(setting, System.Globalization.CultureInfo.GetCultureInfo(windows)));
+}
+
+public class MonthViewTests
+{
+    [Fact]
+    public void 月曆的四十二格()
+    {
+        var cells = Shima.MonthView.Cells(new DateTime(2026, 11, 23), DayOfWeek.Sunday);
+        Assert.Equal(42, cells.Length);
+        Assert.Equal((1, true), cells[0]);            // 2026-11-01 是星期日
+        Assert.Equal((30, true), cells[29]);
+        Assert.Equal((1, false), cells[30]);
+        var monday = Shima.MonthView.Cells(new DateTime(2026, 11, 23), DayOfWeek.Monday);
+        Assert.Equal((26, false), monday[0]);         // 一週從星期一開始：前面補上個月的 26–31
+        Assert.Equal((1, true), monday[6]);
+    }
+}
+
+public class SystemWatchTests
+{
+    [Fact]
+    public void 各種狀態的一行字()
+    {
+        Assert.Equal("音量 42", Shima.SystemWatch.Line("volume", "42"));
+        Assert.Equal("充電中 80%", Shima.SystemWatch.Line("charging", "80"));
+        Assert.Equal("已連上 Home", Shima.SystemWatch.Line("online", "Home"));
+        Assert.Equal("網路已連線", Shima.SystemWatch.Line("online", ""));
+        Assert.Equal("輸出：耳機", Shima.SystemWatch.Line("device", "耳機"));
+    }
+}

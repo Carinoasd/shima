@@ -1,0 +1,95 @@
+zh-TW	zh-CN	en	ja	ko	es	fr	de	pt	it	ru
+角色	角色	Character	キャラクター	캐릭터	Personaje	Personnage	Figur	Personagem	Personaggio	Персонаж
+歌詞第二行	歌词第二行	Second lyrics line	歌詞の2行目	가사 둘째 줄	Segunda línea de la letra	Deuxième ligne des paroles	Zweite Textzeile	Segunda linha da letra	Seconda riga del testo	Вторая строка текста
+這首歌的歌詞	这首歌的歌词	Lyrics for this song	この曲の歌詞	이 곡의 가사	Letra de esta canción	Paroles de ce titre	Text dieses Titels	Letra desta música	Testo di questo brano	Текст этой песни
+換一份	换一份	Try another source	別の歌詞にする	다른 가사로 바꾸기	Probar otra fuente	Essayer une autre source	Andere Quelle	Tentar outra fonte	Prova un'altra fonte	Другой источник
+提早 0.1 秒	提前 0.1 秒	0.1 s earlier	0.1秒早く	0.1초 빠르게	0,1 s antes	0,1 s plus tôt	0,1 s früher	0,1 s antes	0,1 s prima	На 0,1 с раньше
+延後 0.1 秒	延后 0.1 秒	0.1 s later	0.1秒遅く	0.1초 느리게	0,1 s después	0,1 s plus tard	0,1 s später	0,1 s depois	0,1 s dopo	На 0,1 с позже
+還原	还原	Reset	元に戻す	초기화	Restablecer	Réinitialiser	Zurücksetzen	Repor	Ripristina	Сбросить
+開啟歌詞資料夾	打开歌词文件夹	Open lyrics folder	歌詞フォルダーを開く	가사 폴더 열기	Abrir carpeta de letras	Ouvrir le dossier des paroles	Songtext-Ordner öffnen	Abrir pasta de letras	Apri cartella dei testi	Открыть папку с текстами
+回到螢幕正中間	回到屏幕正中间	Back to top centre	画面中央に戻す	화면 가운데로	Volver al centro	Revenir au centre	Zurück zur Mitte	Voltar ao centro	Torna al centro	Вернуть в центр
+結束	退出	Quit	終了	종료	Salir	Quitter	Beenden	Sair	Esci	Выход
+音樂	音乐	Music	ミュージック	음악	Música	Musique	Musik	Música	Musica	Музыка
+聊天	聊天	Chat	チャット	채팅	Chat	Chat	Chat	Chat	Chat	Чат
+工具	工具	Tools	ツール	도구	Herramientas	Outils	Werkzeuge	Ferramentas	Strumenti	Инструменты
+設定	设置	Settings	設定	설정	Ajustes	Réglages	Einstellungen	Definições	Impostazioni	Настройки
+語音助手	语音助手	Voice assistant	音声アシスタント	음성 비서	Asistente de voz	Assistant vocal	Sprachassistent	Assistente de voz	Assistente vocale	Голосовой помощник
+問 Claude，按 Enter	问 Claude，按 Enter	Ask Claude, then press Enter	Claude に質問して Enter	Claude에게 묻고 Enter	Pregunta a Claude y pulsa Intro	Posez une question à Claude, puis Entrée	Claude fragen, dann Enter	Pergunte ao Claude e prima Enter	Chiedi a Claude e premi Invio	Спросите Claude и нажмите Enter
+Anthropic API 金鑰	Anthropic API 密钥	Anthropic API key	Anthropic API キー	Anthropic API 키	Clave de API de Anthropic	Clé API Anthropic	Anthropic-API-Schlüssel	Chave de API da Anthropic	Chiave API Anthropic	Ключ API Anthropic
+連接	连接	Connect	接続	연결	Conectar	Connecter	Verbinden	Ligar	Collega	Подключить
+開始／暫停	开始／暂停	Start / pause	開始／一時停止	시작／일시정지	Iniciar / pausar	Démarrer / pause	Start / Pause	Iniciar / pausar	Avvia / pausa	Старт / пауза
+重來	重来	Restart	やり直す	다시 시작	Reiniciar	Recommencer	Neu starten	Recomeçar	Ricomincia	Заново
+把檔案拖到島上暫放	把文件拖到岛上暂存	Drop files on the island to keep them here	ファイルを島にドロップして一時保管	파일을 섬에 끌어다 놓아 보관	Suelta archivos en la isla para guardarlos aquí	Déposez des fichiers sur l'île pour les garder ici	Dateien auf die Insel ziehen, um sie abzulegen	Largue ficheiros na ilha para os guardar aqui	Trascina i file sull'isola per tenerli qui	Перетащите файлы на остров, чтобы отложить их
+新增待辦，按 Enter	新增待办，按 Enter	Add a to-do, then press Enter	やることを追加して Enter	할 일을 입력하고 Enter	Añade una tarea y pulsa Intro	Ajoutez une tâche, puis Entrée	Aufgabe hinzufügen, dann Enter	Adicione uma tarefa e prima Enter	Aggiungi un'attività e premi Invio	Добавьте задачу и нажмите Enter
+語言	语言	Language	言語	언어	Idioma	Langue	Sprache	Idioma	Lingua	Язык
+開機時啟動	开机时启动	Start with Windows	Windows 起動時に開始	Windows 시작 시 실행	Iniciar con Windows	Lancer au démarrage de Windows	Mit Windows starten	Iniciar com o Windows	Avvia con Windows	Запускать вместе с Windows
+全螢幕時隱藏	全屏时隐藏	Hide in full screen	全画面のときは隠す	전체 화면에서 숨기기	Ocultar en pantalla completa	Masquer en plein écran	Im Vollbild ausblenden	Ocultar em ecrã inteiro	Nascondi a schermo intero	Скрывать в полноэкранном режиме
+跟著聲音動	跟着声音动	React to sound	音に合わせて動く	소리에 맞춰 움직이기	Reaccionar al sonido	Réagir au son	Auf Ton reagieren	Reagir ao som	Reagisci al suono	Реагировать на звук
+顯示訊息通知	显示消息通知	Show message notifications	メッセージ通知を表示	메시지 알림 표시	Mostrar notificaciones de mensajes	Afficher les notifications de messages	Nachrichten anzeigen	Mostrar notificações de mensagens	Mostra notifiche dei messaggi	Показывать уведомления о сообщениях
+顯示音量、電量、網路的變化	显示音量、电量、网络的变化	Show volume, battery and network changes	音量・バッテリー・ネットワークの変化を表示	음량·배터리·네트워크 변화 표시	Mostrar cambios de volumen, batería y red	Afficher les changements de volume, batterie et réseau	Lautstärke, Akku und Netzwerk anzeigen	Mostrar alterações de volume, bateria e rede	Mostra variazioni di volume, batteria e rete	Показывать изменения громкости, заряда и сети
+每隔幾分鐘	每隔几分钟	Every how many minutes	何分おき	몇 분마다	Cada cuántos minutos	Toutes les combien de minutes	Alle wie viele Minuten	De quantos em quantos minutos	Ogni quanti minuti	Каждые сколько минут
+喝水提醒	喝水提醒	Water reminder	水分補給リマインダー	물 마시기 알림	Recordatorio de agua	Rappel d'hydratation	Trinkerinnerung	Lembrete de água	Promemoria per bere	Напоминание о воде
+歌詞來源	歌词来源	Lyrics sources	歌詞の取得元	가사 출처	Fuentes de letras	Sources des paroles	Songtext-Quellen	Fontes de letras	Fonti dei testi	Источники текстов
+加入	添加	Add	追加	추가	Añadir	Ajouter	Hinzufügen	Adicionar	Aggiungi	Добавить
+歌詞資料夾	歌词文件夹	Lyrics folders	歌詞フォルダー	가사 폴더	Carpetas de letras	Dossiers de paroles	Songtext-Ordner	Pastas de letras	Cartelle dei testi	Папки с текстами
+番茄鐘：專注／休息（分鐘）	番茄钟：专注／休息（分钟）	Pomodoro: focus / break (minutes)	ポモドーロ：集中／休憩（分）	뽀모도로: 집중／휴식(분)	Pomodoro: concentración / descanso (minutos)	Pomodoro : concentration / pause (minutes)	Pomodoro: Fokus / Pause (Minuten)	Pomodoro: foco / pausa (minutos)	Pomodoro: concentrazione / pausa (minuti)	Помодоро: работа / отдых (минуты)
+回終端機	回终端	In terminal	ターミナルで	터미널에서	En la terminal	Dans le terminal	Im Terminal	No terminal	Nel terminale	В терминале
+拒絕	拒绝	Deny	拒否	거부	Denegar	Refuser	Ablehnen	Recusar	Nega	Отклонить
+允許	允许	Allow	許可	허용	Permitir	Autoriser	Erlauben	Permitir	Consenti	Разрешить
+{0} 不是有效的 JSON，沒有更動	{0} 不是有效的 JSON，未作改动	{0} is not valid JSON; nothing was changed	{0} は有効な JSON ではないため変更していません	{0}은(는) 올바른 JSON이 아니어서 변경하지 않았습니다	{0} no es JSON válido; no se cambió nada	{0} n'est pas un JSON valide ; rien n'a été modifié	{0} ist kein gültiges JSON; nichts wurde geändert	{0} não é JSON válido; nada foi alterado	{0} non è JSON valido; nessuna modifica	{0} — некорректный JSON; ничего не изменено
+語音辨識無法使用：請到 Windows 設定 → 隱私權 → 語音，開啟線上語音辨識	语音识别无法使用：请到 Windows 设置 → 隐私 → 语音，开启在线语音识别	Speech recognition is unavailable: turn on online speech recognition in Windows Settings → Privacy → Speech	音声認識を使えません：Windows の設定 → プライバシー → 音声認識 でオンライン音声認識をオンにしてください	음성 인식을 사용할 수 없습니다: Windows 설정 → 개인 정보 → 음성에서 온라인 음성 인식을 켜세요	El reconocimiento de voz no está disponible: actívalo en Configuración de Windows → Privacidad → Voz	Reconnaissance vocale indisponible : activez-la dans Paramètres Windows → Confidentialité → Voix	Spracherkennung nicht verfügbar: in Windows-Einstellungen → Datenschutz → Spracherkennung aktivieren	Reconhecimento de voz indisponível: ative-o em Definições do Windows → Privacidade → Voz	Riconoscimento vocale non disponibile: attivalo in Impostazioni di Windows → Privacy → Riconoscimento vocale	Распознавание речи недоступно: включите его в Параметрах Windows → Конфиденциальность → Речь
+聆聽中…	聆听中…	Listening…	聞いています…	듣는 중…	Escuchando…	À l'écoute…	Ich höre zu…	A ouvir…	In ascolto…	Слушаю…
+API 金鑰無效	API 密钥无效	Invalid API key	API キーが無効です	API 키가 올바르지 않습니다	Clave de API no válida	Clé API non valide	Ungültiger API-Schlüssel	Chave de API inválida	Chiave API non valida	Неверный ключ API
+用量已達上限，請稍後再試	用量已达上限，请稍后再试	Rate limit reached; try again later	利用上限に達しました。しばらくしてからお試しください	사용 한도에 도달했습니다. 잠시 후 다시 시도하세요	Límite de uso alcanzado; inténtalo más tarde	Limite d'utilisation atteinte ; réessayez plus tard	Nutzungslimit erreicht; später erneut versuchen	Limite de utilização atingido; tente mais tarde	Limite di utilizzo raggiunto; riprova più tardi	Лимит исчерпан; попробуйте позже
+Claude API 錯誤	Claude API 错误	Claude API error	Claude API エラー	Claude API 오류	Error de la API de Claude	Erreur de l'API Claude	Claude-API-Fehler	Erro da API do Claude	Errore dell'API Claude	Ошибка API Claude
+沒有麥克風權限：請到 Windows 設定 → 隱私權 → 麥克風開啟	没有麦克风权限：请到 Windows 设置 → 隐私 → 麦克风开启	No microphone access: allow it in Windows Settings → Privacy → Microphone	マイクを使えません：Windows の設定 → プライバシー → マイク で許可してください	마이크 권한이 없습니다: Windows 설정 → 개인 정보 → 마이크에서 허용하세요	Sin acceso al micrófono: permítelo en Configuración de Windows → Privacidad → Micrófono	Pas d'accès au micro : autorisez-le dans Paramètres Windows → Confidentialité → Microphone	Kein Mikrofonzugriff: in Windows-Einstellungen → Datenschutz → Mikrofon erlauben	Sem acesso ao microfone: permita-o em Definições do Windows → Privacidade → Microfone	Nessun accesso al microfono: consentilo in Impostazioni di Windows → Privacy → Microfono	Нет доступа к микрофону: разрешите его в Параметрах Windows → Конфиденциальность → Микрофон
+語音助手無法啟動	语音助手无法启动	The voice assistant could not start	音声アシスタントを開始できません	음성 비서를 시작할 수 없습니다	No se pudo iniciar el asistente de voz	Impossible de lancer l'assistant vocal	Sprachassistent konnte nicht starten	Não foi possível iniciar o assistente de voz	Impossibile avviare l'assistente vocale	Не удалось запустить голосового помощника
+這個我沒辦法幫忙。	这个我帮不上忙。	I can't help with that.	それはお手伝いできません。	그건 도와드릴 수 없어요.	No puedo ayudar con eso.	Je ne peux pas vous aider pour cela.	Dabei kann ich nicht helfen.	Não posso ajudar com isso.	Non posso aiutarti con questo.	С этим я помочь не могу.
+嗯。	嗯。	Mm.	うん。	음.	Mm.	Hmm.	Hm.	Hum.	Mm.	Угу.
+我有點卡住了，再說一次好嗎？	我有点卡住了，再说一次好吗？	I got stuck. Could you say that again?	うまくいきませんでした。もう一度お願いします。	잠깐 막혔어요. 다시 말씀해 주시겠어요?	Me he atascado. ¿Puedes repetirlo?	Je suis bloqué. Pouvez-vous répéter ?	Ich hänge fest. Kannst du das wiederholen?	Fiquei preso. Pode repetir?	Mi sono bloccato. Puoi ripetere?	Я запутался. Повторите, пожалуйста.
+Claude Code 完成了 · {0}	Claude Code 完成了 · {0}	Claude Code finished · {0}	Claude Code が完了 · {0}	Claude Code 완료 · {0}	Claude Code ha terminado · {0}	Claude Code a terminé · {0}	Claude Code ist fertig · {0}	Claude Code terminou · {0}	Claude Code ha finito · {0}	Claude Code закончил · {0}
+Claude Code 完成了	Claude Code 完成了	Claude Code finished	Claude Code が完了	Claude Code 완료	Claude Code ha terminado	Claude Code a terminé	Claude Code ist fertig	Claude Code terminou	Claude Code ha finito	Claude Code закончил
+中斷	断开	Disconnect	切断	연결 해제	Desconectar	Déconnecter	Trennen	Desligar	Scollega	Отключить
+先貼上 Anthropic API 金鑰	先粘贴 Anthropic API 密钥	Paste your Anthropic API key first	先に Anthropic API キーを貼り付けてください	먼저 Anthropic API 키를 붙여 넣으세요	Pega primero tu clave de API de Anthropic	Collez d'abord votre clé API Anthropic	Zuerst den Anthropic-API-Schlüssel einfügen	Cole primeiro a sua chave de API da Anthropic	Incolla prima la chiave API Anthropic	Сначала вставьте ключ API Anthropic
+先到 AI 分頁貼上 Anthropic API 金鑰	先到 AI 分页粘贴 Anthropic API 密钥	Paste your Anthropic API key on the AI tab first	先に AI タブで Anthropic API キーを貼り付けてください	먼저 AI 탭에 Anthropic API 키를 붙여 넣으세요	Pega primero tu clave de API de Anthropic en la pestaña IA	Collez d'abord votre clé API Anthropic dans l'onglet IA	Zuerst den Anthropic-API-Schlüssel im KI-Tab einfügen	Cole primeiro a chave de API da Anthropic no separador IA	Incolla prima la chiave API Anthropic nella scheda IA	Сначала вставьте ключ API Anthropic на вкладке ИИ
+無法啟動內嵌瀏覽器（需要 Microsoft Edge WebView2）	无法启动内嵌浏览器（需要 Microsoft Edge WebView2）	The embedded browser could not start (Microsoft Edge WebView2 is required)	埋め込みブラウザーを起動できません（Microsoft Edge WebView2 が必要です）	내장 브라우저를 시작할 수 없습니다(Microsoft Edge WebView2 필요)	No se pudo iniciar el navegador integrado (se necesita Microsoft Edge WebView2)	Impossible de lancer le navigateur intégré (Microsoft Edge WebView2 requis)	Der eingebettete Browser konnte nicht starten (Microsoft Edge WebView2 erforderlich)	Não foi possível iniciar o navegador incorporado (requer Microsoft Edge WebView2)	Impossibile avviare il browser incorporato (richiede Microsoft Edge WebView2)	Не удалось запустить встроенный браузер (нужен Microsoft Edge WebView2)
+顯示／隱藏	显示／隐藏	Show / hide	表示／非表示	표시／숨기기	Mostrar / ocultar	Afficher / masquer	Anzeigen / ausblenden	Mostrar / ocultar	Mostra / nascondi	Показать / скрыть
+跟著 Windows	跟随 Windows	Same as Windows	Windows に合わせる	Windows와 동일	Igual que Windows	Comme Windows	Wie Windows	Igual ao Windows	Come Windows	Как в Windows
+自己的 .lrc	自己的 .lrc	My .lrc files	自分の .lrc	내 .lrc	Mis .lrc	Mes .lrc	Eigene .lrc	Os meus .lrc	I miei .lrc	Свои .lrc
+網易雲	网易云	NetEase	NetEase	NetEase	NetEase	NetEase	NetEase	NetEase	NetEase	NetEase
+QQ 音樂	QQ 音乐	QQ Music	QQ Music	QQ Music	QQ Music	QQ Music	QQ Music	QQ Music	QQ Music	QQ Music
+酷狗	酷狗	Kugou	Kugou	Kugou	Kugou	Kugou	Kugou	Kugou	Kugou	Kugou
+按一下移除	点一下移除	Click to remove	クリックで削除	클릭하여 제거	Clic para quitar	Cliquer pour retirer	Klicken zum Entfernen	Clique para remover	Clic per rimuovere	Нажмите, чтобы убрать
+Windows 沒有允許通知存取	Windows 没有允许通知访问	Windows did not allow notification access	Windows が通知へのアクセスを許可していません	Windows에서 알림 접근이 허용되지 않았습니다	Windows no permitió el acceso a las notificaciones	Windows n'a pas autorisé l'accès aux notifications	Windows hat den Zugriff auf Benachrichtigungen nicht erlaubt	O Windows não permitiu o acesso às notificações	Windows non ha consentito l'accesso alle notifiche	Windows не разрешил доступ к уведомлениям
+放 .lrc 歌詞檔的資料夾	存放 .lrc 歌词文件的文件夹	Folder with .lrc lyrics files	.lrc 歌詞ファイルのフォルダー	.lrc 가사 파일이 있는 폴더	Carpeta con archivos de letras .lrc	Dossier contenant des fichiers de paroles .lrc	Ordner mit .lrc-Songtextdateien	Pasta com ficheiros de letras .lrc	Cartella con file di testo .lrc	Папка с файлами текстов .lrc
+該喝水了	该喝水了	Time for some water	水を飲みましょう	물 마실 시간이에요	Hora de beber agua	C'est l'heure de boire de l'eau	Zeit, etwas zu trinken	Hora de beber água	È ora di bere	Пора выпить воды
+休息一下	休息一下	Take a break	休憩しましょう	잠깐 쉬어요	Tómate un descanso	Faites une pause	Mach eine Pause	Faça uma pausa	Fai una pausa	Сделайте перерыв
+回來專注	回来专注	Back to focus	集中に戻りましょう	다시 집중할 시간	De vuelta al trabajo	Retour à la concentration	Zurück zum Fokus	De volta ao foco	Torna a concentrarti	Снова за работу
+休息	休息	Break	休憩	휴식	Descanso	Pause	Pause	Pausa	Pausa	Отдых
+專注	专注	Focus	集中	집중	Concentración	Concentration	Fokus	Foco	Concentrazione	Работа
+沒有正在播放的音樂	没有正在播放的音乐	Nothing is playing	再生中の曲はありません	재생 중인 음악이 없습니다	No hay nada reproduciéndose	Rien en lecture	Es läuft nichts	Nada a tocar	Niente in riproduzione	Ничего не играет
+播放區域：{0}	播放区域：{0}	Zone: {0}	ゾーン：{0}	영역: {0}	Zona: {0}	Zone : {0}	Zone: {0}	Zona: {0}	Zona: {0}	Зона: {0}
+音量 {0}	音量 {0}	Volume {0}	音量 {0}	음량 {0}	Volumen {0}	Volume {0}	Lautstärke {0}	Volume {0}	Volume {0}	Громкость {0}
+找不到其他歌詞	找不到其他歌词	No other lyrics found	ほかの歌詞が見つかりません	다른 가사를 찾지 못했습니다	No se encontraron otras letras	Aucune autre parole trouvée	Kein anderer Songtext gefunden	Não foram encontradas outras letras	Nessun altro testo trovato	Других текстов не найдено
+只有 {0} 有這首歌的歌詞	只有 {0} 有这首歌的歌词	Only {0} has lyrics for this song	この曲の歌詞があるのは {0} だけです	이 곡의 가사는 {0}에만 있습니다	Solo {0} tiene la letra de esta canción	Seul {0} a les paroles de ce titre	Nur {0} hat den Text dieses Titels	Só {0} tem a letra desta música	Solo {0} ha il testo di questo brano	Текст этой песни есть только в {0}
+歌詞：{0}	歌词：{0}	Lyrics: {0}	歌詞：{0}	가사: {0}	Letra: {0}	Paroles : {0}	Songtext: {0}	Letra: {0}	Testo: {0}	Текст: {0}
+歌詞時間：原本	歌词时间：原始	Lyrics timing: original	歌詞のタイミング：元のまま	가사 타이밍: 원래대로	Tiempo de la letra: original	Synchronisation : d'origine	Songtext-Timing: Original	Tempo da letra: original	Sincronia del testo: originale	Синхронизация: исходная
+歌詞提早 {0} 秒	歌词提前 {0} 秒	Lyrics {0} s earlier	歌詞を {0} 秒早く	가사 {0}초 빠르게	Letra {0} s antes	Paroles {0} s plus tôt	Songtext {0} s früher	Letra {0} s antes	Testo {0} s prima	Текст на {0} с раньше
+歌詞延後 {0} 秒	歌词延后 {0} 秒	Lyrics {0} s later	歌詞を {0} 秒遅く	가사 {0}초 느리게	Letra {0} s después	Paroles {0} s plus tard	Songtext {0} s später	Letra {0} s depois	Testo {0} s dopo	Текст на {0} с позже
+中文翻譯	中文翻译	Chinese translation	中国語訳	중국어 번역	Traducción al chino	Traduction en chinois	Chinesische Übersetzung	Tradução em chinês	Traduzione in cinese	Китайский перевод
+羅馬拼音	罗马音	Romaji	ローマ字	로마자	Romaji	Romaji	Romaji	Romaji	Romaji	Ромадзи
+不顯示	不显示	None	表示しない	표시 안 함	Ninguna	Aucune	Keine	Nenhuma	Nessuna	Не показывать
+眼睛	眼睛	Eyes	目	눈	Ojos	Yeux	Augen	Olhos	Occhi	Глаза
+貓	猫	Cat	猫	고양이	Gato	Chat	Katze	Gato	Gatto	Кот
+幽靈	幽灵	Ghost	おばけ	유령	Fantasma	Fantôme	Geist	Fantasma	Fantasma	Привидение
+不要角色	不要角色	No character	キャラクターなし	캐릭터 없음	Sin personaje	Aucun personnage	Keine Figur	Sem personagem	Nessun personaggio	Без персонажа
+{0} · {1}：{2}	{0} · {1}：{2}	{0} · {1}: {2}	{0} · {1}：{2}	{0} · {1}: {2}	{0} · {1}: {2}	{0} · {1} : {2}	{0} · {1}: {2}	{0} · {1}: {2}	{0} · {1}: {2}	{0} · {1}: {2}
+靜音	静音	Muted	ミュート	음소거	Silenciado	Muet	Stumm	Sem som	Muto	Без звука
+亮度 {0}	亮度 {0}	Brightness {0}	明るさ {0}	밝기 {0}	Brillo {0}	Luminosité {0}	Helligkeit {0}	Brilho {0}	Luminosità {0}	Яркость {0}
+充電中 {0}%	充电中 {0}%	Charging {0}%	充電中 {0}%	충전 중 {0}%	Cargando {0} %	En charge {0} %	Lädt {0} %	A carregar {0}%	In carica {0}%	Зарядка {0} %
+使用電池 {0}%	使用电池 {0}%	On battery {0}%	バッテリー駆動 {0}%	배터리 사용 중 {0}%	Con batería {0} %	Sur batterie {0} %	Akkubetrieb {0} %	A bateria {0}%	A batteria {0}%	От батареи {0} %
+電量不足 {0}%	电量不足 {0}%	Battery low {0}%	バッテリー残量低下 {0}%	배터리 부족 {0}%	Batería baja {0} %	Batterie faible {0} %	Akku schwach {0} %	Bateria fraca {0}%	Batteria scarica {0}%	Низкий заряд {0} %
+已連上 {0}	已连接 {0}	Connected to {0}	{0} に接続しました	{0}에 연결됨	Conectado a {0}	Connecté à {0}	Verbunden mit {0}	Ligado a {0}	Connesso a {0}	Подключено к {0}
+網路已連線	网络已连接	Network connected	ネットワークに接続しました	네트워크 연결됨	Red conectada	Réseau connecté	Netzwerk verbunden	Rede ligada	Rete connessa	Сеть подключена
+網路已中斷	网络已断开	Network disconnected	ネットワークが切断されました	네트워크 연결 끊김	Red desconectada	Réseau déconnecté	Netzwerk getrennt	Rede desligada	Rete disconnessa	Сеть отключена
+輸出：{0}	输出：{0}	Output: {0}	出力：{0}	출력: {0}	Salida: {0}	Sortie : {0}	Ausgabe: {0}	Saída: {0}	Uscita: {0}	Выход: {0}

@@ -23,6 +23,9 @@ public static class Chinese
         catch { return text; }
     }
 
+    /// <summary>歌詞的中文翻譯來源多半是簡體：介面是簡體就原樣，其他語言一律轉成繁體。</summary>
+    public static string Localize(string text) => Loc.Lang == "zh-CN" ? text : ToTraditional(text);
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern int LCMapStringEx(string locale, uint flags, string source, int sourceLength, [Out] char[] destination, int destinationLength, IntPtr version, IntPtr reserved, IntPtr sort);
 }
