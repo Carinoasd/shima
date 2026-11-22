@@ -80,15 +80,85 @@ public partial class IslandWindow
     {
         AgentButton.Content = AgentHooks.Installed ? L.T("中斷") : L.T("連接");
         PlanText.Text = _planLine;
-        if (!ApiKeyBox.IsKeyboardFocusWithin)
-        {
-            _loadingKey = true;
-            ApiKeyBox.Password = AppSettings.Current.AnthropicKey.Length > 0 ? AppSettings.Current.ApiKey() : "";
-            _loadingKey = false;
-        }
+
+        var s = AppSettings.Current;
+        var service = AiService.Of(s.AiService);
+        ServiceButton.Content = (service.Id == AiService.Custom ? L.T("自訂") : service.Name) + "  \u25BE";
+        var model = s.AiModels.GetValueOrDefault(service.Id, service.Id == "claude" ? ClaudeBrain.DefaultModel : "");
+        ModelButton.Content = (model.Length > 0 ? model : L.T("選擇模型")) + "  \u25BE";
+        UrlBox.Visibility = service.Id == AiService.Custom ? Visibility.Visible : Visibility.Collapsed;
+        KeyRow.Visibility = service.NeedsKey ? Visibility.Visible : Visibility.Collapsed;
+        _loadingKey = true;
+        if (!UrlBox.IsKeyboardFocusWithin) UrlBox.Text = s.AiCustomUrl;
+        if (!ApiKeyBox.IsKeyboardFocusWithin) ApiKeyBox.Password = s.HasKey(service.Id) ? s.ApiKey(service.Id) : "";
+        _loadingKey = false;
+        if (_tab == Tab.Ai && _expanded) Morph();
     }
 
     private bool _loadingKey;
+
+    private void Service_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new System.Windows.Controls.ContextMenu { PlacementTarget = ServiceButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        foreach (var service in AiService.All)
+        {
+            var item = new System.Windows.Controls.MenuItem { Header = service.Id == AiService.Custom ? L.T("自訂") : service.Name, IsCheckable = true, IsChecked = service.Id == AppSettings.Current.AiService };
+            item.Click += (_, _) =>
+            {
+                AppSettings.Current.AiService = service.Id;
+                AppSettings.Current.Save();
+                _asker = null;   // 換了服務，對話重新開始
+                RefreshAi();
+            };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    /// <summary>向這一家問它有哪些模型，列成選單。</summary>
+    private async void Model_Click(object sender, RoutedEventArgs e)
+    {
+        var s = AppSettings.Current;
+        var service = AiService.Of(s.AiService);
+        // 還沒選模型也要能問清單，所以先用一個暫時的名字建立
+        bool none = !s.AiModels.ContainsKey(service.Id) && service.Id != "claude";
+        if (none) s.AiModels[service.Id] = "-";
+        var brain = Brain.Create(Music, Loc.Speech, out var problem);
+        if (none) s.AiModels.Remove(service.Id);
+        if (brain == null) { Say(problem); return; }
+
+        ModelButton.IsEnabled = false;
+        List<string> models;
+        try { models = await brain.ModelsAsync(); }
+        catch (Exception x) { Say(brain.Explain(x)); return; }
+        finally { ModelButton.IsEnabled = true; }
+        if (models.Count == 0) { Say(L.T("找不到可用的模型")); return; }
+
+        var menu = new System.Windows.Controls.ContextMenu { PlacementTarget = ModelButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, MaxHeight = 420 };
+        var current = s.AiModels.GetValueOrDefault(service.Id, service.Id == "claude" ? ClaudeBrain.DefaultModel : "");
+        foreach (var model in models)
+        {
+            var item = new System.Windows.Controls.MenuItem { Header = model.Replace("_", "__"), IsCheckable = true, IsChecked = model == current };
+            item.Click += (_, _) =>
+            {
+                s.AiModels[service.Id] = model;
+                s.Save();
+                _asker = null;
+                Say("");
+                RefreshAi();
+            };
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void Url_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_loadingKey || UrlBox.Text.Trim() == AppSettings.Current.AiCustomUrl) return;
+        AppSettings.Current.AiCustomUrl = UrlBox.Text.Trim();
+        AppSettings.Current.Save();
+        _asker = null;
+    }
 
     private async void Agent_Click(object sender, RoutedEventArgs e)
     {
@@ -109,7 +179,7 @@ public partial class IslandWindow
     {
         if (_loadingKey) return;
         _asker = null;   // 換了金鑰，對話重新開始
-        AppSettings.Current.SetApiKey(ApiKeyBox.Password.Trim());
+        AppSettings.Current.SetApiKey(AppSettings.Current.AiService, ApiKeyBox.Password.Trim());
     }
 
     private void Voice_Click(object sender, RoutedEventArgs e) => StartVoice(once: false);
@@ -120,9 +190,12 @@ public partial class IslandWindow
     private async void AskBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (e.Key != System.Windows.Input.Key.Enter || AskBox.Text.Trim() is not { Length: > 0 } question || !AskBox.IsEnabled) return;
-        var key = AppSettings.Current.ApiKey();
-        if (key.Length == 0) { Say(L.T("先貼上 Anthropic API 金鑰")); return; }
-        _asker ??= new VoiceAssistant(key, Loc.Speech, action => Dispatcher.Invoke(() => Music(action)));
+        if (_asker == null)
+        {
+            var brain = Brain.Create(action => Dispatcher.Invoke(() => Music(action)), Loc.Speech, out var problem);
+            if (brain == null) { Say(problem); return; }
+            _asker = new VoiceAssistant(brain, Loc.Speech);
+        }
         AskBox.IsEnabled = false;
         Say("…");
         var answer = await _asker.AskAsync(question);
@@ -147,10 +220,11 @@ public partial class IslandWindow
     {
         if (_voice != null) { _voice.Stop(); return; }
 
-        var key = AppSettings.Current.ApiKey();
-        if (key.Length == 0) { Say(L.T("先貼上 Anthropic API 金鑰")); if (once) Toast(L.T("先到 AI 分頁貼上 Anthropic API 金鑰"), 4); return; }
+        var language = AppSettings.Current.VoiceLanguage is { Length: > 0 } spoken ? spoken : Loc.Speech;
+        var brain = Brain.Create(action => Dispatcher.Invoke(() => Music(action)), language, out var problem);
+        if (brain == null) { Say(problem); if (once) Toast(L.T("先到 AI 分頁設定好 AI 服務"), 4); return; }
 
-        var voice = _voice = new VoiceAssistant(key, AppSettings.Current.VoiceLanguage is { Length: > 0 } spoken ? spoken : Loc.Speech, action => Dispatcher.Invoke(() => Music(action))) { Once = once };
+        var voice = _voice = new VoiceAssistant(brain, language) { Once = once };
         voice.Said += text => Dispatcher.BeginInvoke(() => { Say(text); if (once && text.Length > 0) Toast(text, 12); });
         voice.Stopped += () => Dispatcher.BeginInvoke(() =>
         {

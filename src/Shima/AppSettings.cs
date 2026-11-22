@@ -74,7 +74,15 @@ public sealed class AppSettings
     /// <summary>語音助手聽與說的語言。</summary>
     /// <remarks>空字串：跟著介面語言。</remarks>
     public string VoiceLanguage { get; set; } = "";
-    /// <summary>Anthropic API 金鑰，用 Windows 的 DPAPI 加密後存放（只有這個 Windows 帳號解得開）。</summary>
+    /// <summary>問問題用哪一家的 AI：AiService.All 裡的代號。</summary>
+    public string AiService { get; set; } = "claude";
+    /// <summary>每一家的 API 金鑰，用 Windows 的 DPAPI 加密後存放（只有這個 Windows 帳號解得開）。</summary>
+    public Dictionary<string, string> AiKeys { get; set; } = [];
+    /// <summary>每一家選的模型。</summary>
+    public Dictionary<string, string> AiModels { get; set; } = [];
+    /// <summary>選「自訂」時的 API 位址（OpenAI 相容，結尾到 /v1）。</summary>
+    public string AiCustomUrl { get; set; } = "";
+    /// <remarks>舊版只有 Claude 的金鑰；讀進來後會搬到 AiKeys。</remarks>
     public string AnthropicKey { get; set; } = "";
 
     /// <summary>膠囊裡的小角色：claude、eyes、cat、ghost 或 none。</summary>
@@ -82,21 +90,26 @@ public sealed class AppSettings
     /// <summary>擷取電腦播出的聲音，讓角色和音量條跟著跳。</summary>
     public bool AudioReactive { get; set; } = true;
 
-    /// <summary>解密後的金鑰；沒存的話用環境變數 ANTHROPIC_API_KEY。</summary>
-    public string ApiKey()
+    /// <summary>解密後的金鑰；沒存的話用那一家慣用的環境變數（ANTHROPIC_API_KEY、OPENAI_API_KEY…）。</summary>
+    public string ApiKey(string service)
     {
         try
         {
-            if (AnthropicKey.Length > 0)
-                return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(AnthropicKey), null, DataProtectionScope.CurrentUser));
+            if (AiKeys.GetValueOrDefault(service, "") is { Length: > 0 } stored)
+                return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored), null, DataProtectionScope.CurrentUser));
         }
         catch (Exception e) { Log.Write("api key: " + e.Message); }
-        return Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? "";
+        var variable = service switch { "claude" => "ANTHROPIC_API_KEY", "gemini" => "GEMINI_API_KEY", "custom" or "ollama" => "", _ => service.ToUpperInvariant() + "_API_KEY" };
+        return variable.Length > 0 ? Environment.GetEnvironmentVariable(variable) ?? "" : "";
     }
 
-    public void SetApiKey(string key)
+    /// <summary>有沒有存這一家的金鑰（環境變數的不算）。</summary>
+    public bool HasKey(string service) => AiKeys.GetValueOrDefault(service, "").Length > 0;
+
+    public void SetApiKey(string service, string key)
     {
-        AnthropicKey = key.Length == 0 ? "" : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key), null, DataProtectionScope.CurrentUser));
+        if (key.Length == 0) AiKeys.Remove(service);
+        else AiKeys[service] = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key), null, DataProtectionScope.CurrentUser));
         Save();
     }
 
@@ -111,6 +124,13 @@ public sealed class AppSettings
             if (File.Exists(FilePath))
             {
                 var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+                if (loaded.AnthropicKey.Length > 0)
+                {
+                    // 舊版的 Claude 金鑰搬到新的位置（已經是加密過的，直接搬）
+                    loaded.AiKeys.TryAdd("claude", loaded.AnthropicKey);
+                    loaded.AnthropicKey = "";
+                    loaded.Save();
+                }
                 if (loaded.Version < 2)
                 {
                     // 版本 2 新增 QQ 音樂與酷狗：舊設定檔沒有它們，排到最後面

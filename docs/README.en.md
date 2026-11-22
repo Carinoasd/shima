@@ -34,7 +34,7 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **11 languages**: 繁體中文, 简体中文, English, 日本語, 한국어, Español, Français, Deutsch, Português, Italiano, Русский. Follows Windows by default; change it in Settings
 - **Chat**: the web versions of Claude, Gemini and ChatGPT inside the island; sign in once
 - **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
-- **Ask Claude**: type on the AI tab, or speak and have the answer read aloud; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere
+- **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
 - **Message notifications**: Discord, LINE, Telegram and other messengers flash on the island (turn it on in Settings)
 - **Draggable**: hold the pill and drag it anywhere, on any monitor; the place is remembered. Right-click to send it back to the centre
 - Hides itself while a full-screen app (a game, a video) is in front
@@ -72,7 +72,16 @@ Open the island → the microphone tab.
 
 **Claude Code**: Connect adds four hooks to Claude Code's `settings.json` (one for Windows, one for the default WSL distribution). They only use `curl.exe` to send events to `localhost:47813`, which Shima listens on. Disconnect removes them and leaves everything else alone. Before the first change a copy is kept as `settings.json.before-shima.bak`. When Shima is not running, or the island is hidden behind a full-screen app, Claude Code asks in the terminal as usual.
 
-**Voice assistant**: paste an Anthropic API key (stored encrypted with Windows DPAPI, readable only by your Windows account), press the microphone to start and again to stop. Speech recognition and speech synthesis are the ones built into Windows; the conversation goes to the Anthropic API and is billed by usage. The model is `claude-opus-5-5`.
+**Ask an AI**: pick a service, paste that provider's API key (stored encrypted with Windows DPAPI, readable only by your Windows account), then press the model button and choose from the list that provider actually offers. After that, type in the box, or press the microphone and speak (press again to stop). Speech recognition and speech synthesis are the ones built into Windows; the conversation goes to the provider you chose and is billed by them.
+
+| Service | How it is reached |
+| --- | --- |
+| Claude | the official Anthropic SDK; default model `claude-haiku-5-5` (cheap and quick; pick Sonnet or Opus from the menu for more capability) |
+| OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter | OpenAI-compatible Chat Completions |
+| Ollama | the same, at `localhost:11434` on your machine; no key |
+| Custom | the same, with an API URL you enter (ending in `/v1`) |
+
+With no key entered, the provider's usual environment variable is read (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`…). Models without tool calling still chat; they just cannot skip songs for you.
 
 ## Settings
 
@@ -95,6 +104,9 @@ Open the island → the microphone tab.
 | `DiscordCover` | `true` | Look the cover up on iTunes Search for Discord |
 | `FocusMinutes` / `BreakMinutes` | `25` / `5` | Pomodoro |
 | `ChatSite` | `claude` | `claude`, `gemini`, `chatgpt` |
+| `AiService` | `claude` | Which provider answers: `claude`, `openai`, `gemini`, `deepseek`, `xai`, `mistral`, `groq`, `openrouter`, `ollama`, `custom` |
+| `AiModels` | `{}` | The model chosen for each provider |
+| `AiCustomUrl` | empty | API URL when `custom` is chosen |
 | `VoiceLanguage` | empty | Language the voice assistant listens and speaks in; empty follows the interface language |
 
 Put your own lyrics in `%APPDATA%\Shima\lyrics`, named `Title.lrc`, `Artist - Title.lrc` or `01 Title.lrc`.

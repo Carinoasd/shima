@@ -34,7 +34,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 - **11 種語言**：繁體中文、简体中文、English、日本語、한국어、Español、Français、Deutsch、Português、Italiano、Русский；預設跟著 Windows，設定頁可以改
 - **聊天**：把 Claude、Gemini、ChatGPT 的網頁版放進島裡，登入一次就好
 - **Claude Code**：權限請求顯示在島上，按「允許／拒絕／回終端機」；顯示它的待辦進度（3/5 · 正在做的事），做完會通知
-- **問 Claude**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來；可以幫忙切歌；按 Ctrl+Alt+V 隨時問一句
+- **問 AI**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來；可以幫忙切歌；按 Ctrl+Alt+V 隨時問一句。可以接 Claude、OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter、本機的 Ollama，或任何 OpenAI 相容的服務
 - **訊息通知**：Discord、LINE、Telegram 等通訊軟體的通知在島上閃一下（設定頁開啟）
 - **可以拖**：按住膠囊拖到任何位置、任何螢幕，會記住；右鍵可以回到正中間
 - 前景是全螢幕程式（遊戲、影片）時自動隱藏
@@ -72,7 +72,16 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 **Claude Code**：按「連接」會在 Claude Code 的 `settings.json`（Windows 與預設的 WSL 發行版各一份）加上四個 hook，只是用 `curl.exe` 把事件送到 Shima 開在本機的 `localhost:47813`；按「中斷」會拿掉，其他設定不動。第一次更動前會留一份 `settings.json.before-shima.bak`。Shima 沒開、或島因為全螢幕藏起來時，Claude Code 照常在終端機詢問。
 
-**語音助手**：貼上 Anthropic API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），按麥克風開始、再按一次停止。語音辨識與朗讀用 Windows 內建的，對話內容送到 Anthropic API，按用量計費。模型是 `claude-opus-5-5`。
+**問 AI**：先選服務，貼上那一家的 API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），再按模型的按鈕從那一家實際提供的清單裡選一個。之後在輸入框打字，或按麥克風用說的（再按一次停止）。語音辨識與朗讀用 Windows 內建的；對話內容送到你選的那一家，費用由那一家計算。
+
+| 服務 | 接法 |
+| --- | --- |
+| Claude | 官方 Anthropic SDK，預設模型 `claude-haiku-5-5`（便宜、回應快；要更聰明可以在選單換成 Sonnet 或 Opus） |
+| OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter | OpenAI 相容的 Chat Completions |
+| Ollama | 同上，連本機的 `localhost:11434`，不用金鑰 |
+| 自訂 | 同上，自己填 API 網址（結尾到 `/v1`） |
+
+沒填金鑰時會讀那一家慣用的環境變數（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY`…）。不支援工具呼叫的模型仍然可以聊天，只是沒辦法幫忙切歌。
 
 ## 設定
 
@@ -95,6 +104,9 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `DiscordCover` | `true` | 到 iTunes Search 查封面給 Discord 用 |
 | `FocusMinutes` / `BreakMinutes` | `25` / `5` | 番茄鐘 |
 | `ChatSite` | `claude` | `claude`、`gemini`、`chatgpt` |
+| `AiService` | `claude` | 問 AI 用哪一家：`claude`、`openai`、`gemini`、`deepseek`、`xai`、`mistral`、`groq`、`openrouter`、`ollama`、`custom` |
+| `AiModels` | `{}` | 每一家選的模型 |
+| `AiCustomUrl` | 空 | 選 `custom` 時的 API 網址 |
 | `VoiceLanguage` | 空 | 語音助手聽與說的語言；留空跟著介面語言 |
 
 自己的歌詞放在 `%APPDATA%\Shima\lyrics`，檔名用 `歌名.lrc`、`藝人 - 歌名.lrc` 或 `01 歌名.lrc`。

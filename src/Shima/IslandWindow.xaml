@@ -282,16 +282,21 @@
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="VoiceButton" Style="{StaticResource Key}" Width="52" Height="52" FontSize="20" Content="&#xE720;" ToolTip="語音助手" Click="Voice_Click"/>
-                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 Claude，按 Enter"/>
+                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 AI，按 Enter"/>
               </Grid>
               <TextBlock x:Name="VoiceText" FontSize="13" Foreground="#D0FFFFFF" TextWrapping="Wrap" MaxHeight="150" TextTrimming="CharacterEllipsis" Margin="4,10,4,0" Visibility="Collapsed"/>
-              <Grid Height="32" Margin="0,12,0,0">
+              <DockPanel Height="30" Margin="0,12,0,0">
+                <Button x:Name="ServiceButton" DockPanel.Dock="Left" Style="{StaticResource Pill}" Height="28" Padding="12,0" ToolTip="AI 服務" Click="Service_Click"/>
+                <Button x:Name="ModelButton" Style="{StaticResource Pill}" Height="28" Padding="12,0" Margin="8,0,0,0" HorizontalAlignment="Left" MaxWidth="290" ToolTip="模型" Click="Model_Click"/>
+              </DockPanel>
+              <TextBox x:Name="UrlBox" Style="{StaticResource Input}" Height="30" Margin="0,8,0,0" LostFocus="Url_LostFocus" ToolTip="API 網址（OpenAI 相容，結尾到 /v1）" Visibility="Collapsed"/>
+              <Grid x:Name="KeyRow" Height="32" Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="32"/>
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="&#xE8D7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15" Foreground="#90FFFFFF" VerticalAlignment="Center" HorizontalAlignment="Center" ToolTip="Anthropic API 金鑰"/>
-                <PasswordBox x:Name="ApiKeyBox" Grid.Column="1" Style="{StaticResource Field}" PasswordChanged="ApiKey_Changed" ToolTip="Anthropic API 金鑰"/>
+                <TextBlock Text="&#xE8D7;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="15" Foreground="#90FFFFFF" VerticalAlignment="Center" HorizontalAlignment="Center" ToolTip="API 金鑰"/>
+                <PasswordBox x:Name="ApiKeyBox" Grid.Column="1" Style="{StaticResource Field}" PasswordChanged="ApiKey_Changed" ToolTip="API 金鑰"/>
               </Grid>
               <Grid Height="36" Margin="0,12,0,0">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,90,0">

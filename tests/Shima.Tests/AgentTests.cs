@@ -129,3 +129,37 @@ public class AgentPlanTests
         Assert.Equal(["新的"], plan.Steps.Select(s => s.Text));
     }
 }
+
+public class OpenAiBrainTests
+{
+    [Fact]
+    public void 請求的內容_系統說明在最前面_工具可有可無()
+    {
+        var messages = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = "下一首" });
+        var body = OpenAiBrain.Body("some-model", "你是助手", messages, tools: true);
+        Assert.Equal("some-model", body["model"]!.ToString());
+        Assert.Equal("system", body["messages"]![0]!["role"]!.ToString());
+        Assert.Equal("下一首", body["messages"]![1]!["content"]!.ToString());
+        Assert.Equal("music", body["tools"]![0]!["function"]!["name"]!.ToString());
+        Assert.Equal(4, ((JsonArray)body["tools"]![0]!["function"]!["parameters"]!["properties"]!["action"]!["enum"]!).Count);
+        Assert.Null(OpenAiBrain.Body("m", "s", messages, tools: false)["tools"]);
+        Assert.Single(messages);   // 原本的對話不被改到
+    }
+
+    [Fact]
+    public void 模型清單_排序_去掉_Gemini_的前綴()
+    {
+        var json = """{"data":[{"id":"zeta"},{"id":"models/gemini-x"},{"id":"alpha"},{"id":"alpha"},{"id":""}]}""";
+        Assert.Equal(["alpha", "gemini-x", "zeta"], OpenAiBrain.Models(json));
+        Assert.Empty(OpenAiBrain.Models("""{"object":"list"}"""));
+    }
+
+    [Fact]
+    public void 服務清單_Claude_走_SDK_其他都有網址()
+    {
+        Assert.Equal("claude", AiService.All[0].Id);
+        Assert.All(AiService.All.Where(s => s.Id is not ("claude" or AiService.Custom)), s => Assert.StartsWith("http", s.BaseUrl));
+        Assert.False(AiService.Of("ollama").NeedsKey);
+        Assert.Equal("claude", AiService.Of("沒有這一家").Id);
+    }
+}
