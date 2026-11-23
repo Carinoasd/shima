@@ -249,6 +249,9 @@ public partial class IslandWindow
             if (!_expanded) SetExpanded(false);
         });
         Skills.Alarms = alarms;
+        _alarms = alarms;
+        alarms.Changed += () => Dispatcher.BeginInvoke(RefreshAlarms);
+        RefreshAlarms();
         alarms.Start();
         Closed += (_, _) => alarms.Dispose();
     }

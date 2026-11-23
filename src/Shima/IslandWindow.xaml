@@ -342,13 +342,29 @@
               </Grid>
               <Border CornerRadius="12" Background="#14FFFFFF" Margin="0,10,0,0" Padding="8,8,2,2" MinHeight="44">
                 <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
                   <TextBlock x:Name="ShelfHint" Text="&#xE8E5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Foreground="#50FFFFFF"
-                             HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="把檔案拖到島上暫放"/>
+                             HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="把檔案、文字或圖片拖到島上暫放"/>
                   <WrapPanel x:Name="ShelfBox"/>
+                  <Button Grid.Column="1" Style="{StaticResource Key}" Width="28" Height="28" FontSize="13" VerticalAlignment="Top" Margin="0,-4,0,0" Content="&#xE77F;" ToolTip="貼上剪貼簿的內容" Click="ShelfPaste_Click"/>
                 </Grid>
               </Border>
+              <StackPanel x:Name="AlarmBox" Margin="0,10,0,0" Visibility="Collapsed"/>
               <StackPanel x:Name="TodoBox" Margin="0,10,0,0"/>
-              <TextBox x:Name="TodoInput" Style="{StaticResource Input}" Height="30" Margin="0,6,0,0" KeyDown="TodoInput_KeyDown" ToolTip="新增待辦，按 Enter"/>
+              <Grid Margin="0,6,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition/>
+                  <ColumnDefinition Width="6"/>
+                  <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="TodoInput" Style="{StaticResource Input}" Height="30" KeyDown="TodoInput_KeyDown" TextChanged="ToolInput_TextChanged" ToolTip="新增待辦，按 Enter"/>
+                <TextBlock x:Name="TodoGlyph" Text="&#xE8FD;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="#50FFFFFF" IsHitTestVisible="False" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                <TextBox x:Name="AlarmInput" Grid.Column="2" Style="{StaticResource Input}" Height="30" KeyDown="AlarmInput_KeyDown" TextChanged="ToolInput_TextChanged" ToolTip="新增提醒，如 15:30 開會、20m 喝水，按 Enter"/>
+                <TextBlock x:Name="AlarmGlyph" Grid.Column="2" Text="&#xE916;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="#50FFFFFF" IsHitTestVisible="False" VerticalAlignment="Center" Margin="12,0,0,0"/>
+              </Grid>
               <TextBlock x:Name="MonthTitle" FontSize="13" FontWeight="SemiBold" Margin="6,14,0,2"/>
               <s:MonthView x:Name="Month"/>
             </StackPanel>
