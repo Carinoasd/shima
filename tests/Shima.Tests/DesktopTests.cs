@@ -321,15 +321,24 @@ public class DesktopLyricsLayoutTests
     }
 
     [Fact]
-    public void 前奏_間奏_沒有歌詞時顯示歌名()
+    public void 前奏與間奏顯示歌名()
     {
         var intro = DesktopLyricsLayout.Pick(Sheet, null, TimeSpan.FromSeconds(1), "歌名", "藝人");
         Assert.Equal((-1, "歌名", "藝人", false), (intro.Index, intro.Main, intro.Sub, intro.Sweep));
         Assert.Equal("歌名", DesktopLyricsLayout.Pick(Sheet, null, TimeSpan.FromSeconds(16), "歌名", "藝人").Main);
-        Assert.Equal("歌名", DesktopLyricsLayout.Pick(null, null, TimeSpan.FromSeconds(6), "歌名", "藝人").Main);
+        Assert.Equal(("藝人", ""), DesktopLyricsLayout.Pick(Sheet, null, TimeSpan.FromSeconds(1), "", "藝人") is var a ? (a.Main, a.Sub) : default);
+    }
+
+    [Fact]
+    public void 沒有同步歌詞就什麼都不顯示()
+    {
+        // 看影片、聽沒有歌詞的歌：不要把標題貼在畫面下方
+        Assert.Equal(("", ""), DesktopLyricsLayout.Pick(null, null, TimeSpan.FromSeconds(6), "影片的標題", "頻道") is var none ? (none.Main, none.Sub) : default);
         var plain = new LyricSheet(Lrc.Plain("純文字歌詞"), false);
-        Assert.Equal("歌名", DesktopLyricsLayout.Pick(plain, null, TimeSpan.FromSeconds(6), "歌名", "藝人").Main);
-        Assert.Equal(("藝人", ""), DesktopLyricsLayout.Pick(null, null, TimeSpan.Zero, "", "藝人") is var a ? (a.Main, a.Sub) : default);
+        Assert.Equal("", DesktopLyricsLayout.Pick(plain, null, TimeSpan.FromSeconds(6), "歌名", "藝人").Main);
+        // 解鎖著擺位置時，視窗自己會改用這個當占位
+        Assert.Equal(("歌名", "藝人"), DesktopLyricsLayout.Title("歌名", "藝人") is var t ? (t.Main, t.Sub) : default);
+        Assert.Equal(("藝人", ""), DesktopLyricsLayout.Title("", "藝人") is var a ? (a.Main, a.Sub) : default);
     }
 
     [Fact]
