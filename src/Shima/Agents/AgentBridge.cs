@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.Collections.Immutable;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -10,12 +11,25 @@ using System.Text.Json.Nodes;
 
 namespace Shima.Agents;
 
-/// <summary>Claude Code 想用某個工具，等人回答。Decision：「allow」、「deny」，或 null（回終端機照常問）。</summary>
+/// <summary>
+/// Claude Code 想用某個工具，等人回答。Decision：「allow」、「deny」、「always」（允許並記住 Remember 這條規則），
+/// 或 null（回終端機照常問）。
+/// </summary>
 public sealed class PermissionRequest
 {
+    public const string Always = "always";
+
     public required string Project { get; init; }
     public required string Tool { get; init; }
     public required string Details { get; init; }
+    public string SessionId { get; init; } = "";
+    public string Cwd { get; init; } = "";
+    /// <summary>tool_input 的原始 JSON。</summary>
+    public string ToolInput { get; init; } = "{}";
+    /// <summary>如果選「以後都允許」，會記成這條規則；null 表示這種請求不給記（不要顯示那顆按鈕）。</summary>
+    public AgentRule? Remember { get; init; }
+    /// <summary>「以後都允許 git status」按鈕的文字；不給記就是 null。</summary>
+    public string? RememberText => Remember is { } r ? L.F("以後都允許 {0}", r.Label) : null;
     public TaskCompletionSource<string?> Decision { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 }
 
@@ -35,6 +49,34 @@ public sealed class AgentBridge
     public event Action<string, string>? Finished;
     /// <summary>Claude Code 的待辦清單變了：專案名稱、做完幾項、總共幾項、正在做的那一項。</summary>
     public event Action<string, int, int, string>? Progressed;
+    /// <summary>工作階段清單有變（新的、狀態、進度、結束）。用 Sessions 讀目前的清單。</summary>
+    public event Action? SessionsChanged;
+    /// <summary>符合使用者記住的規則，直接允許了（沒有觸發 Asked）。</summary>
+    public event Action<PermissionRequest, AgentRule>? AutoAllowed;
+
+    private readonly AgentSessions _sessions;
+    /// <summary>裝箱的 ImmutableArray：整個換掉，讀的人拿到的一定是完整的一份。</summary>
+    private volatile object _snapshot = ImmutableArray<AgentSession>.Empty;
+    private Timer? _pruner;
+
+    /// <summary>「以後都允許」的規則。</summary>
+    public AgentRules Rules { get; }
+
+    /// <summary>目前的工作階段（不可變的快照，哪個執行緒都可以讀）。</summary>
+    public ImmutableArray<AgentSession> Sessions
+    {
+        get
+        {
+            Prune();
+            return (ImmutableArray<AgentSession>)_snapshot;
+        }
+    }
+
+    public AgentBridge(AgentRules? rules = null, Func<DateTime>? clock = null)
+    {
+        Rules = rules ?? new AgentRules();
+        _sessions = new AgentSessions(clock);
+    }
 
     /// <summary>Stream Dock 外掛看的內容，由島更新。</summary>
     public volatile DeckState Deck = new(null, null, null, TimeSpan.Zero);
@@ -51,8 +93,6 @@ public sealed class AgentBridge
     public event Action<string>? DeckPressed;
     /// <summary>Stream Dock 的旋鈕轉了幾格：volume、seek、shift、zone。</summary>
     public event Action<string, int>? DeckTurned;
-
-    private readonly AgentPlan _plan = new();
 
     public static string TokenFile => Path.Combine(AppSettings.Folder, "bridge.token");
 
@@ -80,6 +120,7 @@ public sealed class AgentBridge
             _listener.Prefixes.Add($"http://localhost:{Port}/");
             _listener.Start();
             _ = Task.Run(() => LoopAsync(_listener, token));
+            _pruner = new Timer(_ => Prune(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
         catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; }
     }
@@ -113,21 +154,9 @@ public sealed class AgentBridge
             string text;
             using (var reader = new StreamReader(request.InputStream, Encoding.UTF8)) text = await reader.ReadToEndAsync();
             if (JsonNode.Parse(text) is not JsonObject json) { response.StatusCode = 400; return; }
-            var project = Path.GetFileName((json["cwd"]?.ToString() ?? "").TrimEnd('\\', '/'));
-
             if (request.Url?.AbsolutePath == "/permission")
             {
-                var ask = new PermissionRequest
-                {
-                    Project = project,
-                    Tool = json["tool_name"]?.ToString() ?? "?",
-                    Details = Describe(json["tool_name"]?.ToString(), json["tool_input"]),
-                };
-                if (Asked == null) { response.StatusCode = 204; return; }
-                Asked.Invoke(ask);
-                var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience));
-                var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
-                ask.Decision.TrySetResult(null);
+                var behavior = await PermissionAsync(json);
                 if (Answer(behavior) is { } body)
                 {
                     var bytes = Encoding.UTF8.GetBytes(body);
@@ -138,16 +167,8 @@ public sealed class AgentBridge
                 return;
             }
 
-            var name = json["hook_event_name"]?.ToString();
-            if (name == "Stop") Finished?.Invoke(project, json["last_assistant_message"]?.ToString() ?? "");
-            else if (name == "PostToolUse")
-            {
-                bool changed;
-                int done, total;
-                string current;
-                lock (_plan) { changed = _plan.Apply(json); done = _plan.Done; total = _plan.Steps.Count; current = _plan.Current; }
-                if (changed) Progressed?.Invoke(project, done, total, current);
-            }
+            // /notify 永遠不回內容：SessionStart、UserPromptSubmit 的輸出會被 Claude Code 當成給模型看的內容
+            Notify(json);
             response.StatusCode = 204;
         }
         catch (Exception e) { Log.Write("bridge request: " + e.Message); try { response.StatusCode = 500; } catch { } }
@@ -213,9 +234,86 @@ public sealed class AgentBridge
         }
     }
 
-    /// <summary>給 Claude Code 的回答；null 表示不回答（它會照常自己問）。</summary>
+    /// <summary>
+    /// 一則權限請求：先查規則，符合就直接允許；不符合才問島上的人。回傳 "allow"、"deny" 或 null。
+    /// </summary>
+    public async Task<string?> PermissionAsync(JsonObject json)
+    {
+        var tool = json["tool_name"]?.ToString() ?? "?";
+        var input = json["tool_input"];
+        var cwd = json["cwd"]?.ToString() ?? "";
+        var ask = new PermissionRequest
+        {
+            Project = AgentSessions.ProjectOf(cwd),
+            Tool = tool,
+            Details = Describe(tool, input),
+            SessionId = json["session_id"]?.ToString() ?? "",
+            Cwd = cwd,
+            ToolInput = input?.ToJsonString() ?? "{}",
+            Remember = AgentRules.Suggest(tool, input, cwd),
+        };
+        var key = AgentSessions.Key(json);
+
+        if (Rules.Match(tool, input, cwd) is { } rule)
+        {
+            Touch(json);
+            Change(s => s.Resumed(key));
+            AutoAllowed?.Invoke(ask, rule);
+            return "allow";
+        }
+
+        Touch(json);
+        if (Asked == null) return null;
+        Asked.Invoke(ask);
+        var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience));
+        var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
+        ask.Decision.TrySetResult(null);
+        if (behavior == PermissionRequest.Always)
+        {
+            if (ask.Remember is { } remember) Rules.Add(remember);
+            behavior = "allow";
+        }
+        if (behavior is "allow" or "deny") Change(s => s.Resumed(key));
+        return behavior;
+    }
+
+    /// <summary>不用等回答的 hook：Stop、PostToolUse、Notification、SessionStart、SessionEnd…</summary>
+    public void Notify(JsonObject json)
+    {
+        var name = json["hook_event_name"]?.ToString();
+        var project = AgentSessions.ProjectOf(json["cwd"]?.ToString());
+        bool planChanged = false;
+        AgentSession? session = null;
+        Change(s =>
+        {
+            bool changed = s.Apply(json, out planChanged);
+            session = s.Find(AgentSessions.Key(json));
+            return changed;
+        });
+        if (name == "Stop") Finished?.Invoke(project, json["last_assistant_message"]?.ToString() ?? "");
+        else if (planChanged && session != null) Progressed?.Invoke(project, session.Done, session.Total, session.Current);
+    }
+
+    private void Touch(JsonObject json) => Change(s => s.Apply(json));
+
+    private void Prune() => Change(s => s.Prune());
+
+    /// <summary>在鎖裡改工作階段；有變就換一份新的快照，並在鎖外通知。</summary>
+    private void Change(Func<AgentSessions, bool> change)
+    {
+        bool changed;
+        lock (_sessions)
+        {
+            changed = change(_sessions);
+            if (changed) _snapshot = _sessions.Snapshot();
+        }
+        if (changed) SessionsChanged?.Invoke();
+    }
+
+    /// <summary>給 Claude Code 的回答；null 表示不回答（它會照常自己問）。「always」當成允許。</summary>
     public static string? Answer(string? behavior)
     {
+        if (behavior == PermissionRequest.Always) behavior = "allow";
         if (behavior is not ("allow" or "deny")) return null;
         var decision = new JsonObject { ["behavior"] = behavior };
         if (behavior == "deny") decision["message"] = "使用者在 Shima 上拒絕了這個動作。";

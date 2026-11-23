@@ -16,9 +16,34 @@ namespace Shima.Agents;
 public static class AgentHooks
 {
     private const string Mark = "X-Shima-Token";
-    private static readonly string[] Events = ["PermissionRequest", "Notification", "Stop", "PostToolUse"];
-    /// <summary>PostToolUse 只看 Claude Code 的待辦清單工具，其他工具不必每次都呼叫。</summary>
+    /// <summary>
+    /// Shima 裝的 hook：事件、matcher、要不要等（async 的在背景跑，不拖慢 Claude Code）、curl 最多等幾秒、hook 的 timeout。
+    /// 權限請求要等人按；Stop 照舊同步送。其餘只是讓島知道每個工作階段在做什麼，全部背景送。
+    /// SessionEnd 不能用背景（Claude Code 結束時會被砍掉），所以 curl 只等一秒、timeout 兩秒：
+    /// Claude Code 結束前最多等的就是這個 timeout，不能設長。
+    /// </summary>
+    private static readonly (string Event, string? Matcher, bool Async, int Wait, int Timeout)[] Hooks =
+    [
+        ("PermissionRequest", null, false, 590, 600),
+        ("Notification", null, true, 3, 10),
+        ("Stop", null, false, 3, 10),
+        ("PostToolUse", PlanTools, false, 3, 10),
+        ("PostToolUse", OtherTools, true, 3, 10),
+        ("SessionStart", null, true, 3, 10),
+        ("UserPromptSubmit", null, true, 3, 10),
+        ("StopFailure", null, true, 3, 10),
+        ("SessionEnd", null, false, 1, 2),
+    ];
+    /// <summary>
+    /// 待辦清單工具的 PostToolUse 同步送，進度一定比 Stop 先到；其他工具的 PostToolUse 在背景送，
+    /// 只是讓「在終端機按了允許之後」狀態回到工作中。
+    /// </summary>
     private const string PlanTools = "TaskCreate|TaskUpdate|TodoWrite";
+    /// <summary>PlanTools 以外的工具（matcher 有特殊字元時 Claude Code 當成 JavaScript 正規表示式），免得同一次呼叫送兩次。</summary>
+    private const string OtherTools = "^(?!(TaskCreate|TaskUpdate|TodoWrite)$)";
+
+    /// <summary>Shima 用到的事件（測試與升級檢查用）。</summary>
+    public static IReadOnlyList<string> Events => Hooks.Select(h => h.Event).Distinct().ToList();
 
     public sealed record Target(string SettingsPath, string Curl);
 
@@ -50,6 +75,12 @@ public static class AgentHooks
     }
 
     public static bool Installed => Targets().Any(t => Has(Read(t.SettingsPath)));
+
+    /// <summary>連接過、但是是舊版 Shima 裝的（少了幾個 hook）：再按一次「連接」，或直接呼叫 Install() 就會升級。</summary>
+    public static bool Outdated => Targets().Any(t => Read(t.SettingsPath) is { } s && Has(s) && !Complete(s));
+
+    /// <summary>Claude Code 的設定資料夾（Windows 的 ~/.claude，以及預設 WSL 發行版的）。</summary>
+    public static List<string> ClaudeFolders() => Targets().Select(t => Path.GetDirectoryName(t.SettingsPath)!).ToList();
 
     /// <summary>回傳錯誤訊息；null 表示成功。</summary>
     public static string? Install() => Each(t => With(Read(t.SettingsPath) ?? [], t.Curl, AgentBridge.Token()));
@@ -88,6 +119,19 @@ public static class AgentHooks
     public static bool Has(JsonObject? settings) =>
         settings?["hooks"] is JsonObject hooks && hooks.Any(e => (e.Value as JsonArray)?.Any(Ours) == true);
 
+    /// <summary>Shima 的 hook 每一個都在（而且沒有多出重複的）。</summary>
+    public static bool Complete(JsonObject? settings)
+    {
+        if (settings?["hooks"] is not JsonObject hooks) return false;
+        foreach (var name in Events)
+        {
+            int want = Hooks.Count(h => h.Event == name);
+            int have = (hooks[name] as JsonArray)?.Count(Ours) ?? 0;
+            if (have != want) return false;
+        }
+        return true;
+    }
+
     private static bool Ours(JsonNode? group) =>
         (group?["hooks"] as JsonArray)?.Any(h => h?["command"]?.ToString().Contains(Mark) == true) == true;
 
@@ -97,16 +141,19 @@ public static class AgentHooks
         settings = Without(settings);
         var hooks = settings["hooks"] as JsonObject ?? [];
         settings["hooks"] = hooks;
-        foreach (var name in Events)
+        foreach (var (name, matcher, background, wait, timeout) in Hooks)
         {
             bool permission = name == "PermissionRequest";
-            // 權限請求要等人按；其他的送了就走。Shima 沒開時 curl 會失敗，Claude Code 就照常運作
-            var command = $"{curl} -s -m {(permission ? 590 : 3)} -X POST -H \"{Mark}: {token}\" -H \"Content-Type: application/json\" --data-binary @- http://localhost:{AgentBridge.Port}/{(permission ? "permission" : "notify")}";
+            // 權限請求要等人按；其他的送了就走。Shima 沒開時 curl 會失敗，Claude Code 就照常運作。
+            // /notify 永遠不回內容：SessionStart、UserPromptSubmit 的輸出會被 Claude Code 當成給模型看的內容
+            var command = $"{curl} -s -m {wait} -X POST -H \"{Mark}: {token}\" -H \"Content-Type: application/json\" --data-binary @- http://localhost:{AgentBridge.Port}/{(permission ? "permission" : "notify")}";
             var list = hooks[name] as JsonArray ?? [];
             hooks[name] = list;
             var group = new JsonObject();
-            if (name == "PostToolUse") group["matcher"] = PlanTools;
-            group["hooks"] = new JsonArray(new JsonObject { ["type"] = "command", ["command"] = command, ["timeout"] = permission ? 600 : 10 });
+            if (matcher != null) group["matcher"] = matcher;
+            var hook = new JsonObject { ["type"] = "command", ["command"] = command, ["timeout"] = timeout };
+            if (background) hook["async"] = true;
+            group["hooks"] = new JsonArray(hook);
             list.Add(group);
         }
         return settings;

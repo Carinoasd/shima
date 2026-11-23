@@ -8,7 +8,7 @@ namespace Shima.Agents;
 
 /// <summary>
 /// Claude Code 自己的待辦清單，從它的 PostToolUse hook 重建：新版一次建立或更新一項（TaskCreate / TaskUpdate），
-/// 舊版一次給整份（TodoWrite）。欄位名稱各版本不太一樣，所以寬鬆地讀。最新開始動的那個工作階段為準。
+/// 舊版一次給整份（TodoWrite）。欄位名稱各版本不太一樣，所以寬鬆地讀。每個工作階段一份（AgentSessions 各自持有）；換了 session_id 就從頭開始。
 /// </summary>
 public sealed class AgentPlan
 {
