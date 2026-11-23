@@ -198,3 +198,56 @@ public class AlarmWakeTests
         finally { File.Delete(path); }
     }
 }
+
+public class HistoryCacheTests
+{
+    private static string Line(string title, int minute) =>
+        Shima.Listening.HistoryFile.ToLine(new Shima.Listening.Listen(new DateTimeOffset(2026, 1, 1, 12, minute, 0, TimeSpan.Zero), title, "歌手", "專輯", "smtc", 200, 200)) + "\n";
+
+    [Fact]
+    public void 檔案沒變就給同一份_變了才重讀()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "shima-hist-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            var cache = new Shima.Listening.HistoryCache();
+            Assert.Empty(cache.Read(path).Listens);   // 沒有檔案
+
+            File.WriteAllText(path, Line("a", 0));
+            var first = cache.Read(path);
+            Assert.True(first.Changed);
+            Assert.Single(first.Listens);
+
+            var again = cache.Read(path);
+            Assert.False(again.Changed);
+            Assert.Same(first.Listens, again.Listens);
+
+            File.AppendAllText(path, Line("b", 5));
+            var grown = cache.Read(path);
+            Assert.True(grown.Changed);
+            Assert.Equal(2, grown.Listens.Count);
+
+            File.Delete(path);
+            Assert.Empty(cache.Read(path).Listens);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void 同樣大小但修改時間不同也會重讀()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "shima-hist-" + Guid.NewGuid().ToString("N") + ".jsonl");
+        try
+        {
+            File.WriteAllText(path, Line("a", 0));
+            var cache = new Shima.Listening.HistoryCache();
+            cache.Read(path);
+            File.WriteAllText(path, Line("b", 0));
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+            var read = cache.Read(path);
+            Assert.True(read.Changed);
+            Assert.Equal("b", read.Listens[0].Title);
+        }
+        finally { File.Delete(path); }
+    }
+}
