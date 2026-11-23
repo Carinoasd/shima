@@ -151,7 +151,7 @@ public sealed class SmtcSource : IMediaSource
             lock (_lock)
             {
                 if (s != _session) return;
-                _title = p.Title ?? "";
+                _title = PageTitle.Clean(p.Title);
                 _artist = p.Artist ?? "";
                 _album = p.AlbumTitle ?? "";
                 _cover = cover;

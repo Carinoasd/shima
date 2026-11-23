@@ -32,9 +32,10 @@ public sealed class SpectrumView : FrameworkElement
     {
         set
         {
-            var fill = new LinearGradientBrush(Color.FromArgb(120, value.R, value.G, value.B), Color.FromArgb(18, value.R, value.G, value.B), 90);
+            // 條子畫在歌詞後面：太亮的話最下面兩句歌詞會被吃掉
+            var fill = new LinearGradientBrush(Color.FromArgb(84, value.R, value.G, value.B), Color.FromArgb(14, value.R, value.G, value.B), 90);
             fill.Freeze();
-            var cap = new SolidColorBrush(Color.FromArgb(150, value.R, value.G, value.B));
+            var cap = new SolidColorBrush(Color.FromArgb(120, value.R, value.G, value.B));
             cap.Freeze();
             _fill = fill; _cap = cap;
             InvalidateVisual();
@@ -44,21 +45,24 @@ public sealed class SpectrumView : FrameworkElement
     public SpectrumView()
     {
         IsHitTestVisible = false;
-        _timer.Tick += (_, _) =>
-        {
-            var bands = _active ? Bands?.Invoke() : null;
-            bool moving = false;
-            for (int i = 0; i < Count; i++)
-            {
-                double target = bands != null && i < bands.Length ? Scale(bands[i]) : 0;
-                _heights[i] += (target - _heights[i]) * (target > _heights[i] ? 0.7 : 0.22);   // 上去快、下來慢
-                _caps[i] = Math.Max(_heights[i], _caps[i] - 0.018);
-                if (_caps[i] > 0.004) moving = true;
-            }
-            InvalidateVisual();
-            if (!moving && !_active) _timer.Stop();   // 全部沉到底了才停
-        };
+        _timer.Tick += (_, _) => { if (!Step() && !_active) _timer.Stop(); };   // 全部沉到底了才停
         IsVisibleChanged += (_, _) => { if (IsVisible && _active) _timer.Start(); else if (!IsVisible) _timer.Stop(); };
+    }
+
+    /// <summary>往前走一格（平常由計時器每 40 毫秒呼叫）。回傳還有沒有條子在動。</summary>
+    public bool Step()
+    {
+        var bands = _active ? Bands?.Invoke() : null;
+        bool moving = false;
+        for (int i = 0; i < Count; i++)
+        {
+            double target = bands != null && i < bands.Length ? Scale(bands[i]) : 0;
+            _heights[i] += (target - _heights[i]) * (target > _heights[i] ? 0.7 : 0.22);   // 上去快、下來慢
+            _caps[i] = Math.Max(_heights[i], _caps[i] - 0.018);
+            if (_caps[i] > 0.004) moving = true;
+        }
+        InvalidateVisual();
+        return moving;
     }
 
     /// <summary>頻譜的 0…1 是 -60 dB 到 0 dB；底下那一截幾乎永遠有東西，切掉才看得出起伏。</summary>

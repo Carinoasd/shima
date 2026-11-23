@@ -76,7 +76,7 @@ public sealed class StatsView : FrameworkElement
     private void Recompute()
     {
         _summary = Stats.Compute(_listens, _period, _now, Loc.Culture.DateTimeFormat.FirstDayOfWeek);
-        _bars = Stats.Bars(_summary.Daily, _period);
+        _bars = Stats.Fill(Stats.Bars(_summary.Daily, _period), _period);
         _byYear = _period == StatsPeriod.All && Stats.ByYear(_summary.Daily);
         InvalidateVisual();
     }

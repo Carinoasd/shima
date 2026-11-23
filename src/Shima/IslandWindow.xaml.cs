@@ -266,9 +266,9 @@ public partial class IslandWindow : Window
             if (_ticks % 20 == 0) PollStatus();
             // 只在真的有歌在播、島也看得到的時候才擷取聲音
             // Stream Dock 在看的話，島因為全螢幕藏起來了也照樣擷取
-            bool wanted = !Demo.On && AppSettings.Current.AudioReactive && _track?.Playing == true;
+            bool wanted = AppSettings.Current.AudioReactive && _track?.Playing == true;
             bool listen = wanted && !_hiddenForFullscreen;
-            bool capture = listen || wanted && _bridge.DeckWatching;
+            bool capture = !Demo.On && (listen || wanted && _bridge.DeckWatching);   // 示範模式的頻譜是假的，不擷取聲音
             if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }

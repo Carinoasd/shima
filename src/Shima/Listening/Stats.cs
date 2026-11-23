@@ -130,6 +130,24 @@ public static class Stats
     }
 
     /// <summary>「全部」的長條圖要不要一年一根：跨超過 24 個月。</summary>
+    /// <summary>
+    /// 把長條補到整個期間：週補滿七天、月補到月底、年補到十二月（還沒到的是 0）。
+    /// 不補的話星期一只有一兩根長條孤零零地站著，每天的位置也會跟著星期幾跑。
+    /// </summary>
+    public static List<(DateTime Start, TimeSpan Time)> Fill(IReadOnlyList<(DateTime Start, TimeSpan Time)> bars, StatsPeriod period)
+    {
+        var filled = bars.ToList();
+        if (filled.Count == 0 || period == StatsPeriod.All) return filled;
+        var first = filled[0].Start;
+        int want = period switch { StatsPeriod.Week => 7, StatsPeriod.Month => DateTime.DaysInMonth(first.Year, first.Month), _ => 12 };
+        while (filled.Count < want)
+        {
+            var last = filled[^1].Start;
+            filled.Add((period == StatsPeriod.Year ? last.AddMonths(1) : last.AddDays(1), TimeSpan.Zero));
+        }
+        return filled;
+    }
+
     public static bool ByYear(IReadOnlyList<(DateTime Day, TimeSpan Time)> daily) =>
         daily.Count > 0 && (daily[^1].Day.Year - daily[0].Day.Year) * 12 + daily[^1].Day.Month - daily[0].Day.Month >= 24;
 }
