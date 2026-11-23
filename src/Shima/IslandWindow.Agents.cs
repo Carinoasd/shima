@@ -466,6 +466,8 @@ public partial class IslandWindow
                     }
                 }
 
+                case "sleep": return SleepTool(Arg("action"), Number("minutes", 0));
+
                 case "volume":
                 {
                     int steps = (int)Math.Clamp(Number("steps", 2), 1, 10) * (Arg("direction") == "down" ? -1 : 1);

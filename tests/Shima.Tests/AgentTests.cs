@@ -364,7 +364,7 @@ public class AssistantToolTests
     [Fact]
     public void 每個工具都有名稱_說明_而且必填的參數有定義()
     {
-        Assert.Equal(["music", "lyrics", "todo", "timer", "volume", "lyrics_fix", "weather", "open", "alarm", "datetime", "calc", "clipboard"], AssistantTool.All.Select(t => t.Name));
+        Assert.Equal(["music", "lyrics", "todo", "timer", "volume", "lyrics_fix", "sleep", "weather", "open", "alarm", "datetime", "calc", "clipboard"], AssistantTool.All.Select(t => t.Name));
         foreach (var tool in AssistantTool.All)
         {
             Assert.True(tool.Description.Length > 20, tool.Name);

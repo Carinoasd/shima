@@ -250,6 +250,7 @@ public partial class IslandWindow
         _system.Changed += line => Dispatcher.BeginInvoke(() => { if (AppSettings.Current.SystemStatus && !InDoNotDisturb) Toast(line, 2.5, cheer: false); });
         _system.Start();
         InitAudioOutputs();
+        InitSleep();
         Closed += (_, _) => _system.Dispose();
     }
 
