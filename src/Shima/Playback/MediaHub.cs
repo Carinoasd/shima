@@ -63,6 +63,17 @@ public sealed class MediaHub
     public void PlayPause() => Active(out _)?.PlayPause();
     public void Play() => Active(out _)?.Play();
     public void Pause() => Active(out _)?.Pause();
+
+    /// <summary>
+    /// 兩邊都暫停（睡眠定時用）：Roon 和瀏覽器同時在出聲時，島上只顯示其中一個，
+    /// 只暫停顯示的那個的話另一個會繼續播。
+    /// </summary>
+    public void PauseAll()
+    {
+        if (Demo != null) return;
+        if (_roon.Current?.Playing == true) _roon.Pause();
+        if (_smtc.Current?.Playing == true) _smtc.Pause();
+    }
     public void Next() => Active(out _)?.Next();
     public void Previous() => Active(out _)?.Previous();
     public void Seek(TimeSpan position) => Active(out _)?.Seek(position);
