@@ -234,6 +234,8 @@ public partial class IslandWindow
     private SessionsView? _sessions;
     private TextBlock? _usageLine;
     private DateTime _usageAt;
+    private UsageView? _usageView;
+    private bool _usageOpen;
 
     private void InitSessions()
     {
@@ -242,6 +244,14 @@ public partial class IslandWindow
         _usageLine = new TextBlock { FontSize = 12, Foreground = new SolidColorBrush(Color.FromArgb(0x90, 255, 255, 255)), Margin = new Thickness(2, 2, 0, 8), Visibility = Visibility.Collapsed };
         SessionsHost.Children.Add(_sessions);
         SessionsHost.Children.Add(_usageLine);
+        _usageView = new UsageView { Visibility = Visibility.Collapsed, Margin = new Thickness(2, 0, 0, 6), HorizontalAlignment = HorizontalAlignment.Left };
+        SessionsHost.Children.Add(_usageView);
+        // 那一行可以點：移上去變亮、游標變手形，點一下展開最近 14 天的圖
+        var dim = _usageLine.Foreground;
+        _usageLine.Cursor = System.Windows.Input.Cursors.Hand;
+        _usageLine.MouseEnter += (_, _) => _usageLine.Foreground = Brushes.White;
+        _usageLine.MouseLeave += (_, _) => _usageLine.Foreground = dim;
+        _usageLine.MouseLeftButtonUp += (_, _) => ToggleUsage(!_usageOpen);
         _bridge.SessionsChanged += () => Dispatcher.BeginInvoke(() =>
         {
             var sessions = _bridge.Sessions;
@@ -256,18 +266,50 @@ public partial class IslandWindow
     /// <summary>今天用了多少：打開 AI 分頁時算一次，之後最多一分鐘算一次（要掃很多檔案）。</summary>
     private async void RefreshUsage()
     {
-        if (Demo.On || _usageLine == null || DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;   // 示範模式不讀自己的用量
+        if (_usageLine == null) return;
+        if (Demo.On)   // 示範模式用編出來的數字，不讀自己的用量
+        {
+            var demo = Demo.Usage(DateTime.Now);
+            ShowUsageLine(demo.Days[^1].Tokens.Total, demo.Days[^1].Cost, true);
+            _usageView!.Trend = demo;
+            return;
+        }
+        if (DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;
         _usageAt = DateTime.Now;
         try
         {
             var today = await _usage.TodayAsync();
-            long tokens = today.Tokens.Total;
-            if (tokens <= 0) { _usageLine.Visibility = Visibility.Collapsed; return; }
-            string amount = tokens >= 1_000_000 ? (tokens / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M" : (tokens / 1000.0).ToString("0", CultureInfo.InvariantCulture) + "K";
-            string cost = today.Cost > 0 ? "$" + today.Cost.ToString("0.00", CultureInfo.InvariantCulture) + (today.CostKnown ? "" : "+") + " · " : "";
-            _usageLine.Text = L.F("今天 {0}", cost + amount + " tokens");
-            _usageLine.Visibility = Visibility.Visible;
-            if (_tab == Tab.Ai && _expanded) Morph();
+            ShowUsageLine(today.Tokens.Total, today.Cost, today.CostKnown);
+            if (_usageOpen) LoadTrend();
+        }
+        catch (Exception e) { Log.Write("usage: " + e.Message); }
+    }
+
+    private void ShowUsageLine(long tokens, decimal cost, bool known)
+    {
+        if (tokens <= 0) { _usageLine!.Visibility = Visibility.Collapsed; _usageView!.Visibility = Visibility.Collapsed; return; }
+        string money = cost > 0 ? UsageView.Money(cost, known) + " · " : "";
+        _usageLine!.Text = L.F("今天 {0}", money + UsageView.Amount(tokens) + " tokens");
+        _usageLine.Visibility = Visibility.Visible;
+        _usageView!.Visibility = _usageOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (_tab == Tab.Ai && _expanded) Morph();
+    }
+
+    private void ToggleUsage(bool open)
+    {
+        _usageOpen = open;
+        _usageView!.Visibility = open && _usageLine!.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+        if (open && !Demo.On) LoadTrend();
+        Morph();
+    }
+
+    /// <summary>最近 14 天的趨勢：在背景讀（第一次可能要一陣子，先顯示讀取中），讀完換上去。</summary>
+    private async void LoadTrend()
+    {
+        try
+        {
+            var trend = await _usage.TrendAsync();
+            if (_usageOpen) { _usageView!.Trend = trend; Morph(); }
         }
         catch (Exception e) { Log.Write("usage: " + e.Message); }
     }

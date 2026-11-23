@@ -28,6 +28,15 @@ public sealed record SessionUsage(string SessionId, string Project, TokenCount T
 /// <summary>今天的用量：各模型、各工作階段（今天有用到的，最近的在前面）。</summary>
 public sealed record UsageSummary(DateOnly Day, IReadOnlyList<ModelUsage> Models, IReadOnlyList<SessionUsage> Sessions, TokenCount Tokens, decimal Cost, bool CostKnown);
 
+/// <summary>某一天（本地時間）的用量；CostKnown 是 false 表示當天有價目表裡沒有的模型，Cost 只算了認得的部分。</summary>
+public sealed record DayUsage(DateOnly Day, TokenCount Tokens, decimal Cost, bool CostKnown);
+
+/// <summary>最近幾天的趨勢：Days 由舊到新、每天一筆（沒用的日子補 0），Models 是這段期間各模型的合計（token 多的在前面）。</summary>
+public sealed record UsageTrend(IReadOnlyList<DayUsage> Days, IReadOnlyList<ModelUsage> Models, TokenCount Tokens, decimal Cost, bool CostKnown)
+{
+    public static readonly UsageTrend Empty = new([], [], default, 0, true);
+}
+
 /// <summary>每百萬 token 的美元價格。Long：提示超過 LongAbove 個 token 的請求改用的價格（Haiku 5.5）。</summary>
 public sealed record TokenPrice(decimal Input, decimal Write5m, decimal Write1h, decimal Read, decimal Output, long LongAbove = 0, TokenPrice? Long = null);
 
@@ -216,6 +225,39 @@ public sealed class UsageLedger
     }
 
     /// <summary>
+    /// 到 last 為止的 days 天（本地時間）各自的用量，以及這段期間各模型的合計。
+    /// 去重、備援模型、價目表都與 Summarize 一樣；沒有時間的紀錄說不出是哪一天，不算；價目表裡沒有的模型花費是「不知道」，不當成 0。
+    /// </summary>
+    public UsageTrend Trend(DateOnly last, int days, TimeZoneInfo? zone = null)
+    {
+        zone ??= TimeZoneInfo.Local;
+        var first = last.AddDays(1 - days);
+        var perDay = new (TokenCount Tokens, decimal Cost, bool Known)[days];
+        for (int i = 0; i < days; i++) perDay[i] = (default, 0m, true);
+        var models = new Dictionary<string, (TokenCount Tokens, decimal Cost, bool Known)>();
+        foreach (var e in _entries.Values)
+        {
+            if (DayOf(e.Time, zone) is not { } day || day < first || day > last) continue;
+            int index = day.DayNumber - first.DayNumber;
+            var parts = new List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> { (e.Model, e.Input, e.Output, e.Write5m, e.Write1h, e.Read) };
+            parts.AddRange(e.Extra);
+            foreach (var p in parts)
+            {
+                var tokens = new TokenCount(p.Input, p.Output, p.Write5m + p.Write1h, p.Read);
+                var cost = AgentPrices.Cost(p.Model, p.Input, p.Output, p.Write5m, p.Write1h, p.Read, e.Speed, e.Geo);
+                var d = perDay[index];
+                perDay[index] = (d.Tokens + tokens, d.Cost + (cost ?? 0), d.Known && cost != null);
+                var name = AgentPrices.Of(p.Model) != null ? AgentPrices.Canonical(p.Model) : p.Model;
+                var m = models.GetValueOrDefault(name, (default, 0m, true));
+                models[name] = (m.Tokens + tokens, m.Cost + (cost ?? 0), m.Known && cost != null);
+            }
+        }
+        var dayList = perDay.Select((d, i) => new DayUsage(first.AddDays(i), d.Tokens, d.Cost, d.Known)).ToList();
+        var modelList = models.OrderByDescending(m => m.Value.Tokens.Total).Select(m => new ModelUsage(m.Key, m.Value.Tokens, m.Value.Known ? m.Value.Cost : null)).ToList();
+        return new UsageTrend(dayList, modelList, dayList.Aggregate(default(TokenCount), (sum, d) => sum + d.Tokens), dayList.Sum(d => d.Cost), dayList.All(d => d.CostKnown));
+    }
+
+    /// <summary>
     /// 某一天（本地時間）的用量。zone 預設是這台電腦的時區。
     /// 不知道時間的紀錄（沒有 timestamp）確實花了 token，所以照樣算進工作階段的總量（SessionUsage.Tokens／Cost）；
     /// 但說不出是不是今天，就不算進「今天」，也不拿來當工作階段最後使用的時間。Forget 也因此會把只剩這種紀錄的工作階段清掉。
@@ -274,6 +316,14 @@ public sealed class AgentUsage
     private IReadOnlyList<string>? _resolved;
     private DateOnly _forgotOn;
 
+    // 趨勢另外用一本帳：「今天」那本只留兩天、更新頻繁，不能讓它跟著變大或變慢
+    private readonly SemaphoreSlim _trendGate = new(1, 1);
+    private readonly UsageLedger _trendLedger = new();
+    private readonly Dictionary<string, long> _trendRead = new(StringComparer.OrdinalIgnoreCase);
+    private DateOnly _trendForgotOn;
+    private UsageTrend? _trend;
+    private DateTime _trendAt;
+
     /// <param name="claudeFolders">Claude Code 的設定資料夾（裡面有 projects）；null 就用 AgentHooks.ClaudeFolders()（會問一次 WSL）。</param>
     /// <param name="clock">本地時間，測試用。</param>
     public AgentUsage(Func<IReadOnlyList<string>>? claudeFolders = null, Func<DateTime>? clock = null)
@@ -307,7 +357,7 @@ public sealed class AgentUsage
                 foreach (var file in Files(now.Date))
                 {
                     cancel.ThrowIfCancellationRequested();
-                    ReadNew(file, cancel);
+                    ReadNew(file, _ledger, _read, cancel);
                 }
                 return _ledger.Summarize(today);
             }, cancel);
@@ -315,12 +365,39 @@ public sealed class AgentUsage
         finally { _gate.Release(); }
     }
 
+    /// <summary>
+    /// 最近 days 天的趨勢。只讀這段期間內有改過的檔案、每個檔案只讀新增的部分；一分鐘內再問直接給上次的結果。
+    /// 第一次可能要讀很久（紀錄有幾百 MB），全部在背景執行緒。
+    /// </summary>
+    public async Task<UsageTrend> TrendAsync(int days = 14, CancellationToken cancel = default)
+    {
+        await _trendGate.WaitAsync(cancel);
+        try
+        {
+            var now = _clock();
+            if (_trend != null && _trend.Days.Count == days && now >= _trendAt && now - _trendAt < TimeSpan.FromSeconds(60)) return _trend;
+            return _trend = await Task.Run(() =>
+            {
+                var today = DateOnly.FromDateTime(now);
+                if (_trendForgotOn != today) { _trendLedger.Forget(now.ToUniversalTime().AddDays(-days - 2)); _trendForgotOn = today; }
+                foreach (var file in Files(now.Date.AddDays(1 - days), onlyRecent: true))
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    ReadNew(file, _trendLedger, _trendRead, cancel);
+                }
+                _trendAt = now;
+                return _trendLedger.Trend(today, days);
+            }, cancel);
+        }
+        finally { _trendGate.Release(); }
+    }
+
     /// <summary>某個工作階段的小計（只算今天有用到的工作階段；沒有就是 null）。</summary>
     public async Task<SessionUsage?> SessionAsync(string sessionId, CancellationToken cancel = default) =>
         (await TodayAsync(cancel)).Sessions.FirstOrDefault(s => s.SessionId == sessionId);
 
     /// <summary>今天（since 之後）改過的紀錄檔，以及 hook 告訴我們的那幾個。子代理的紀錄在 &lt;工作階段&gt;/subagents/ 底下，一起算。</summary>
-    private List<string> Files(DateTime since)
+    private List<string> Files(DateTime since, bool onlyRecent = false)
     {
         var files = new List<string>();
         foreach (var folder in Folders())
@@ -338,22 +415,22 @@ public sealed class AgentUsage
         List<string> watched;
         lock (_watched) watched = [.. _watched];
         foreach (var w in watched)
-            if (Local(w, Folders()) is { } local && !files.Contains(local, StringComparer.OrdinalIgnoreCase) && File.Exists(local)) files.Add(local);
+            if (Local(w, Folders()) is { } local && !files.Contains(local, StringComparer.OrdinalIgnoreCase) && File.Exists(local) && (!onlyRecent || File.GetLastWriteTime(local) >= since)) files.Add(local);
         return files;
     }
 
     /// <summary>從上次讀到的地方讀到最後一個換行為止（最後一行可能還在寫）。檔案變小了就從頭讀。</summary>
-    private void ReadNew(string path, CancellationToken cancel)
+    private static void ReadNew(string path, UsageLedger ledger, Dictionary<string, long> read, CancellationToken cancel)
     {
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16);
-            long start = _read.GetValueOrDefault(path);
+            long start = read.GetValueOrDefault(path);
             if (stream.Length < start) start = 0;
             if (stream.Length == start) return;
             stream.Position = start;
             var session = Path.GetFileNameWithoutExtension(path);
-            _read[path] = start + Lines(stream, line => _ledger.Feed(line, session), cancel);
+            read[path] = start + Lines(stream, line => ledger.Feed(line, session), cancel);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write("usage: " + e.Message); }
     }
