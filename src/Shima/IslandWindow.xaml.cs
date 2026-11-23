@@ -97,6 +97,7 @@ public partial class IslandWindow : Window
             Refresh();
             _tick.Start();
             if (shotFolder != null) { await ShootAsync(shotFolder); return; }
+            if (Bench != null) { await BenchAsync(Bench); return; }
             if (asks is { Count: > 0 })
             {
                 await Task.Delay(7000);

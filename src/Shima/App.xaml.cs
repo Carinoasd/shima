@@ -36,7 +36,18 @@ public partial class App : Application
         }
         int shot = Array.IndexOf(e.Args, "--shot");
         string? shotFolder = shot >= 0 && shot + 1 < e.Args.Length ? e.Args[shot + 1] : null;
-        bool smoke = e.Args.Contains("--smoke") || shotFolder != null || e.Args.Contains("--hear-test");
+        // --bench 秒數 [idle|playing|expanded] [結果檔]：量這段時間用了多少 CPU 與配置了多少記憶體（只在示範模式）
+        int bench = Array.IndexOf(e.Args, "--bench");
+        if (bench >= 0 && Demo.On)
+        {
+            IslandWindow.Bench = new(
+                bench + 1 < e.Args.Length && int.TryParse(e.Args[bench + 1], out int seconds) ? Math.Clamp(seconds, 3, 600) : 20,
+                bench + 2 < e.Args.Length ? e.Args[bench + 2] : "playing",
+                bench + 3 < e.Args.Length ? e.Args[bench + 3] : null);
+            // 前景剛好是全螢幕的程式時島會藏起來，那樣量到的不是平常的樣子
+            AppSettings.Current.HideInFullscreen = false;
+        }
+        bool smoke = e.Args.Contains("--smoke") || shotFolder != null || e.Args.Contains("--hear-test") || IslandWindow.Bench != null;
 
         // 示範模式不佔「只能開一份」的名額：資料各自獨立，可以同時開好幾份
         _single = new Mutex(true, Demo.On ? "Shima.Demo." + Environment.ProcessId : smoke ? "Shima.Smoke" : "Shima.Carinoasd", out bool first);
