@@ -29,18 +29,26 @@ public partial class IslandWindow
             if (_track is { } playing) File.Move(LyricCard.Save(MakeCard(playing), folder, "card"), Path.Combine(folder, "7-card.png"), true);
             await Zoom(folder, "0-mascot", Buddy, 12);
 
-            foreach (var (tab, name) in new[] { (Tab.Music, "2-music"), (Tab.Tools, "3-tools"), (Tab.Ai, "4-ai"), (Tab.Settings, "5-settings") })
+            foreach (var (tab, name) in new[] { (Tab.Music, "2-music"), (Tab.Tools, "3-tools"), (Tab.Ai, "4-ai"), (Tab.Settings, "5-settings"), (Tab.Library, "8-library") })
             {
                 _expanded = true;
-                (tab switch { Tab.Tools => TabTools, Tab.Ai => TabAi, Tab.Settings => TabSettings, _ => TabMusic }).IsChecked = true;
+                (tab switch { Tab.Tools => TabTools, Tab.Ai => TabAi, Tab.Settings => TabSettings, Tab.Library => TabLibrary, _ => TabMusic }).IsChecked = true;
                 _tab = tab;
                 if (tab == Tab.Ai) RefreshAi();
                 if (tab == Tab.Settings) { RefreshSettings(); DiscordBox.Text = ""; }   // 截圖不帶個人的 ID
                 if (tab == Tab.Tools) RefreshTools();
+                if (tab == Tab.Library) RefreshLibrary();
                 Snap();
                 UpdateTexts();
                 await Save(folder, name);
             }
+
+            WelcomeCard(); Snap(); await Save(folder, "a-welcome");
+            WelcomeHost.Children.Clear(); WelcomeHost.Visibility = Visibility.Collapsed;
+            _libraryShowsFavorites = true; RefreshLibrary(); Snap(); await Save(folder, "8-favorites");
+            TabMusic.IsChecked = true; _tab = Tab.Music;
+            Queue_Click(this, new RoutedEventArgs()); Snap(); await Task.Delay(1500); await Save(folder, "9-queue");
+            Queue_Click(this, new RoutedEventArgs());
 
             AskTitle.Text = "Claude Code · shima";
             AskTool.Text = "Bash";

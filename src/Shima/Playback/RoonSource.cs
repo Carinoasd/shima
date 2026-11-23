@@ -94,6 +94,7 @@ public sealed class RoonSource : IMediaSource
             lock (_lock)
             {
                 had = _zoneId.Length > 0; _ws = null; _zones.Clear(); Show(null);
+                _registered = false;
                 hadQueue = _queue.Count > 0;
                 _queue.Clear(); _queueZone = _queueRequest = ""; _queueKey = -1;
                 _browseAvailable = false;
@@ -148,9 +149,13 @@ public sealed class RoonSource : IMediaSource
                 _coreId = msg.Body?["core_id"]?.ToString() ?? "";
                 bool known = AppSettings.Current.RoonTokens.TryGetValue(_coreId, out var token);
                 var reg = Registration(AppSettings.Current.RoonExtensionId,
-                    typeof(RoonSource).Assembly.GetName().Version?.ToString(3) ?? "0.1.0", known ? token : null);
+                    typeof(RoonSource).Assembly.GetName().Version?.ToString(3) ?? "0.1.0", known ? token : null, AppSettings.Current.RoonSearch);
                 if (!known) Log.Write("roon: 等待在 Roon「設定 → 擴充功能」啟用 Shima");
                 await RequestAsync("com.roonlabs.registry:1/register", "register", reg);
+                break;
+
+            case "register" when msg.Name != "Registered":
+                Log.Write($"roon: 註冊沒有成功（{msg.Verb} {msg.Name}）");
                 break;
 
             case "register" when msg.Name == "Registered":
@@ -162,9 +167,10 @@ public sealed class RoonSource : IMediaSource
                     AppSettings.Current.Save();
                 }
                 Log.Write("roon: 已連上 " + msg.Body?["display_name"]);
+                _registered = true;
                 bool browse = Provides(msg.Body, RoonBrowse.Service);
                 lock (_lock) _browseAvailable = browse;
-                if (!browse) Log.Write("roon: Core 沒有提供瀏覽服務，搜尋不能用");
+                if (!browse && AppSettings.Current.RoonSearch) Log.Write("roon: Core 沒有提供瀏覽服務，搜尋不能用");
                 await RequestAsync(Transport + "/subscribe_zones", "zones", new JsonObject { ["subscription_key"] = 0 });
                 break;
 
@@ -197,7 +203,9 @@ public sealed class RoonSource : IMediaSource
 
             case "queue":
                 bool queueChanged;
-                lock (_lock) queueChanged = msg.RequestId == _queueRequest && RoonQueue.Apply(_queue, msg.Name, msg.Body);
+                int queued;
+                lock (_lock) { queueChanged = msg.RequestId == _queueRequest && RoonQueue.Apply(_queue, msg.Name, msg.Body); queued = _queue.Count; }
+                if (msg.Name == "Subscribed") Log.Write($"roon: 佇列 {queued} 首");
                 if (queueChanged) QueueChanged?.Invoke();
                 break;
         }
@@ -207,7 +215,11 @@ public sealed class RoonSource : IMediaSource
     /// 註冊擴充功能的內容。瀏覽服務放在 optional_services：舊版只要求 transport，
     /// 這樣 Core 不給瀏覽也照樣能連，只是搜尋不能用。
     /// </summary>
-    public static JsonObject Registration(string extensionId, string version, string? token)
+    private volatile bool _registered;
+    /// <summary>Core 接受我們了沒。連得上卻一直是 false，就是在等人到 Roon「設定 → 擴充功能」啟用。</summary>
+    public bool Registered => _registered;
+
+    public static JsonObject Registration(string extensionId, string version, string? token, bool browse = true)
     {
         var reg = new JsonObject
         {
@@ -218,7 +230,8 @@ public sealed class RoonSource : IMediaSource
             ["email"] = "",
             ["website"] = "",
             ["required_services"] = new JsonArray(Transport),
-            ["optional_services"] = new JsonArray(RoonBrowse.Service),
+            // 多要一項服務，Roon 會把已經配對過的擴充功能當成新的、等人重新啟用；所以搜尋要使用者自己打開才要
+            ["optional_services"] = browse ? new JsonArray(RoonBrowse.Service) : new JsonArray(),
             ["provided_services"] = new JsonArray("com.roonlabs.ping:1"),
         };
         if (token != null) reg["token"] = token;

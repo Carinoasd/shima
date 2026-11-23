@@ -123,7 +123,18 @@ function singing() {
   if (i < 0 || !lines[i][1]) return null;
   const next = i + 1 < lines.length ? lines[i + 1][0] : lines[i][0] + 6;
   const length = Math.max(0.6, Math.min(next - lines[i][0], 1 + lines[i][1].length * 0.45));
-  return { index: i, text: lines[i][1], second: lines[i][2], progress: Math.min(1, (t - lines[i][0]) / length) };
+  // 有逐字時間（[開始秒, 長度秒, 字]）就照它算唱到第幾個字，沒有才用整句等速估
+  const words = lines[i][3];
+  let progress = Math.min(1, (t - lines[i][0]) / length);
+  if (words && words.length) {
+    let done = 0, total = 0;
+    for (const [start, span, text] of words) {
+      total += text.length;
+      done += text.length * Math.max(0, Math.min(1, span > 0 ? (t - start) / span : t >= start ? 1 : 0));
+    }
+    if (total) progress = done / total;
+  }
+  return { index: i, text: lines[i][1], second: lines[i][2], progress };
 }
 
 /** 縮字到放得下；回傳畫出來的寬度。 */
@@ -562,6 +573,8 @@ function render() {
   }
 }
 
-setInterval(poll, 90);
-setInterval(render, 100);
+// 有歌在播、或長條上有事情在插播時才跑快；其餘時候慢慢來，省 Shima 與 Stream Dock 的力氣
+const busy = () => !!(now && now.playing) || !!notice.kind || performance.now() - Math.max(popAt, noticeSince, ...Object.values(touched), 0) < 1500;
+(async function pollLoop() { await poll(); setTimeout(pollLoop, busy() ? 90 : 450); })();
+(function renderLoop() { render(); setTimeout(renderLoop, busy() ? 100 : 500); })();
 </script>

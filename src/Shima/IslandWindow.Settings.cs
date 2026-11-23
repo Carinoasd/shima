@@ -83,6 +83,7 @@ public partial class IslandWindow
     {
         var s = AppSettings.Current;
         _loadingSettings = true;
+        BuildMoreSettings();
         StartupSwitch.IsChecked = Startup.Enabled;
         DeckSwitch.Visibility = Agents.StreamDock.Available ? Visibility.Visible : Visibility.Collapsed;
         DeckSwitch.IsChecked = Agents.StreamDock.Installed;

@@ -25,7 +25,7 @@ public partial class IslandWindow : Window
 {
     private const double PillHeight = 36, IdleWidth = 96, MinPill = 170, MaxPill = 500, BaseWindowHeight = 312;
 
-    private enum Tab { Music, Chat, Tools, Ai, Settings, Ask }
+    private enum Tab { Music, Chat, Tools, Library, Ai, Settings, Ask }
     private Tab _tab = Tab.Music;
 
     private readonly bool _smoke;
@@ -64,12 +64,25 @@ public partial class IslandWindow : Window
             // 不出現在 Alt+Tab
             SetWindowLong(_hwnd, GWL_EXSTYLE, GetWindowLong(_hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
         };
-        Deactivated += (_, _) => { if (_expanded && _tab is Tab.Chat or Tab.Tools or Tab.Ai or Tab.Settings && !Host.IsMouseOver) SetExpanded(false); };
+        Deactivated += (_, _) => { if (_expanded && _tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && !Host.IsMouseOver) SetExpanded(false); };
         InitChat();
         InitTools();
         InitSettings();
         InitStatus();
         InitAgents();
+        InitListening();
+        if (!_smoke)
+        {
+            InitAlarms();
+            Loaded += (_, _) =>
+            {
+                if (AppSettings.Current.Opacity < 0.95 || AppSettings.Current.AccentMode != "cover") ApplyTheme();
+                ApplyDesktopLyrics();
+                ApplyWakeWord();
+                Welcome();
+                RemindRoon();
+            };
+        }
         Loaded += async (_, _) =>
         {
             _media.Changed += () => Dispatcher.BeginInvoke(Refresh);
@@ -99,6 +112,7 @@ public partial class IslandWindow : Window
             }
         };
 
+        Buddy.ImagePath = AppSettings.Current.CharacterImage;
         Buddy.Kind = AppSettings.Current.Character;
         Buddy.Level = () => _meter.Running ? _meter.Level : 0.35f;
         Meter.Level = () => _micOpen ? Agents.Ears.Level : _meter.Running ? _meter.Level : 0.35f;
@@ -144,7 +158,7 @@ public partial class IslandWindow : Window
             _close.Stop();
             if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _tab == Tab.Ask) return;
             // 正在打字的分頁不因為滑鼠離開就收起來，點到別的視窗才收
-            if (_tab is Tab.Chat or Tab.Tools or Tab.Ai or Tab.Settings && IsActive) return;
+            if (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && IsActive) return;
             SetExpanded(false);
         };
     }
@@ -181,8 +195,9 @@ public partial class IslandWindow : Window
         if (!ReferenceEquals(track?.Cover, _coverShown))
         {
             _coverShown = track?.Cover;
-            var accent = Accent.From(_coverShown);
+            var accent = ThemeAccent(_coverShown);
             PillLine.Light = LyricsList.Light = Meter.Color = Spectrum.Color = accent;
+            if (_desk != null) _desk.Light = accent;
             BarFill.Background = new SolidColorBrush(accent);
             BackdropImage.Background = Accent.Blurred(_coverShown) is { } blur ? new ImageBrush(blur) { Stretch = Stretch.UniformToFill } : null;
         }
@@ -190,7 +205,7 @@ public partial class IslandWindow : Window
         var key = track?.Key ?? "";
         if (key != _trackKey)
         {
-            if (_trackKey.Length > 0 && has) Buddy.Cheer();
+            if (_trackKey.Length > 0 && has) { Buddy.Cheer(); AnnounceTrack(track!); }
             _trackKey = key;
             _lyricShift = has && AppSettings.Current.LyricsShift.TryGetValue(LyricsFinder.IdOf(track!), out int ms) ? TimeSpan.FromMilliseconds(ms) : TimeSpan.Zero;
             _sheet = null;
@@ -266,9 +281,19 @@ public partial class IslandWindow : Window
         if (dials != _bridge.Dials) _bridge.Dials = dials;
     }
 
+    private Lyrics.LyricSheet? _deskSheet;
+    private IReadOnlyList<string>? _deskSecond;
+    private string _deskTitle = "";
+
     private void UpdateTexts()
     {
         UpdateNotice();
+        ObserveListening();
+        _musicPlaying = _track?.Playing == true;
+        // 佇列是 Roon 才有的東西
+        bool roon = _track != null && MediaHub.IsRoon(_track.AppId);
+        QueueButton.Visibility = roon ? Visibility.Visible : Visibility.Collapsed;
+        if (!roon && _queueOpen) { _queueOpen = false; Morph(); }
         var track = _track;
         // 語音助手正在聽或回答：優先顯示，音量條換成麥克風的音量
         if (_voice != null && _voiceLine.Length > 0)
@@ -283,6 +308,7 @@ public partial class IslandWindow : Window
         {
             if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
             Spectrum.Active = false;
+            if (_desk != null && _deskTitle.Length > 0) { _deskTitle = ""; _deskSheet = null; FeedDesktopLyrics(); }
             PillLine.Say(TimerLine() ?? DateTime.Now.ToString("HH:mm"));
             double idle = Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
             if (Math.Abs(idle - _pillWidth) > 0.5) { _pillWidth = idle; Morph(); }
@@ -306,7 +332,7 @@ public partial class IslandWindow : Window
                 var start = sheet.Lines[i].Time;
                 var length = Singing.Length(text, start, i + 1 < sheet.Lines.Count ? sheet.Lines[i + 1].Time : null);
                 // 暫停時膠囊回到歌名，繼續播才換回歌詞
-                if (track.Playing) PillLine.Sing(text, start, length); else PillLine.Say(name);
+                if (track.Playing) PillLine.Sing(text, start, length, sheet.Lines[i].Words); else PillLine.Say(name);
             }
             else PillLine.Say(name);
         }
@@ -320,6 +346,11 @@ public partial class IslandWindow : Window
             _ => null,
         };
         LyricsList.Show(shown, second);
+        if (_desk != null && (!ReferenceEquals(_deskSheet, shown) || !ReferenceEquals(_deskSecond, second) || _deskTitle != track.Title))
+        {
+            _deskSheet = shown; _deskSecond = second; _deskTitle = track.Title;
+            FeedDesktopLyrics();
+        }
         var deck = _bridge.Deck;
         if (!ReferenceEquals(deck.Track, track) || !ReferenceEquals(deck.Sheet, shown) || !ReferenceEquals(deck.Second, second) || deck.Shift != LyricLead + _lyricShift)
             _bridge.Deck = new Agents.DeckState(track, shown, second, LyricLead + _lyricShift);
@@ -369,7 +400,7 @@ public partial class IslandWindow : Window
     private void Tab_Checked(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded) return;
-        ShowTab(sender == TabChat ? Tab.Chat : sender == TabTools ? Tab.Tools : sender == TabAi ? Tab.Ai : sender == TabSettings ? Tab.Settings : Tab.Music);
+        ShowTab(sender == TabChat ? Tab.Chat : sender == TabTools ? Tab.Tools : sender == TabLibrary ? Tab.Library : sender == TabAi ? Tab.Ai : sender == TabSettings ? Tab.Settings : Tab.Music);
     }
 
     private void ShowTab(Tab tab)
@@ -378,6 +409,7 @@ public partial class IslandWindow : Window
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
         if (tab == Tab.Ai) RefreshAi();
         if (tab == Tab.Settings) RefreshSettings();
+        if (tab == Tab.Library) RefreshLibrary();
         Morph();
     }
 
@@ -388,10 +420,12 @@ public partial class IslandWindow : Window
         ChatPage.Visibility = _tab == Tab.Chat ? Visibility.Visible : Visibility.Collapsed;
         AiPage.Visibility = _tab == Tab.Ai ? Visibility.Visible : Visibility.Collapsed;
         ToolsPage.Visibility = _tab == Tab.Tools ? Visibility.Visible : Visibility.Collapsed;
+        LibraryPage.Visibility = _tab == Tab.Library ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = _tab == Tab.Settings ? Visibility.Visible : Visibility.Collapsed;
         AskPage.Visibility = _tab == Tab.Ask ? Visibility.Visible : Visibility.Collapsed;
         Tabs.Visibility = _tab == Tab.Ask ? Visibility.Collapsed : Visibility.Visible;
-        LyricsBox.Visibility = HasLyrics ? Visibility.Visible : Visibility.Collapsed;
+        LyricsBox.Visibility = HasLyrics && !_queueOpen ? Visibility.Visible : Visibility.Collapsed;
+        QueueHost.Visibility = _queueOpen ? Visibility.Visible : Visibility.Collapsed;
 
         double width = _tab == Tab.Chat ? 528 : 440;
         Panel.Width = width - 32;
@@ -410,7 +444,7 @@ public partial class IslandWindow : Window
         double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
         if (needed > Height) Height = needed;
         // 要打字的分頁才讓視窗拿鍵盤焦點
-        SetActivatable(_expanded && _tab is Tab.Chat or Tab.Tools or Tab.Ai or Tab.Settings);
+        SetActivatable(_expanded && (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && _queueOpen));
 
         if (_rendering || (_w.Settled && _h.Settled)) return;
         _rendering = true;

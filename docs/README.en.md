@@ -36,6 +36,14 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
 - **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
 - **Message notifications**: Discord, LINE, Telegram and other messengers flash on the island (turn it on in Settings)
+- **Roon queue**: the list button on the music tab shows what plays next; click a track to start from it, toggle shuffle and loop. Search is off by default (`RoonSearch`): turning it on makes Roon ask you to enable Shima again under Settings → Extensions
+- **Word-by-word lyrics**: when a lyric file carries per-word timing (enhanced LRC), the sweep follows each word; the online sources do not provide it today
+- **Desktop lyrics**: a line of lyrics floating on the desktop, visible over borderless fullscreen apps (right-click → Desktop lyrics); locked and click-through by default
+- **Listening history**: kept only on this PC (`history.jsonl`), with weekly / monthly / yearly time, plays and top tracks on the listening tab; optional ListenBrainz scrobbling
+- **Saved lines, explain a line**: save the line being sung, search it later, turn it into a card; or ask the AI to explain its reading, words and grammar
+- **Claude Code sessions**: one row per session with its state and plan progress, today's token use and estimated cost, and "always allow" for commands you approve often
+- **More assistant skills**: weather, reminders, opening sites and common apps, arithmetic, reading clipboard text; an optional wake word
+- **Gestures and looks**: scroll on the pill for volume (Shift for previous / next), middle-click to pause; background opacity, sweep colour, your own GIF or PNG sprite as the character
 - **Lyric card**: the line being sung, set against the cover, as an image on the clipboard and in `Pictures\Shima` (right-click → Copy lyric card)
 - **Updates**: checks GitHub for a new release after startup and once a day; a tray menu item downloads it and swaps it in (`CheckUpdates`, on by default; only the latest version number of this project is requested from api.github.com)
 - **Stream Dock**: puts the island on a Stream Dock touch strip or keys: cover, the line being sung, little Claude, progress; press to pause or skip (turn it on in Settings)

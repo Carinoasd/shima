@@ -28,18 +28,26 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 - **歌詞第二行**：日文歌下方多一行中文翻譯或羅馬拼音（右鍵 → 歌詞第二行）
 - **小角色**：住在膠囊裡，跟著實際的聲音跳（右鍵 → 角色）。預設是向 Claude Code 吉祥物致敬的像素小 Claude，像 GIF 一樣一格一格動
 - **跟著聲音動**：音量條與展開時背景的頻譜是電腦實際播出的聲音（低音在左、高音在右），角色會跟著低音的拍子跳；掃光與進度條的顏色取自封面
+- **Roon 佇列**：音樂分頁的清單按鈕顯示接下來要播的歌，點一首就從那首開始；可以切換隨機與循環。搜尋要到設定頁打開「Roon 搜尋」，並到 Roon「設定 → 擴充功能」重新啟用 Shima 一次
+- **逐字歌詞**：歌詞檔帶有逐字時間（加強版 LRC：`[00:12.00]<00:12.00>字<00:12.40>字`）時，光會照每個字的時間走；線上來源目前拿不到逐字資料，仍是整句等速
+- **桌面歌詞**：一條浮在桌面上的歌詞，全螢幕時也看得到（右鍵 → 桌面歌詞）。預設鎖定、滑鼠穿透；取消鎖定後可以拖、滾輪調字的大小。獨佔全螢幕的遊戲蓋不上去
+- **聆聽紀錄**：記下聽了什麼（只存在這台電腦的 `history.jsonl`），聆聽分頁有本週／本月／今年的時間、次數、最常聽的歌與藝人；可以回報到 ListenBrainz
+- **收藏歌詞**：按愛心收藏正在唱的那句，之後在聆聽分頁搜尋、做成卡片
+- **解釋歌詞**：右鍵 → 解釋這句歌詞，請 AI 說明讀音、單字與文法
 - **歌詞卡片**：把正在唱的那句配上封面做成一張圖，放進剪貼簿並存到「圖片\Shima」（右鍵 → 複製歌詞卡片）
 - **Discord 狀態**：在個人狀態顯示正在聽的歌、封面與進度
 - **工具**：番茄鐘、檔案暫存架（把檔案拖到島上暫放，再拖出去）、待辦清單、月曆、喝水提醒
 - **系統狀態**：音量、亮度、電量、網路、播放裝置（接上或拔掉耳機）有變化時在島上顯示
 - **11 種語言**：繁體中文、简体中文、English、日本語、한국어、Español、Français、Deutsch、Português、Italiano、Русский；預設跟著 Windows，設定頁可以改
 - **聊天**：把 Claude、Gemini、ChatGPT 的網頁版放進島裡，登入一次就好
-- **Claude Code**：權限請求顯示在島上，按「允許／拒絕／回終端機」；顯示它的待辦進度（3/5 · 正在做的事），做完會通知
-- **問 AI**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來；可以幫忙切歌；按 Ctrl+Alt+V 隨時問一句。可以接 Claude、OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter、本機的 Ollama，或任何 OpenAI 相容的服務
+- **Claude Code**：權限請求顯示在島上，按「允許／拒絕／回終端機」，常用的指令可以「以後都允許」；同時開好幾個工作階段時每個各一列（狀態、待辦進度），並顯示今天用了多少 token 與估計花費
+- **問 AI**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來；可以幫忙切歌、查天氣、設提醒、開網站或常用程式、算數、讀剪貼簿的文字；按 Ctrl+Alt+V 隨時問一句，也可以在設定打開「說 Shima 就開始聽」。可以接 Claude、OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter、本機的 Ollama，或任何 OpenAI 相容的服務
 - **訊息通知**：Discord、LINE、Telegram 等通訊軟體的通知在島上閃一下（設定頁開啟）
 - **Stream Dock**：把島搬到 Stream Dock 的觸控長條或按鍵上：封面、唱到哪一句、小 Claude、進度；按一下暫停或換歌（設定頁開啟）
+- **膠囊上的手勢**：滾輪調音量，按住 Shift 滾是上一首／下一首，滑鼠中鍵播放／暫停
+- **外觀**：底色的透明度、掃光的顏色、用自己的 GIF 或 PNG 精靈圖當角色（設定頁）
 - **可以拖**：按住膠囊拖到任何位置、任何螢幕，會記住；右鍵可以回到正中間
-- 前景是全螢幕程式（遊戲、影片）時自動隱藏
+- 前景是全螢幕程式（遊戲、影片）時自動隱藏，換歌時從螢幕上緣滑出一張小卡片
 
 ## 需求
 
@@ -129,6 +137,14 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `Language` | 空 | 介面語言：`zh-TW`、`zh-CN`、`en`、`ja`、`ko`、`es`、`fr`、`de`、`pt`、`it`、`ru`；留空跟著 Windows |
 | `Water` / `WaterMinutes` | `false` / `60` | 喝水提醒 |
 | `SystemStatus` | `true` | 顯示音量、電量、網路等變化 |
+| `RoonSearch` | `false` | Roon 的搜尋；打開後要到 Roon 重新啟用 Shima 一次 |
+| `Opacity` / `AccentMode` | `1` / `cover` | 底色的不透明度（0.55–1）；掃光顏色 `cover`、`white`、`clay` |
+| `CharacterImage` | 空 | `Character` 是 `custom` 時用的 GIF 或 PNG |
+| `DesktopLyrics` / `DesktopLyricsLocked` | `false` / `true` | 桌面歌詞與是否鎖定 |
+| `FullscreenToast` | `true` | 全螢幕時的換歌提示 |
+| `History` | `true` | 聆聽紀錄 |
+| `ListenBrainzToken` | 空 | 填了就把聽過的歌回報到 ListenBrainz |
+| `WakeWord` | `false` | 說「Shima」就開始聽；麥克風會一直開著，放音樂時可能誤觸 |
 | `CheckUpdates` | `true` | 啟動後與每天一次到 GitHub 看有沒有新版；有的話在島上提示，系統匣選單多一項「更新到 x」，按下會下載並換成新版 |
 | `Character` | `claude` | `claude`、`eyes`、`cat`、`ghost`、`none` |
 | `AudioReactive` | `true` | 擷取電腦播出的聲音讓角色與音量條跟著跳 |
@@ -148,7 +164,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 自己的歌詞放在 `%APPDATA%\Shima\lyrics`，檔名用 `歌名.lrc`、`藝人 - 歌名.lrc` 或 `01 歌名.lrc`。
 
-檢查新版時只會向 api.github.com 詢問這個專案最新的版本號，不帶任何資料。查歌詞時，歌名與藝人會送到 lrclib.net、music.163.com、y.qq.com 與 kugou.com（看開了哪些來源）；開啟 Discord 封面時，歌名、藝人、專輯會送到 itunes.apple.com。
+問天氣時地名會送到 open-meteo.com；填了 ListenBrainz 的 token 才會把歌名與藝人送到 listenbrainz.org。檢查新版時只會向 api.github.com 詢問這個專案最新的版本號，不帶任何資料。查歌詞時，歌名與藝人會送到 lrclib.net、music.163.com、y.qq.com 與 kugou.com（看開了哪些來源）；開啟 Discord 封面時，歌名、藝人、專輯會送到 itunes.apple.com。
 
 Discord 狀態要先到 [Developer Portal](https://discord.com/developers/applications) 建立一個應用程式（名稱就是「正在聽 ___」顯示的字），把 Application ID 填進 `DiscordClientId`。
 

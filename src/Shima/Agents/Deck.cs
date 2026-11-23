@@ -31,7 +31,8 @@ public sealed record DeckState(Track? Track, LyricSheet? Sheet, IReadOnlyList<st
         var lines = new JsonArray();
         if (Sheet is { Synced: true } sheet)
             for (int i = 0; i < sheet.Lines.Count; i++)
-                lines.Add(new JsonArray(sheet.Lines[i].Time.TotalSeconds, sheet.Lines[i].Text, Second != null && i < Second.Count ? Second[i] : ""));
+                lines.Add(new JsonArray(sheet.Lines[i].Time.TotalSeconds, sheet.Lines[i].Text, Second != null && i < Second.Count ? Second[i] : "",
+                    sheet.Lines[i].Words is { } words ? WordTiming.ToJson(words) : new JsonArray()));
         json["lines"] = lines;
         return json;
     }

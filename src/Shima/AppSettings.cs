@@ -105,6 +105,30 @@ public sealed class AppSettings
 
     /// <summary>膠囊裡的小角色：claude、eyes、cat、ghost 或 none。</summary>
     public string Character { get; set; } = "claude";
+    /// <summary>`Character` 是 `custom` 時用的圖片（GIF 或水平排列的 PNG 精靈圖）。</summary>
+    public string CharacterImage { get; set; } = "";
+    /// <summary>島的底色有多不透明（0.55–1）。</summary>
+    public double Opacity { get; set; } = 1;
+    /// <summary>掃光與進度條的顏色：`cover`（取自封面）、`white`、`clay`。</summary>
+    public string AccentMode { get; set; } = "cover";
+    /// <summary>桌面歌詞：一條浮在桌面上的歌詞，全螢幕時也看得到。</summary>
+    public bool DesktopLyrics { get; set; }
+    public bool DesktopLyricsLocked { get; set; } = true;
+    public double? DesktopLyricsX { get; set; }
+    public double? DesktopLyricsY { get; set; }
+    public double DesktopLyricsSize { get; set; } = 30;
+    /// <summary>島因為全螢幕藏起來時，換歌從螢幕邊緣滑出一張小卡片。</summary>
+    public bool FullscreenToast { get; set; } = true;
+    /// <summary>Roon 的搜尋。打開後 Roon 會要求到「設定 → 擴充功能」重新啟用 Shima 一次。</summary>
+    public bool RoonSearch { get; set; }
+    /// <summary>記下聽了什麼（存在這台電腦的 history.jsonl）。</summary>
+    public bool History { get; set; } = true;
+    /// <summary>ListenBrainz 的 user token；留空就不回報。</summary>
+    public string ListenBrainzToken { get; set; } = "";
+    /// <summary>喚醒詞：說「Shima」就開始聽。預設關閉（麥克風會一直開著）。</summary>
+    public bool WakeWord { get; set; }
+    /// <summary>第一次啟動的引導看過了沒。</summary>
+    public bool Welcomed { get; set; }
     /// <summary>擷取電腦播出的聲音，讓角色和音量條跟著跳。</summary>
     public bool AudioReactive { get; set; } = true;
 

@@ -62,6 +62,7 @@ public partial class IslandWindow
                 case "zone": SwitchZone(); break;
             }
         });
+        InitSessions();
         InitExamples();
         Loaded += (_, _) =>
         {
@@ -98,6 +99,8 @@ public partial class IslandWindow
         AskTitle.Text = ask.Project.Length > 0 ? $"Claude Code · {ask.Project}" : "Claude Code";
         AskTool.Text = ask.Tool;
         AskDetails.Text = ask.Details;
+        AskAlways.Visibility = ask.RememberText != null ? Visibility.Visible : Visibility.Collapsed;
+        AskAlways.Content = ask.RememberText != null ? L.F("以後都允許 {0}", ask.RememberText) : "";
         _tab = Tab.Ask;
         _expanded = true;
         Buddy.Cheer();
@@ -117,7 +120,8 @@ public partial class IslandWindow
 
     private void RefreshAi()
     {
-        AgentButton.Content = AgentHooks.Installed ? L.T("中斷") : L.T("連接");
+        AgentButton.Content = !AgentHooks.Installed ? L.T("連接") : AgentHooks.Outdated ? L.T("更新連接") : L.T("中斷");
+        RefreshUsage();
         PlanText.Text = _planLine;
 
         var s = AppSettings.Current;
@@ -204,10 +208,10 @@ public partial class IslandWindow
         AgentButton.IsEnabled = false;
         try
         {
-            bool installed = await Task.Run(() => AgentHooks.Installed);
+            bool installed = await Task.Run(() => AgentHooks.Installed && !AgentHooks.Outdated);
             var problem = await Task.Run(() => installed ? AgentHooks.Remove() : AgentHooks.Install());
             if (problem != null) Say(problem);
-            AgentButton.Content = await Task.Run(() => AgentHooks.Installed) ? L.T("中斷") : L.T("連接");
+            AgentButton.Content = !await Task.Run(() => AgentHooks.Installed) ? L.T("連接") : await Task.Run(() => AgentHooks.Outdated) ? L.T("更新連接") : L.T("中斷");
         }
         finally { AgentButton.IsEnabled = true; }
     }
@@ -256,14 +260,16 @@ public partial class IslandWindow
         if (!AskBox.IsEnabled) return;
         if (_asker == null)
         {
-            var brain = Brain.Create((tool, arguments) => Dispatcher.Invoke(() => Tool(tool, arguments)), Loc.Speech, out var problem);
+            var brain = Brain.Create((tool, arguments) => Skills.Run(tool, arguments) ?? Dispatcher.Invoke(() => Tool(tool, arguments)), Loc.Speech, out var problem);
             if (brain == null) { Say(problem); return; }
             _asker = new VoiceAssistant(brain, Loc.Speech);
         }
         AskBox.IsEnabled = false;
         AskBox.Text = question;
         Say("…");
-        var answer = await _asker.AskAsync(question);
+        // 在背景問：工具可能要上網（查天氣），不能卡住畫面
+        var asker = _asker;
+        var answer = await Task.Run(() => asker.AskAsync(question));
         AskBox.Text = "";
         AskBox.IsEnabled = true;
         Say(answer);
@@ -285,10 +291,11 @@ public partial class IslandWindow
         if (_voice != null) { _voice.Stop(); return; }
 
         var language = AppSettings.Current.VoiceLanguage is { Length: > 0 } spoken ? spoken : Loc.Speech;
-        var brain = Brain.Create((tool, arguments) => Dispatcher.Invoke(() => Tool(tool, arguments)), language, out var problem);
+        var brain = Brain.Create((tool, arguments) => Skills.Run(tool, arguments) ?? Dispatcher.Invoke(() => Tool(tool, arguments)), language, out var problem);
         if (brain == null) { Say(problem); if (once) Toast(L.T("先到 AI 分頁設定好 AI 服務"), 4); return; }
 
         _ears ??= new Ears();
+        _wake?.Stop();   // 麥克風讓給語音助手
         var voice = _voice = new VoiceAssistant(brain, language, _ears) { Once = once || !AppSettings.Current.VoiceContinuous };
         _resumeMusic = false;
         // 聽到的話、回答都顯示在膠囊上，島收著也看得到
@@ -308,6 +315,7 @@ public partial class IslandWindow
         voice.Stopped += () => Dispatcher.BeginInvoke(() =>
         {
             if (_voice == voice) _voice = null;
+            ApplyWakeWord();
             _micOpen = false;
             // 最後那句回答在膠囊上多留一下再換回歌詞
             if (_voiceLine.Length > 0) Toast(_voiceLine, 8, cheer: false);

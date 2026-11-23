@@ -17,7 +17,7 @@ public sealed class Mascot : FrameworkElement
 {
     /// <summary>可以選的角色：設定值 → 顯示名稱。</summary>
     public static readonly (string Id, string Name)[] All =
-        [("claude", "Claude"), ("eyes", "眼睛"), ("cat", "貓"), ("ghost", "幽靈"), ("none", "不要角色")];
+        [("claude", "Claude"), ("eyes", "眼睛"), ("cat", "貓"), ("ghost", "幽靈"), ("custom", "自己的圖片"), ("none", "不要角色")];
 
     private static readonly Brush White = Brushes.White, Ink = Brushes.Black;
     private static readonly Brush Fur = Frozen(Color.FromRgb(0x3A, 0x3A, 0x40)), Blush = Frozen(Color.FromArgb(0x90, 0xFF, 0x8F, 0xA8));
