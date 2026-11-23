@@ -238,6 +238,7 @@ public partial class IslandWindow
     private DateTime _usageAt;
     private UsageView? _usageView;
     private bool _usageOpen;
+    private CancellationTokenSource? _trendCts;
 
     private void InitSessions()
     {
@@ -262,6 +263,7 @@ public partial class IslandWindow
             foreach (var session in sessions) if (session.Agent == AgentKind.Claude && session.TranscriptPath.Length > 0) _usage.Watch(session.TranscriptPath);
             if (_tab == Tab.Ai && _expanded) { RefreshUsage(); Morph(); }
         });
+        Closed += (_, _) => _trendCts?.Cancel();
         _bridge.AutoAllowed += (ask, rule) => Dispatcher.BeginInvoke(() => Toast(L.F("已自動允許 {0}", rule.Label), 3, false));
     }
 
@@ -289,7 +291,7 @@ public partial class IslandWindow
 
     private void ShowUsageLine(long tokens, decimal cost, bool known)
     {
-        if (tokens <= 0) { _usageLine!.Visibility = Visibility.Collapsed; _usageView!.Visibility = Visibility.Collapsed; return; }
+        if (!ShowsUsageLine(tokens, _usageOpen, _bridge.Sessions.Any(x => x.Agent == AgentKind.Claude))) { _usageLine!.Visibility = Visibility.Collapsed; _usageView!.Visibility = Visibility.Collapsed; return; }
         string money = cost > 0 ? UsageView.Money(cost, known) + " · " : "";
         _usageLine!.Text = L.F("今天 {0}", money + UsageView.Amount(tokens) + " tokens");
         _usageLine.Visibility = Visibility.Visible;
@@ -297,9 +299,20 @@ public partial class IslandWindow
         if (_tab == Tab.Ai && _expanded) Morph();
     }
 
+    /// <summary>
+    /// 那一行要不要顯示：今天有用量、或圖已經展開、或正有 Claude Code 的工作階段連著。
+    /// 今天還沒用（早上、剛過午夜）時圖只能從這一行打開，不能把它收掉。
+    /// </summary>
+    public static bool ShowsUsageLine(long todayTokens, bool chartOpen, bool claudeConnected) => todayTokens > 0 || chartOpen || claudeConnected;
+
     private void ToggleUsage(bool open)
     {
         _usageOpen = open;
+        if (!open)
+        {
+            _trendCts?.Cancel();   // 還在讀的就別讀了
+            _ = ReleaseTrendLater();
+        }
         _usageView!.Visibility = open && _usageLine!.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
         if (open && !Demo.On) LoadTrend();
         Morph();
@@ -308,12 +321,26 @@ public partial class IslandWindow
     /// <summary>最近 14 天的趨勢：在背景讀（第一次可能要一陣子，先顯示讀取中），讀完換上去。</summary>
     private async void LoadTrend()
     {
+        _trendCts?.Cancel();
+        var cts = _trendCts = new CancellationTokenSource();
         try
         {
-            var trend = await _usage.TrendAsync();
-            if (_usageOpen) { _usageView!.Trend = trend; Morph(); }
+            var trend = await _usage.TrendAsync(cancel: cts.Token);
+            if (_usageOpen && !cts.IsCancellationRequested) { _usageView!.Trend = trend; Morph(); }
         }
-        catch (Exception e) { Log.Write("usage: " + e.Message); }
+        catch (OperationCanceledException) { }
+        catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
+    }
+
+    /// <summary>圖表收起超過五分鐘還沒再打開，就把趨勢帳釋放掉（幾百則紀錄的記憶體）。</summary>
+    private async Task ReleaseTrendLater()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5));
+            if (!_usageOpen) await _usage.ReleaseTrendAsync();
+        }
+        catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
     }
 
     private void AskAlways_Click(object sender, RoutedEventArgs e) => Decide(PermissionRequest.Always);

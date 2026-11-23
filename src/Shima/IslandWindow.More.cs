@@ -180,7 +180,7 @@ public partial class IslandWindow
         DockPanel.SetDock(button, Dock.Right);
         var row = new DockPanel { Height = 32, Margin = new Thickness(2, 0, 0, 2) };
         row.Children.Add(button);
-        row.Children.Add(new TextBlock { Text = L.T("自己的角色"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = L.T("自己的角色"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0) });
         return row;
     }
 

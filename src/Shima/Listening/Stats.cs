@@ -68,8 +68,12 @@ public static class Stats
     }
 
     /// <summary>還能不能再往前翻一段：上一段的最後一天不能比最早的紀錄還早。沒有紀錄或是「全部」就不行。</summary>
-    public static bool CanGoBack(StatsPeriod period, DateTime now, DayOfWeek firstDay, DateTime? earliest, int back) =>
-        period != StatsPeriod.All && earliest is { } first && Range(period, now, firstDay, Math.Max(0, back) + 1).To > first.Date;
+    public static bool CanGoBack(StatsPeriod period, DateTime now, DayOfWeek firstDay, DateTime? earliest, int back)
+    {
+        if (period == StatsPeriod.All || earliest is not { } first) return false;
+        try { return Range(period, now, firstDay, Math.Max(0, back) + 1).To > first.Date; }
+        catch (ArgumentOutOfRangeException) { return false; }   // 翻到 DateTime 的下限了
+    }
 
     /// <summary>能不能往後翻（回到比較新的一段）：只要不是最新的那一段。</summary>
     public static bool CanGoForward(StatsPeriod period, int back) => period != StatsPeriod.All && back > 0;
@@ -97,7 +101,7 @@ public static class Stats
     /// <summary>往前翻 back 段的統計（back 放在 firstDay 前面，免得跟舊版的 top 參數混淆）。連續天數是到今天為止的數字，跟過去的期間無關，翻到過去時是 0。</summary>
     public static StatsSummary Compute(IEnumerable<Listen> listens, StatsPeriod period, DateTime now, int back, DayOfWeek firstDay, int top = 5)
     {
-        var all = listens.ToList();
+        var all = listens.Where(Plausible).ToList();
         DateTime? earliest = all.Count > 0 ? all.Min(l => l.Start.DateTime) : null;
         var (from, to) = Range(period, now, firstDay, back, earliest);
         var inRange = all.Where(l => l.Start.DateTime >= from && l.Start.DateTime < to).ToList();
@@ -113,6 +117,9 @@ public static class Stats
             Hours(inRange),
             back > 0 && period != StatsPeriod.All ? 0 : Streak(all, now));
     }
+
+    /// <summary>時間壞掉的紀錄（例如年份 0001）不拿來統計：往前翻到那裡日期運算會超出範圍。</summary>
+    public static bool Plausible(Listen listen) => listen.Start.Year >= 2000;
 
     public static TimeSpan Sum(IEnumerable<Listen> listens) => TimeSpan.FromSeconds(listens.Sum(l => Math.Max(0, l.Listened)));
 

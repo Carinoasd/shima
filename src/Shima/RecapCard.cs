@@ -34,6 +34,7 @@ public static class RecapCard
 
         string title = period switch
         {
+            StatsPeriod.Week when summary.From.Year != summary.From.AddDays(6).Year => Stats.Label(period, summary.From, culture),   // 跨年的那一週兩端都寫年份
             StatsPeriod.Week => $"{summary.From.Year} · {summary.From.ToString(format.MonthDayPattern, culture)} – {summary.From.AddDays(6).ToString(format.MonthDayPattern, culture)}",
             StatsPeriod.Month => summary.From.ToString(format.YearMonthPattern, culture),
             StatsPeriod.Year => summary.From.Year.ToString(CultureInfo.InvariantCulture),

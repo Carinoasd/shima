@@ -71,8 +71,8 @@ public sealed class MediaHub
     public void PauseAll()
     {
         if (Demo != null) return;
-        if (_roon.Current?.Playing == true) _roon.Pause();
-        if (_smtc.Current?.Playing == true) _smtc.Pause();
+        _roon.PauseAll();
+        _smtc.PauseAll();
     }
     public void Next() => Active(out _)?.Next();
     public void Previous() => Active(out _)?.Previous();

@@ -648,6 +648,23 @@ public sealed class RoonSource : IMediaSource
     public void PlayPause() => Command("control", new JsonObject { ["control"] = "playpause" });
     public void Play() => Command("control", new JsonObject { ["control"] = "play" });
     public void Pause() => Command("control", new JsonObject { ["control"] = "pause" });
+
+    /// <summary>所有正在播的 zone 的 id（睡眠定時要全部暫停，不只是島上顯示的那個）。</summary>
+    public static List<string> PlayingZones(IEnumerable<JsonObject> zones) =>
+        zones.Where(z => z["state"]?.ToString() == "playing" && z["zone_id"]?.ToString() is { Length: > 0 }).Select(z => z["zone_id"]!.ToString()).ToList();
+
+    /// <summary>每個正在播的 zone 各送一次暫停（送法與 Command 相同）。</summary>
+    public async void PauseAll()
+    {
+        try
+        {
+            List<string> ids;
+            lock (_lock) ids = PlayingZones(_zones.Values);
+            foreach (var id in ids)
+                await RequestAsync($"{Transport}/control", "command", new JsonObject { ["control"] = "pause", ["zone_or_output_id"] = id });
+        }
+        catch { /* Core 斷線了 */ }
+    }
     public void Next() => Command("control", new JsonObject { ["control"] = "next" });
     public void Previous() => Command("control", new JsonObject { ["control"] = "previous" });
     public void Seek(TimeSpan position) =>
