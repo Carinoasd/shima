@@ -44,13 +44,61 @@ public sealed class Mascot : FrameworkElement
         get => _kind;
         set
         {
-            _kind = All.Any(a => a.Id == value) ? value : "claude";
+            _kind = value == Custom || All.Any(a => a.Id == value) ? value : "claude";
             Visibility = _kind == "none" ? Visibility.Collapsed : Visibility.Visible;
-            // 像素角色不要柔邊，一格就是一格
-            RenderOptions.SetEdgeMode(this, _kind == "claude" ? EdgeMode.Aliased : EdgeMode.Unspecified);
-            SnapsToDevicePixels = _kind == "claude";
-            InvalidateVisual();
+            LoadImage();
+            Look();
         }
+    }
+
+    /// <summary>使用者自己的圖（GIF 或 PNG）當角色時的設定值。</summary>
+    public const string Custom = "custom";
+
+    /// <summary>自訂角色的圖片路徑。只在改了的時候讀一次檔。</summary>
+    public string ImagePath
+    {
+        get => _imagePath;
+        set
+        {
+            _imagePath = value ?? "";
+            LoadImage();
+            Look();
+        }
+    }
+
+    private string _imagePath = "", _loadedPath = "";
+    private MascotImage? _image;
+
+    /// <summary>自訂的圖讀不到就畫原本的小 Claude（設定值還是 custom，不蓋掉使用者的選擇）。</summary>
+    private string Drawn => _kind == Custom && _image == null ? "claude" : _kind;
+
+    private void LoadImage()
+    {
+        if (_kind != Custom) { _image = null; _loadedPath = ""; return; }   // 沒在用就放掉，省記憶體
+        if (_imagePath == _loadedPath && (_image != null || _imagePath.Length == 0)) return;
+        _loadedPath = _imagePath;
+        _image = null;
+        if (_imagePath.Length == 0) return;
+        try
+        {
+            _image = MascotImage.Load(_imagePath);
+            _imageStart = _clock.Elapsed;
+        }
+        catch (Exception x) { Log.Write($"自訂角色的圖讀不到，改用預設角色: {x.GetType().Name} {x.Message}"); }
+    }
+
+    private TimeSpan _imageStart;
+
+    private void Look()
+    {
+        string kind = Drawn;
+        // 像素角色不要柔邊，一格就是一格
+        RenderOptions.SetEdgeMode(this, kind == "claude" ? EdgeMode.Aliased : EdgeMode.Unspecified);
+        SnapsToDevicePixels = kind == "claude";
+        if (kind == Custom && _image is { } image)
+            RenderOptions.SetBitmapScalingMode(this, MascotImage.Pixelated(image.Frames[0].PixelHeight, Height) ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.HighQuality);
+        else ClearValue(RenderOptions.BitmapScalingModeProperty);
+        InvalidateVisual();
     }
 
     public Mascot()
@@ -96,8 +144,19 @@ public sealed class Mascot : FrameworkElement
         double bob = Dancing ? Math.Sin(now * Math.PI * 4) * (0.5 + level * 2.4) : 0;
         double cx = w / 2, cy = h / 2 + bob;
 
-        switch (_kind)
+        switch (Drawn)
         {
+            case Custom when _image is { } image:
+            {
+                // 自己的圖：跟著音樂上下擺、低音重的時候和換歌時跳一下；位置對齊整數，像素圖才不會晃糊
+                var frame = image.At(_clock.Elapsed - _imageStart);
+                int lift = happy ? new[] { 3, 5, 5, 3, 1, 0 }[Math.Clamp((int)((1.2 - (_happyUntil - now)) * 8), 0, 5)] : hop ? 3 : 0;
+                var box = MascotImage.Fit(w, h, frame.PixelWidth, frame.PixelHeight);
+                if (box.IsEmpty) break;
+                box.Offset(0, Math.Round(bob) - lift);
+                dc.DrawImage(frame, box);
+                break;
+            }
             case "claude":
             {
                 // 像素小 Claude，向 Claude Code 的吉祥物致敬。像 GIF 一樣一格一格動（每秒 8 格），位置都是整數像素。
