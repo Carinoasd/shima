@@ -465,6 +465,8 @@ public partial class IslandWindow : Window
 
         double width = _tab == Tab.Chat ? 528 : 440;
         Panel.Width = width - 32;
+        // 收著時視窗只有膠囊那麼高。先長回展開時最矮的高度再量：在矮的視窗裡排過版的內容，量出來的高度會差一個像素
+        if (_expanded && Height < WindowHeightFor(0)) Height = WindowHeightFor(0);
         // 先把排著隊的版面算完。深處的內容剛換過（設定的子分頁、清單多一列）時，中間幾層還留著舊的高度，
         // 直接量會拿到上一次的結果，島就停在舊的大小，要等下一次變形才對回來
         Panel.UpdateLayout();
