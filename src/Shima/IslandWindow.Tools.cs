@@ -342,11 +342,12 @@ public partial class IslandWindow
         foreach (var alarm in list)
         {
             var row = new Grid { Height = 26, Background = Brushes.Transparent };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            // 「平日 09:30」在別的語言常常比 96 長：欄寬跟著最長的那一列，所有列共用同一個寬度才對得齊
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 96, SharedSizeGroup = "AlarmWhen" });
             row.ColumnDefinitions.Add(new ColumnDefinition());
             var dim = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF));
             // 重複的：前面一個循環圖示，時間前面寫每天、平日或週幾；單次的照舊
-            var when = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            var when = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 10, 0) };
             if (Alarms.NormalizeRepeat(alarm.Repeat) is { } repeat)
             {
                 when.Children.Add(new TextBlock { Text = "\uE8EE", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 10, Foreground = DropLine, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 5, 0) });

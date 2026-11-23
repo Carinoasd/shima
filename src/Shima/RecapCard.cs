@@ -44,7 +44,7 @@ public static class RecapCard
         string total = minutes >= 60 ? F("{0} 小時 {1} 分", minutes / 60, minutes % 60) : F("{0} 分", minutes);
 
         string Short(TimeSpan time) => time.TotalMinutes >= 60
-            ? F("{0} 小時", Math.Round(time.TotalHours, 1).ToString("0.#", CultureInfo.InvariantCulture))
+            ? F("{0} 小時", Math.Round(time.TotalHours, 1).ToString("0.#", culture))
             : F("{0} 分", (long)Math.Max(1, Math.Round(time.TotalMinutes)));
 
         return new RecapContent(
