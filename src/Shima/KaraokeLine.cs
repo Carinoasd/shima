@@ -7,12 +7,13 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using Shima.Lyrics;
+using Shima.Motion;
 
 namespace Shima;
 
 /// <summary>
 /// 一行會動的字。換句時舊的往上滑走、新的從下面彈上來；有時間軸的歌詞，光會從左到右跟著唱的進度掃過去。
-/// 全部自己畫，只有東西在動的時候才逐幀更新。
+/// 全部自己畫，只有東西在動的時候才逐幀更新：換句的動畫每一幀都畫，掃光是慢動作，約每秒 30 次、光頭動了半個像素以上才畫。
 /// </summary>
 public sealed class KaraokeLine : FrameworkElement
 {
@@ -22,7 +23,12 @@ public sealed class KaraokeLine : FrameworkElement
     private string _text = "", _old = "";
     private TimeSpan _start, _length;
     private IReadOnlyList<LyricWord>? _words;
-    private bool _sweep, _frames;
+    private bool _sweep, _frames, _japanese;
+    private TimeSpan _lastFrame;
+    /// <summary>上次畫的光頭在第幾個像素；NaN 是還沒畫過或不是掃光。</summary>
+    private double _drawnHead = double.NaN;
+    /// <summary>掃光的漸層只做一支，每次畫只改位置與停點（每一幀新建一支沒凍結的筆刷，每秒就多出幾 MB 的垃圾）。</summary>
+    private readonly LinearGradientBrush _sweepBrush = new() { MappingMode = BrushMappingMode.Absolute };
     private long _changedAt = Stopwatch.GetTimestamp();
     private FormattedText? _layout, _oldLayout;
     private double[]? _prefixes;
@@ -57,7 +63,13 @@ public sealed class KaraokeLine : FrameworkElement
         }
     }
 
-    public KaraokeLine() => ClipToBounds = true;
+    public KaraokeLine()
+    {
+        ClipToBounds = true;
+        foreach (var c in (Color[])[Colors.White, Colors.White, Colors.White, DimColor, DimColor]) _sweepBrush.GradientStops.Add(new GradientStop(c, 0));
+    }
+
+    private static readonly Color DimColor = Color.FromArgb(0x78, 0xFF, 0xFF, 0xFF);
 
     /// <summary>一句歌詞：從 start 開始唱，length 之內光掃完整句。有逐字時間（words）的話光照著每個字走，length 就不用了。</summary>
     public void Sing(string text, TimeSpan start, TimeSpan length, IReadOnlyList<LyricWord>? words = null)
@@ -85,7 +97,13 @@ public sealed class KaraokeLine : FrameworkElement
     public void Wake()
     {
         // 已經在逐幀重畫、或根本沒有東西在動，就不用再多畫一次（呼叫的人自己改了內容時會自己要求重畫）
-        if (_frames || !Moving) return;
+        if (_frames) return;
+        if (!Moving)
+        {
+            // 沒在動但光頭的位置變了（拖了進度、暫停時跳到別處）：補畫一次
+            if (_sweep && IsVisible && FrameGate.Stale(_drawnHead, Head())) InvalidateVisual();
+            return;
+        }
         _frames = true;
         CompositionTarget.Rendering += OnFrame;
     }
@@ -95,7 +113,9 @@ public sealed class KaraokeLine : FrameworkElement
         _old = _text;
         _oldLayout = _layout;
         _text = text;
+        _japanese = Fonts.HasKana(text);
         _layout = null;
+        _drawnHead = double.NaN;
         _prefixes = null;
         _changedAt = Stopwatch.GetTimestamp();
     }
@@ -115,10 +135,27 @@ public sealed class KaraokeLine : FrameworkElement
 
     private bool Moving => IsVisible && (SinceChange < Arrive || (_sweep && Clock?.Invoke().Playing == true && Progress < 1));
 
+    /// <summary>光頭現在應該在這一行字的第幾個像素（還沒排過版就是 NaN）。</summary>
+    private double Head() => _sweep && _layout is { } layout ? Share() * layout.WidthIncludingTrailingWhitespace : double.NaN;
+
+    /// <summary>唱到的位置佔整行寬度的比例。</summary>
+    private double Share()
+    {
+        _prefixes ??= Fonts.Prefixes(_text, new Typeface(Fonts.For(_japanese), FontStyles.Normal, Weight, FontStretches.Normal), Size, Fonts.Culture(_japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        return _words != null && Clock != null
+            ? Singing.WidthAt(WordTiming.CharsAt(_words, Clock().Position), _prefixes)
+            : Singing.WidthShare(_text, Progress, _prefixes);
+    }
+
     private void OnFrame(object? sender, EventArgs e)
     {
-        InvalidateVisual();
-        if (Moving) return;
+        var now = ((RenderingEventArgs)e).RenderingTime;
+        if (now == _lastFrame) return;   // 同一幀可能被叫兩次
+        _lastFrame = now;
+        bool moving = Moving, beat = Pulse.Beat(now);   // 每一幀都要問，節拍才會一直由幀來打
+        // 掃光跟著共用的節拍畫（跟角色、音量條同一幀）；停下來之前補畫最後一次，光才會停在對的位置
+        if (SinceChange < Arrive || !moving || beat && FrameGate.Moved(_drawnHead, Head())) InvalidateVisual();
+        if (moving) return;
         CompositionTarget.Rendering -= OnFrame;
         _frames = false;
     }
@@ -158,22 +195,23 @@ public sealed class KaraokeLine : FrameworkElement
         double opacity = Math.Clamp(t / 0.14, 0, 1);
 
         Brush brush = Brushes.White;
+        _drawnHead = double.NaN;
         if (_sweep)
         {
             // 光的前緣是一小段漸層，不是一刀切
-            bool japanese = Fonts.HasKana(_text);
-            _prefixes ??= Fonts.Prefixes(_text, new Typeface(Fonts.For(japanese), FontStyles.Normal, Weight, FontStretches.Normal), Size, Fonts.Culture(japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
-            double p = _words != null && Clock != null
-                ? Singing.WidthAt(WordTiming.CharsAt(_words, Clock().Position), _prefixes)
-                : Singing.WidthShare(_text, Progress, _prefixes);
+            double p = Share();
+            _drawnHead = p * width;
             double edge = Math.Min(0.12, 14 / Math.Max(1, width));
             double head = p * (1 + edge);
-            var sweep = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(x, 0), EndPoint = new Point(x + width, 0) };
-            sweep.GradientStops.Add(new GradientStop(Colors.White, 0));
-            sweep.GradientStops.Add(new GradientStop(Colors.White, Math.Clamp(head - edge * 2.2, 0, 1)));
-            sweep.GradientStops.Add(new GradientStop(Light, Math.Clamp(head - edge, 0, 1)));
-            sweep.GradientStops.Add(new GradientStop(Color.FromArgb(0x78, 0xFF, 0xFF, 0xFF), Math.Clamp(head, 0, 1)));
-            sweep.GradientStops.Add(new GradientStop(Color.FromArgb(0x78, 0xFF, 0xFF, 0xFF), 1));
+            var sweep = _sweepBrush;
+            sweep.StartPoint = new Point(x, 0);
+            sweep.EndPoint = new Point(x + width, 0);
+            var stops = sweep.GradientStops;
+            stops[1].Offset = Math.Clamp(head - edge * 2.2, 0, 1);
+            stops[2].Color = Light;
+            stops[2].Offset = Math.Clamp(head - edge, 0, 1);
+            stops[3].Offset = Math.Clamp(head, 0, 1);
+            stops[4].Offset = 1;
             brush = sweep;
         }
         now.SetForegroundBrush(brush);
