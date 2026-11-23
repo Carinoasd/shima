@@ -125,6 +125,8 @@ The strip follows the island: when Claude Code asks for permission it shows the 
 
 The plugin only talks to Shima on `localhost:47813`, with a token written into the plugin folder at install time. Any player Shima can read (Roon, Spotify, browsers…) shows up. The strip layout has only been checked on an N4 Pro.
 
+**Always allow**: this button on a permission request remembers "tool + the first two words of the command" (for example `git status`) and auto-allows the same request in the same project folder from then on. It is a convenience, **not a security boundary**: Shima refuses the forms it can recognise as dangerous (chained commands, `=`, dangerous flags, paths that leave the project or point into `.claude` / `.git` / `.env`; commands such as `bash`, `python` and `sed` cannot be remembered), but it cannot promise to catch everything, and it cannot see symlinks that point outside the project. Do not use it in projects you do not trust, and be especially careful about remembering both `Edit` and commands that run project files such as `npm run` or `make`. Rules live in `%APPDATA%\Shima\agent-rules.json`; delete the file to start over.
+
 ## Settings
 
 `%APPDATA%\Shima\settings.json`
