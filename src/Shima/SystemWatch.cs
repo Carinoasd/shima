@@ -28,6 +28,7 @@ public sealed class SystemWatch : IDisposable
     private int _askingBrightness;
     /// <summary>查的時候又收到亮度事件：查完要再查一次，不然可能讀到事件之前的舊值。</summary>
     private volatile bool _brightnessDirty;
+    private volatile bool _brightnessWatchFailed;
     /// <summary>沒有事件可等時每兩秒查一次；有事件就只留一個保險的間隔，萬一哪個驅動不發事件也不會永遠不知道。</summary>
     private const long BrightnessSafetyMs = 30_000;
     private long _brightnessDue;
@@ -122,7 +123,7 @@ public sealed class SystemWatch : IDisposable
     /// </summary>
     private void WatchBrightness()
     {
-        if (_brightnessEvents != null || _disposed) return;
+        if (_brightnessEvents != null || _brightnessWatchFailed || _disposed) return;
         ManagementEventWatcher? watcher = null;
         try
         {
@@ -134,6 +135,7 @@ public sealed class SystemWatch : IDisposable
         }
         catch (Exception e)
         {
+            _brightnessWatchFailed = true;   // 之後不再試：每次查到亮度都重訂、重失敗、重寫一行紀錄
             Log.Write("system (brightness events): " + e.Message);
             try { watcher?.Dispose(); } catch { }
         }
@@ -172,6 +174,8 @@ public sealed class SystemWatch : IDisposable
             }
             catch (Exception e) { Log.Write("system (brightness): " + e.Message); }
             finally { Volatile.Write(ref _askingBrightness, 0); }
+            // 迴圈判斷完、旗標歸零之前剛好有事件進來：那時 CompareExchange 失敗、只留了 dirty，沒有人會再處理
+            if (_brightnessDirty && _hasBrightness && !_disposed) AskBrightness();
         });
     }
 

@@ -29,7 +29,7 @@ public partial class IslandWindow
             if (total > 0) Toast($"Claude Code {_planLine}", 5);
             // 收著的時候只更新待辦那一行；展開 AI 分頁時才整頁更新（查 hook 要啟動 wsl.exe、金鑰要解密）
             if (_tab == Tab.Ai && _expanded) RefreshAi();
-            else { PlanText.Text = _planLine; _aiStale = _tab == Tab.Ai; }
+            else { PlanText.Text = _planLine; _aiStale |= _tab == Tab.Ai; }
         });
         // 收著時錯過的更新，在展開的那一刻補上（Morph 展開時會把 Panel 設成可點）
         Panel.IsHitTestVisibleChanged += (_, e) =>
@@ -101,6 +101,8 @@ public partial class IslandWindow
             _asking = null;
             _tab = _beforeAsk;
             _expanded = _expandedBeforeAsk && Host.IsMouseOver;
+            // 等回答的期間錯過的更新：島一直是展開的，不會再有「剛展開」的事件來補
+            if (_aiStale && _tab == Tab.Ai && _expanded) RefreshAi();
             Morph();
             return;
         }

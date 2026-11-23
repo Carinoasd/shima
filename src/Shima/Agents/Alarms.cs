@@ -33,6 +33,7 @@ public sealed class Alarms : IDisposable
     private readonly List<Alarm> _list;
     private System.Threading.Timer? _timer;
     private bool _watching;
+    private bool _disposed;
 
     /// <summary>
     /// 就算算好了下一個到點的時間，最久也不超過這麼久就醒來看一次：睡眠喚醒、系統時間被調整（事件漏掉的話）、夏令時間，
@@ -97,6 +98,8 @@ public sealed class Alarms : IDisposable
         List<Alarm> due;
         lock (_gate)
         {
+            // 關掉之後正在跑的那次檢查：提醒不能被拿掉，不然畫面已經沒了、下次開程式也不會補成「錯過的」
+            if (_disposed) return [];
             due = _list.Where(a => a.At <= now).OrderBy(a => a.At).ToList();
             if (due.Count == 0) return due;
             // 重複的不移除，排到下一次（從現在往後算，關機好幾天也只響這一次）
@@ -136,7 +139,7 @@ public sealed class Alarms : IDisposable
     {
         lock (_gate)
         {
-            if (_timer != null) return;
+            if (_timer != null || _disposed) return;
             _timer = new System.Threading.Timer(_ => Tick(), null, Timeout.Infinite, Timeout.Infinite);
             if (!_watching)
             {
@@ -176,6 +179,7 @@ public sealed class Alarms : IDisposable
     {
         lock (_gate)
         {
+            _disposed = true;
             if (_watching)
             {
                 Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
