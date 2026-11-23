@@ -27,7 +27,11 @@ public sealed class LyricsView : FrameworkElement
     private double[]?[] _prefixes = [];
     private bool _japanese, _frames;
     private int _index = int.MinValue;
-    private TimeSpan _lastFrame;
+    private TimeSpan _lastFrame, _lastDrawn;
+    /// <summary>上次畫的光頭在正在唱的那句的第幾個像素；NaN 是還沒畫過。</summary>
+    private double _drawnHead = double.NaN;
+    /// <summary>掃光的漸層只做一支，每次畫只改位置與停點。</summary>
+    private readonly LinearGradientBrush _sweepBrush = new() { MappingMode = BrushMappingMode.Absolute };
 
     public Func<(TimeSpan Position, bool Playing)>? Clock { get; set; }
     public Color Light { get; set; } = Colors.White;
@@ -51,6 +55,7 @@ public sealed class LyricsView : FrameworkElement
         fade.GradientStops.Add(new GradientStop(Colors.Transparent, 1));
         fade.Freeze();
         OpacityMask = fade;
+        foreach (var c in (Color[])[Colors.White, Colors.White, Colors.White, DimColor, DimColor]) _sweepBrush.GradientStops.Add(new GradientStop(c, 0));
     }
 
     /// <param name="second">每一句下面的第二行（翻譯或羅馬拼音），沒有就傳 null。</param>
@@ -74,7 +79,13 @@ public sealed class LyricsView : FrameworkElement
     public void Wake()
     {
         Follow(jump: false);
-        if (_frames || !Moving) return;
+        if (_frames) return;
+        if (!Moving)
+        {
+            // 沒在動但光頭的位置變了（暫停時拖了進度）：補畫一次
+            if (Active && IsVisible && FrameGate.Moved(_drawnHead, Head())) InvalidateVisual();
+            return;
+        }
         _frames = true;
         _lastFrame = TimeSpan.Zero;
         CompositionTarget.Rendering += OnFrame;
@@ -125,19 +136,48 @@ public sealed class LyricsView : FrameworkElement
     }
     private bool _active;
 
-    private bool Moving => Active && IsVisible && _sheet != null && (!_scroll.Settled || Clock?.Invoke().Playing == true);
+    /// <summary>
+    /// 要不要逐幀更新：還在捲，或正在唱的那句光還沒掃完。那句掃完了、間奏、前奏都不用動，
+    /// 換句時每 0.1 秒的 <see cref="Wake"/> 會再叫醒它。
+    /// </summary>
+    private bool Moving => Active && IsVisible && _sheet != null && (!_scroll.Settled || Clock?.Invoke().Playing == true && Sweeping);
+
+    private bool Sweeping => _sheet is { Synced: true } sheet && _index >= 0 && _index < sheet.Lines.Count && sheet.Lines[_index].Text.Length > 0 && Share(_index) < 1;
+
+    /// <summary>第 i 句唱到的位置佔那句寬度的比例。</summary>
+    private double Share(int i)
+    {
+        var line = _sheet!.Lines[i];
+        _prefixes[i] ??= Fonts.Prefixes(line.Text, new Typeface(Fonts.For(_japanese), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 16, Fonts.Culture(_japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var position = Clock!().Position;
+        // 有逐字時間就照著每個字走；沒有的話整句依長度估
+        if (WordTiming.Fits(line.Text, line.Words)) return Singing.WidthAt(WordTiming.CharsAt(line.Words!, position), _prefixes[i]!);
+        var length = Singing.Length(line.Text, line.Time, i + 1 < _sheet.Lines.Count ? _sheet.Lines[i + 1].Time : null);
+        double progress = length <= TimeSpan.Zero ? 1 : Math.Clamp((position - line.Time) / length, 0, 1);
+        return Singing.WidthShare(line.Text, progress, _prefixes[i]!);
+    }
+
+    /// <summary>正在唱的那句的光頭現在應該在第幾個像素（還沒畫過那句就是 NaN）。</summary>
+    private double Head() =>
+        _sheet is { Synced: true } sheet && Clock != null && _index >= 0 && _index < sheet.Lines.Count && sheet.Lines[_index].Text.Length > 0 && _big[_index] is { } big
+            ? Share(_index) * big.WidthIncludingTrailingWhitespace : double.NaN;
 
     private void OnFrame(object? sender, EventArgs e)
     {
         var now = ((RenderingEventArgs)e).RenderingTime;
-        if (now != _lastFrame)
+        if (now == _lastFrame) return;   // 同一幀可能被叫兩次
+        double dt = _lastFrame == TimeSpan.Zero ? 1 / 60.0 : Math.Min(0.05, (now - _lastFrame).TotalSeconds);
+        _lastFrame = now;
+        bool scrolling = !_scroll.Settled;
+        _scroll.Step(dt);
+        bool moving = Moving;
+        // 捲動每一幀都畫；掃光是慢動作，約每秒 30 次、光頭動了半個像素以上才畫；停下來之前補畫最後一次
+        if (scrolling || !moving || FrameGate.Due(_lastDrawn, now) && FrameGate.Moved(_drawnHead, Head()))
         {
-            double dt = _lastFrame == TimeSpan.Zero ? 1 / 60.0 : Math.Min(0.05, (now - _lastFrame).TotalSeconds);
-            _lastFrame = now;
-            _scroll.Step(dt);
             InvalidateVisual();
+            _lastDrawn = now;
         }
-        if (Moving) return;
+        if (moving) return;
         CompositionTarget.Rendering -= OnFrame;
         _frames = false;
     }
@@ -163,6 +203,7 @@ public sealed class LyricsView : FrameworkElement
         if (_sheet is not { } sheet || w <= 0) return;
 
         int current = _index;
+        _drawnHead = double.NaN;
         for (int i = 0; i < sheet.Lines.Count; i++)
         {
             double top = TopOf(i, current) - _scroll.Value, height = HeightOf(i, current);
@@ -183,23 +224,18 @@ public sealed class LyricsView : FrameworkElement
             Brush brush = Brushes.White;
             if (sheet.Synced && line.Text.Length > 0 && Clock != null)
             {
-                _prefixes[i] ??= Fonts.Prefixes(line.Text, new Typeface(Fonts.For(_japanese), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 16, Fonts.Culture(_japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
-                double p;
-                // 有逐字時間就照著每個字走；沒有的話整句依長度估
-                if (WordTiming.Fits(line.Text, line.Words)) p = Singing.WidthAt(WordTiming.CharsAt(line.Words!, Clock().Position), _prefixes[i]!);
-                else
-                {
-                    var length = Singing.Length(line.Text, line.Time, i + 1 < sheet.Lines.Count ? sheet.Lines[i + 1].Time : null);
-                    double progress = length <= TimeSpan.Zero ? 1 : Math.Clamp((Clock().Position - line.Time) / length, 0, 1);
-                    p = Singing.WidthShare(line.Text, progress, _prefixes[i]!);
-                }
+                double p = Share(i);
+                _drawnHead = p * width;
                 double edge = Math.Min(0.12, 16 / Math.Max(1, width)), head = p * (1 + edge);
-                var sweep = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(x, 0), EndPoint = new Point(x + width, 0) };
-                sweep.GradientStops.Add(new GradientStop(Colors.White, 0));
-                sweep.GradientStops.Add(new GradientStop(Colors.White, Math.Clamp(head - edge * 2.2, 0, 1)));
-                sweep.GradientStops.Add(new GradientStop(Light, Math.Clamp(head - edge, 0, 1)));
-                sweep.GradientStops.Add(new GradientStop(DimColor, Math.Clamp(head, 0, 1)));
-                sweep.GradientStops.Add(new GradientStop(DimColor, 1));
+                var sweep = _sweepBrush;
+                sweep.StartPoint = new Point(x, 0);
+                sweep.EndPoint = new Point(x + width, 0);
+                var stops = sweep.GradientStops;
+                stops[1].Offset = Math.Clamp(head - edge * 2.2, 0, 1);
+                stops[2].Color = Light;
+                stops[2].Offset = Math.Clamp(head - edge, 0, 1);
+                stops[3].Offset = Math.Clamp(head, 0, 1);
+                stops[4].Offset = 1;
                 brush = sweep;
             }
             big.SetForegroundBrush(brush);
