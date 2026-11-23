@@ -29,7 +29,7 @@ public partial class App : Application
         base.OnStartup(e);
         int shot = Array.IndexOf(e.Args, "--shot");
         string? shotFolder = shot >= 0 && shot + 1 < e.Args.Length ? e.Args[shot + 1] : null;
-        bool smoke = e.Args.Contains("--smoke") || shotFolder != null;
+        bool smoke = e.Args.Contains("--smoke") || shotFolder != null || e.Args.Contains("--hear-test");
 
         _single = new Mutex(true, smoke ? "Shima.Smoke" : "Shima.Carinoasd", out bool first);
         if (!first) { Shutdown(); return; }
@@ -40,7 +40,23 @@ public partial class App : Application
 
         int lang = Array.IndexOf(e.Args, "--lang");
         Loc.Init(lang >= 0 && lang + 1 < e.Args.Length ? e.Args[lang + 1] : AppSettings.Current.Language);
-        MainWindow = new IslandWindow(smoke, shotFolder);
+        if (e.Args.Contains("--hear-test"))
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            _ = Task.Run(async () =>
+            {
+                foreach (var (language, sentence) in new[] { ("zh-TW", "現在播放的是哪一首歌"), ("ja-JP", "次の曲にしてください") })
+                {
+                    try { Log.Write("hear-test: " + await Agents.Ears.SelfTestAsync(language, sentence)); }
+                    catch (Exception x) { Log.Write("hear-test 失敗: " + x); }
+                }
+                Dispatcher.Invoke(Shutdown);
+            });
+            return;
+        }
+        // --ask 問題：不顯示畫面，等音樂與歌詞就緒後實際問一次 AI，把問答寫進紀錄檔（確認工具真的有被用到）
+        var asks = e.Args.Select((a, i) => (a, i)).Where(x => x.a == "--ask" && x.i + 1 < e.Args.Length).Select(x => e.Args[x.i + 1]).ToList();
+        MainWindow = new IslandWindow(smoke || asks.Count > 0, shotFolder, asks);
         MainWindow.Show();
     }
 }

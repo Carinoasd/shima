@@ -12,9 +12,15 @@ OUT="$SRC/dist"
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none \
   -o "$(wslpath -w "$OUT")" -nologo -v q)
 
-powershell.exe -NoProfile -Command "Get-Process Shima -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 800"
+# 先關掉執行中的 Shima，等它真的結束（檔案解除鎖定）再覆蓋；還鎖著就多等幾次，
+# 不然會留下「舊的關了、新的沒裝上」的狀態
+powershell.exe -NoProfile -Command "Get-Process Shima -ErrorAction SilentlyContinue | Stop-Process -Force; for (\$i = 0; \$i -lt 40 -and (Get-Process Shima -ErrorAction SilentlyContinue); \$i++) { Start-Sleep -Milliseconds 250 }"
 mkdir -p "$DEST"
-cp "$OUT/Shima.exe" "$DEST/Shima.exe"
+for attempt in 1 2 3 4 5 6; do
+  if cp "$OUT/Shima.exe" "$DEST/Shima.exe" 2>/dev/null; then break; fi
+  if [ "$attempt" = 6 ]; then echo "無法覆蓋 $DEST/Shima.exe（還被占用），改為重新啟動原本的版本" >&2; powershell.exe -NoProfile -Command "Start-Process -FilePath (Join-Path \$env:LOCALAPPDATA 'Shima\\Shima.exe')"; exit 1; fi
+  sleep 1
+done
 
 powershell.exe -NoProfile -Command "
   \$exe = Join-Path \$env:LOCALAPPDATA 'Shima\\Shima.exe'

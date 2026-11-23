@@ -85,6 +85,19 @@ public sealed class SystemWatch : IDisposable
         if (brightness >= 0) _brightness = brightness;
     }
 
+    /// <summary>系統音量加減幾個百分點。回傳調整後的音量；沒有播放裝置就是 null。</summary>
+    public int? Nudge(int percent)
+    {
+        try
+        {
+            if (_output == null) return null;
+            var volume = _output.AudioEndpointVolume;
+            volume.MasterVolumeLevelScalar = Math.Clamp(volume.MasterVolumeLevelScalar + percent / 100f, 0f, 1f);
+            return (int)Math.Round(volume.MasterVolumeLevelScalar * 100);
+        }
+        catch (Exception e) { Log.Write("system (set volume): " + e.Message); return null; }
+    }
+
     /// <summary>一種狀態 → 給人看的一行字。</summary>
     public static string Line(string kind, string value) => kind switch
     {

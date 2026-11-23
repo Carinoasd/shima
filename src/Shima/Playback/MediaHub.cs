@@ -51,6 +51,8 @@ public sealed class MediaHub
     public int? Nudge(int steps) => ReferenceEquals(Active(out _), _roon) ? _roon.Nudge(steps) : null;
 
     public void PlayPause() => Active(out _)?.PlayPause();
+    public void Play() => Active(out _)?.Play();
+    public void Pause() => Active(out _)?.Pause();
     public void Next() => Active(out _)?.Next();
     public void Previous() => Active(out _)?.Previous();
     public void Seek(TimeSpan position) => Active(out _)?.Seek(position);

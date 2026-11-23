@@ -72,7 +72,11 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 **Claude Code**：按「連接」會在 Claude Code 的 `settings.json`（Windows 與預設的 WSL 發行版各一份）加上四個 hook，只是用 `curl.exe` 把事件送到 Shima 開在本機的 `localhost:47813`；按「中斷」會拿掉，其他設定不動。第一次更動前會留一份 `settings.json.before-shima.bak`。Shima 沒開、或島因為全螢幕藏起來時，Claude Code 照常在終端機詢問。
 
-**問 AI**：先選服務，貼上那一家的 API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），再按模型的按鈕從那一家實際提供的清單裡選一個。之後在輸入框打字，或按麥克風用說的（再按一次停止）。語音辨識與朗讀用 Windows 內建的；對話內容送到你選的那一家，費用由那一家計算。
+**問 AI**：先選服務，貼上那一家的 API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），再按模型的按鈕從那一家實際提供的清單裡選一個。之後在輸入框打字，或按麥克風用說的：問一句，它回答完就結束；它反過來問你問題時會再聽一次。對話內容送到你選的那一家，費用由那一家計算。
+
+語音辨識預設在你的電腦上用 [Whisper](https://github.com/ggerganov/whisper.cpp) 進行：不用開任何 Windows 設定、不用裝語言套件，聲音不會離開這台電腦，中文、日文、英文等都認得。第一次使用會下載模型（約 150 MB）到 `%LOCALAPPDATA%\Shima\models`，並在執行檔旁邊建立 `runtimes` 資料夾放辨識用的函式庫。想改用 Windows 的聽寫可以在設定頁切換，那需要先在 Windows 開啟「線上語音辨識」並安裝該語言的語音套件。朗讀用 Windows 內建的語音。
+
+聆聽時會先暫停音樂（不然麥克風會收到歌聲），問完再繼續。
 
 | 服務 | 接法 |
 | --- | --- |
@@ -104,6 +108,10 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `DiscordCover` | `true` | 到 iTunes Search 查封面給 Discord 用 |
 | `FocusMinutes` / `BreakMinutes` | `25` / `5` | 番茄鐘 |
 | `ChatSite` | `claude` | `claude`、`gemini`、`chatgpt` |
+| `SpeechEngine` | `whisper` | 語音辨識：`whisper`（在這台電腦上辨識）或 `windows`（Windows 的聽寫） |
+| `WhisperModel` | `base` | 本機辨識的模型：`tiny`、`base`、`small`、`medium`；越大越準也越慢 |
+| `PauseWhileListening` | `true` | 語音助手在聽的時候先暫停音樂，問完再繼續 |
+| `VoiceContinuous` | `false` | 按一次麥克風就一直對話到再按一次。預設是問一句答一句；喇叭在放音樂時不建議開，麥克風會把歌聲當成有人講話 |
 | `AiService` | `claude` | 問 AI 用哪一家：`claude`、`openai`、`gemini`、`deepseek`、`xai`、`mistral`、`groq`、`openrouter`、`ollama`、`custom` |
 | `AiModels` | `{}` | 每一家選的模型 |
 | `AiCustomUrl` | 空 | 選 `custom` 時的 API 網址 |

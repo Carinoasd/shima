@@ -141,7 +141,8 @@ public class OpenAiBrainTests
         Assert.Equal("system", body["messages"]![0]!["role"]!.ToString());
         Assert.Equal("下一首", body["messages"]![1]!["content"]!.ToString());
         Assert.Equal("music", body["tools"]![0]!["function"]!["name"]!.ToString());
-        Assert.Equal(4, ((JsonArray)body["tools"]![0]!["function"]!["parameters"]!["properties"]!["action"]!["enum"]!).Count);
+        Assert.Equal(["play", "pause", "next", "previous", "now_playing"], ((JsonArray)body["tools"]![0]!["function"]!["parameters"]!["properties"]!["action"]!["enum"]!).Select(a => a!.ToString()));
+        Assert.Equal(AssistantTool.All.Select(t => t.Name), ((JsonArray)body["tools"]!).Select(t => t!["function"]!["name"]!.ToString()));
         Assert.Null(OpenAiBrain.Body("m", "s", messages, tools: false)["tools"]);
         Assert.Single(messages);   // 原本的對話不被改到
     }
@@ -162,4 +163,144 @@ public class OpenAiBrainTests
         Assert.False(AiService.Of("ollama").NeedsKey);
         Assert.Equal("claude", AiService.Of("沒有這一家").Id);
     }
+}
+
+public class EarsTests
+{
+    private static float[] Tone(double seconds, float amplitude) =>
+        Enumerable.Range(0, (int)(seconds * Ears.Rate)).Select(i => amplitude * MathF.Sin(i * 0.2f)).ToArray();
+
+    [Fact]
+    public void 說完之後安靜一秒就結束_只留說話的那一段()
+    {
+        var d = new SpeechDetector();
+        Assert.False(d.Feed(Tone(0.8, 0.001f)));          // 還沒人說話
+        Assert.False(d.Feed(Tone(1.5, 0.2f)));            // 說話中
+        Assert.False(d.Feed(Tone(0.4, 0.001f)));          // 才停一下，可能只是換氣
+        Assert.True(d.Feed(Tone(0.4, 0.001f)));           // 安靜夠久了：說完了
+        double seconds = d.Speech().Length / (double)Ears.Rate;
+        Assert.InRange(seconds, 1.5, 2.3);                // 前面留一點、後面留一點，不含整段安靜
+    }
+
+    [Fact]
+    public void 一直沒人說話就放棄()
+    {
+        var d = new SpeechDetector { Patience = TimeSpan.FromSeconds(2) };
+        Assert.False(d.Feed(Tone(1.5, 0.001f)));
+        Assert.True(d.Feed(Tone(1, 0.001f)));
+        Assert.Empty(d.Speech());
+    }
+
+    [Fact]
+    public void 有底噪的房間也分得出說話()
+    {
+        var d = new SpeechDetector();
+        Assert.False(d.Feed(Tone(2, 0.01f)));             // 風扇聲：學成底噪，不當成說話
+        Assert.False(d.Feed(Tone(1, 0.25f)));
+        Assert.True(d.Feed(Tone(1.2, 0.01f)));
+        Assert.NotEmpty(d.Speech());
+    }
+
+    [Fact]
+    public void 說太久會切斷()
+    {
+        var d = new SpeechDetector { Longest = TimeSpan.FromSeconds(3) };
+        Assert.True(d.Feed(Tone(4, 0.2f)));
+    }
+
+    [Fact]
+    public void 降到十六千赫_分批餵結果一樣長()
+    {
+        var input = Enumerable.Range(0, 48000).Select(i => (float)i).ToArray();
+        var whole = new Downsampler(48000, 16000).Push(input);
+        Assert.Equal(16000, whole.Length);
+        Assert.Equal(3f, whole[1], 3);                    // 每三個取一個
+
+        var parts = new Downsampler(48000, 16000);
+        int total = 0;
+        foreach (var chunk in input.Chunk(4410)) total += parts.Push(chunk).Length;
+        Assert.InRange(total, 15999, 16001);
+
+        // 44100 → 16000 不是整數倍，累加的小數誤差可能差一個取樣
+        Assert.InRange(new Downsampler(44100, 16000).Push(new float[44100]).Length, 15999, 16001);
+    }
+
+    [Fact]
+    public void 多聲道與各種位元深度轉成單聲道()
+    {
+        var stereo = new byte[16];
+        BitConverter.GetBytes(0.5f).CopyTo(stereo, 0); BitConverter.GetBytes(-0.1f).CopyTo(stereo, 4);
+        BitConverter.GetBytes(1f).CopyTo(stereo, 8); BitConverter.GetBytes(1f).CopyTo(stereo, 12);
+        Assert.Equal([0.2f, 1f], Ears.Mono(stereo, 16, NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2)).Select(v => MathF.Round(v, 3)));
+
+        var pcm = new byte[4];
+        BitConverter.GetBytes((short)16384).CopyTo(pcm, 0); BitConverter.GetBytes((short)-32768).CopyTo(pcm, 2);
+        Assert.Equal([0.5f, -1f], Ears.Mono(pcm, 4, new NAudio.Wave.WaveFormat(16000, 16, 1)));
+    }
+
+    [Theory]
+    [InlineData("  現在播的是哪一首？ ", "現在播的是哪一首？")]
+    [InlineData("(音樂)", "")]
+    [InlineData("[BLANK_AUDIO]", "")]
+    [InlineData("謝謝觀看", "")]
+    [InlineData("ご視聴ありがとうございました", "")]
+    [InlineData("", "")]
+    public void 沒人說話時模型自己編的句子不算(string heard, string kept) => Assert.Equal(kept, Ears.Tidy(heard));
+
+    [Theory]
+    [InlineData(2, 384)]       // 很短的句子也留一個下限，太少會聽錯
+    [InlineData(6, 500)]
+    [InlineData(20, 1200)]
+    [InlineData(40, 1500)]     // 不超過模型原本的 30 秒
+    public void 只讓模型看這句話需要的長度(double seconds, int context) => Assert.Equal(context, Ears.AudioContext(seconds));
+
+    [Theory]
+    [InlineData("zh-TW", "zh")]
+    [InlineData("ja-JP", "ja")]
+    [InlineData("en-US", "en")]
+    [InlineData("", "auto")]
+    public void 語言代碼(string windows, string whisper) => Assert.Equal(whisper, Ears.Code(windows));
+}
+
+public class SpokenLanguageTests
+{
+    [Theory]
+    [InlineData("現在播放的是 Dream Believers。", "zh-TW", "zh")]
+    [InlineData("次の曲にしました。", "zh-TW", "ja")]
+    [InlineData("Sure, skipping to the next song.", "zh-TW", "en")]
+    [InlineData("다음 곡으로 넘겼어요.", "zh-TW", "ko")]
+    [InlineData("Bien sûr, voilà.", "fr-FR", "fr")]
+    [InlineData("Sure, here you go.", "de-DE", "de")]
+    [InlineData("東京", "ja-JP", "ja")]
+    [InlineData("東京", "en-US", "zh")]
+    public void 依回答的文字挑朗讀的語言(string text, string language, string spoken) =>
+        Assert.Equal(spoken, VoiceAssistant.SpokenLanguage(text, language));
+}
+
+public class AssistantToolTests
+{
+    [Fact]
+    public void 每個工具都有名稱_說明_而且必填的參數有定義()
+    {
+        Assert.Equal(["music", "lyrics", "todo", "timer", "volume", "lyrics_fix"], AssistantTool.All.Select(t => t.Name));
+        foreach (var tool in AssistantTool.All)
+        {
+            Assert.True(tool.Description.Length > 20, tool.Name);
+            Assert.All(tool.Required, r => Assert.True(tool.Properties.ContainsKey(r), $"{tool.Name}.{r}"));
+            foreach (var (name, property) in tool.Properties) Assert.False(string.IsNullOrEmpty(property!["description"]?.ToString()), $"{tool.Name}.{name}");
+        }
+    }
+}
+
+public class FollowUpTests
+{
+    [Theory]
+    [InlineData("已切到下一首。", 0, false)]
+    [InlineData("要加到哪一天的待辦？", 0, true)]
+    [InlineData("Which one do you mean?", 1, true)]
+    [InlineData("你是說「買牛奶」嗎？」", 0, true)]
+    [InlineData("還要我做什麼嗎？", 3, false)]     // 連問太多輪就停，不然沒完沒了
+    [InlineData("", 0, false)]
+    public void 只有助手反問時才再聽一次(string reply, int rounds, bool again) =>
+        Assert.Equal(again, VoiceAssistant.AsksBack(reply, rounds));
 }

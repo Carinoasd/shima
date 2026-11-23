@@ -299,6 +299,8 @@ public sealed class RoonSource : IMediaSource
     }
 
     public void PlayPause() => Command("control", new JsonObject { ["control"] = "playpause" });
+    public void Play() => Command("control", new JsonObject { ["control"] = "play" });
+    public void Pause() => Command("control", new JsonObject { ["control"] = "pause" });
     public void Next() => Command("control", new JsonObject { ["control"] = "next" });
     public void Previous() => Command("control", new JsonObject { ["control"] = "previous" });
     public void Seek(TimeSpan position) =>

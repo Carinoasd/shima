@@ -175,6 +175,8 @@ public sealed class SmtcSource : IMediaSource
     }
 
     public async void PlayPause() { try { if (_session is { } s) await s.TryTogglePlayPauseAsync(); } catch { } }
+    public async void Play() { try { if (_session is { } s) await s.TryPlayAsync(); } catch { } }
+    public async void Pause() { try { if (_session is { } s) await s.TryPauseAsync(); } catch { } }
     public async void Next() { try { if (_session is { } s) await s.TrySkipNextAsync(); } catch { } }
     public async void Previous() { try { if (_session is { } s) await s.TrySkipPreviousAsync(); } catch { } }
     public async void Seek(TimeSpan position) { try { if (_session is { } s) await s.TryChangePlaybackPositionAsync(position.Ticks); } catch { } }

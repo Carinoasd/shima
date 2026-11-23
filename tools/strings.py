@@ -110,6 +110,16 @@ API 網址（OpenAI 相容，結尾到 /v1） | API 地址（OpenAI 兼容，以
 找不到可用的模型 | 找不到可用的模型 | No models available | 利用できるモデルがありません | 사용할 수 있는 모델이 없습니다 | No hay modelos disponibles | Aucun modèle disponible | Keine Modelle verfügbar | Nenhum modelo disponível | Nessun modello disponibile | Нет доступных моделей
 {0} API 錯誤 | {0} API 错误 | {0} API error | {0} API エラー | {0} API 오류 | Error de la API de {0} | Erreur de l'API {0} | {0}-API-Fehler | Erro da API de {0} | Errore dell'API {0} | Ошибка API {0}
 連不上 {0} | 连不上 {0} | Cannot reach {0} | {0} に接続できません | {0}에 연결할 수 없습니다 | No se puede conectar con {0} | Impossible de joindre {0} | {0} ist nicht erreichbar | Não é possível ligar a {0} | Impossibile raggiungere {0} | Не удаётся подключиться к {0}
+這台電腦沒有安裝 {0} 的語音辨識，改用 {1} 聆聽 | 这台电脑没有安装 {0} 的语音识别，改用 {1} 聆听 | Speech recognition for {0} is not installed; listening in {1} instead | このパソコンには {0} の音声認識がないため、{1} で聞き取ります | 이 컴퓨터에는 {0} 음성 인식이 없어 {1}(으)로 듣습니다 | No hay reconocimiento de voz para {0}; se escuchará en {1} | La reconnaissance vocale pour {0} n'est pas installée ; écoute en {1} | Spracherkennung für {0} ist nicht installiert; es wird auf {1} zugehört | Não há reconhecimento de voz para {0}; a ouvir em {1} | Il riconoscimento vocale per {0} non è installato; ascolto in {1} | Распознавание речи для {0} не установлено; слушаю на {1}
+下載語音模型中… {0} MB | 正在下载语音模型… {0} MB | Downloading the speech model… {0} MB | 音声モデルをダウンロード中… {0} MB | 음성 모델 다운로드 중… {0} MB | Descargando el modelo de voz… {0} MB | Téléchargement du modèle vocal… {0} Mo | Sprachmodell wird geladen… {0} MB | A descarregar o modelo de voz… {0} MB | Download del modello vocale… {0} MB | Загрузка речевой модели… {0} МБ
+語音模型下載失敗 | 语音模型下载失败 | Could not download the speech model | 音声モデルをダウンロードできませんでした | 음성 모델을 내려받지 못했습니다 | No se pudo descargar el modelo de voz | Échec du téléchargement du modèle vocal | Sprachmodell konnte nicht geladen werden | Não foi possível descarregar o modelo de voz | Impossibile scaricare il modello vocale | Не удалось загрузить речевую модель
+語音辨識用 Windows 的聽寫 | 语音识别使用 Windows 的听写 | Use Windows dictation for speech recognition | 音声認識に Windows の音声入力を使う | 음성 인식에 Windows 받아쓰기 사용 | Usar el dictado de Windows para el reconocimiento de voz | Utiliser la dictée de Windows pour la reconnaissance vocale | Windows-Diktat für die Spracherkennung verwenden | Usar o ditado do Windows para o reconhecimento de voz | Usa la dettatura di Windows per il riconoscimento vocale | Использовать диктовку Windows для распознавания речи
+現在播的是哪一首？ | 现在播的是哪一首？ | What's playing? | 今かかっている曲は？ | 지금 나오는 곡은? | ¿Qué está sonando? | Qu'est-ce qui passe ? | Was läuft gerade? | O que está a tocar? | Cosa sta suonando? | Что сейчас играет?
+這句歌詞是什麼意思？ | 这句歌词是什么意思？ | What does this line mean? | この歌詞の意味は？ | 이 가사는 무슨 뜻이야? | ¿Qué significa este verso? | Que veut dire cette phrase ? | Was bedeutet diese Zeile? | O que significa este verso? | Cosa significa questo verso? | Что значит эта строка?
+下一首 | 下一首 | Next song | 次の曲 | 다음 곡 | Siguiente canción | Titre suivant | Nächster Titel | Música seguinte | Brano successivo | Следующая песня
+提醒我買牛奶 | 提醒我买牛奶 | Remind me to buy milk | 牛乳を買うのを忘れないように | 우유 사는 거 기억해 줘 | Recuérdame comprar leche | Rappelle-moi d'acheter du lait | Erinnere mich daran, Milch zu kaufen | Lembra-me de comprar leite | Ricordami di comprare il latte | Напомни купить молоко
+專注 25 分鐘 | 专注 25 分钟 | Focus for 25 minutes | 25分集中する | 25분 집중 | Concentrarme 25 minutos | Concentration pendant 25 minutes | 25 Minuten Fokus | Foco durante 25 minutos | Concentrazione per 25 minuti | Сосредоточиться на 25 минут
+辨識中… | 识别中… | Recognising… | 認識中… | 인식 중… | Reconociendo… | Reconnaissance… | Erkenne… | A reconhecer… | Riconoscimento… | Распознаю…
 輸出：{0} | 输出：{0} | Output: {0} | 出力：{0} | 출력: {0} | Salida: {0} | Sortie : {0} | Ausgabe: {0} | Saída: {0} | Uscita: {0} | Выход: {0}
 """
 
@@ -138,6 +148,9 @@ for f in glob.glob(os.path.join(src, "**", "*.cs"), recursive=True):
     if f.endswith("Mascot.cs"):
         for m in re.finditer(r'\("\w+", "([^"]+)"\)', s): add(m.group(1))
 for k in ["中文翻譯", "羅馬拼音", "不顯示"]: add(k)
+agents = open(os.path.join(src, "IslandWindow.Agents.cs"), encoding="utf-8").read()
+for m in re.finditer(r'Examples = \[(.*?)\];', agents, flags=re.S):
+    for k in re.findall(r'"([^"]+)"', m.group(1)): add(k)
 have = {r[0] for r in rows}
 for k in used:
     if k not in have: print("沒有翻譯:", k); problems += 1

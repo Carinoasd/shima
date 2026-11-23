@@ -28,6 +28,7 @@ public partial class IslandWindow
             if (total > 0) Toast($"Claude Code {_planLine}", 5);
             if (_tab == Tab.Ai) RefreshAi();
         });
+        InitExamples();
         Loaded += (_, _) => _bridge.Start();
     }
 
@@ -123,7 +124,7 @@ public partial class IslandWindow
         // 還沒選模型也要能問清單，所以先用一個暫時的名字建立
         bool none = !s.AiModels.ContainsKey(service.Id) && service.Id != "claude";
         if (none) s.AiModels[service.Id] = "-";
-        var brain = Brain.Create(Music, Loc.Speech, out var problem);
+        var brain = Brain.Create(Tool, Loc.Speech, out var problem);
         if (none) s.AiModels.Remove(service.Id);
         if (brain == null) { Say(problem); return; }
 
@@ -185,24 +186,49 @@ public partial class IslandWindow
     private void Voice_Click(object sender, RoutedEventArgs e) => StartVoice(once: false);
 
     private VoiceAssistant? _asker;
+    private Ears? _ears;
+    private string _voiceLine = "";
+    private bool _micOpen, _resumeMusic;
 
-    /// <summary>在 AI 分頁打字問 Claude，答案顯示在下面。同一段對話會接著聊。</summary>
+    /// <summary>可以直接點的範例：一看就知道能問什麼，點了就問。</summary>
+    private static readonly string[] Examples = ["現在播的是哪一首？", "這句歌詞是什麼意思？", "下一首", "提醒我買牛奶", "專注 25 分鐘"];
+
+    private void InitExamples()
+    {
+        foreach (var example in Examples)
+        {
+            var chip = new System.Windows.Controls.Button
+            {
+                Content = L.T(example), Style = (Style)FindResource("Pill"), Height = 26, FontSize = 12,
+                Padding = new Thickness(11, 0, 11, 0), Margin = new Thickness(0, 0, 6, 6),
+            };
+            chip.Click += (_, _) => _ = AskAsync(L.T(example));
+            ExamplesBox.Children.Add(chip);
+        }
+    }
+
     private async void AskBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if (e.Key != System.Windows.Input.Key.Enter || AskBox.Text.Trim() is not { Length: > 0 } question || !AskBox.IsEnabled) return;
+        if (e.Key == System.Windows.Input.Key.Enter && AskBox.Text.Trim() is { Length: > 0 } question) await AskAsync(question);
+    }
+
+    /// <summary>在 AI 分頁打字（或點範例）問 AI，答案顯示在下面。同一段對話會接著聊。</summary>
+    private async Task AskAsync(string question)
+    {
+        if (!AskBox.IsEnabled) return;
         if (_asker == null)
         {
-            var brain = Brain.Create(action => Dispatcher.Invoke(() => Music(action)), Loc.Speech, out var problem);
+            var brain = Brain.Create((tool, arguments) => Dispatcher.Invoke(() => Tool(tool, arguments)), Loc.Speech, out var problem);
             if (brain == null) { Say(problem); return; }
             _asker = new VoiceAssistant(brain, Loc.Speech);
         }
         AskBox.IsEnabled = false;
+        AskBox.Text = question;
         Say("…");
         var answer = await _asker.AskAsync(question);
         AskBox.Text = "";
         AskBox.IsEnabled = true;
         Say(answer);
-        AskBox.Focus();
     }
 
     /// <summary>AI 分頁下方那塊文字；面板的高度跟著它長。</summary>
@@ -221,32 +247,157 @@ public partial class IslandWindow
         if (_voice != null) { _voice.Stop(); return; }
 
         var language = AppSettings.Current.VoiceLanguage is { Length: > 0 } spoken ? spoken : Loc.Speech;
-        var brain = Brain.Create(action => Dispatcher.Invoke(() => Music(action)), language, out var problem);
+        var brain = Brain.Create((tool, arguments) => Dispatcher.Invoke(() => Tool(tool, arguments)), language, out var problem);
         if (brain == null) { Say(problem); if (once) Toast(L.T("先到 AI 分頁設定好 AI 服務"), 4); return; }
 
-        var voice = _voice = new VoiceAssistant(brain, language) { Once = once };
-        voice.Said += text => Dispatcher.BeginInvoke(() => { Say(text); if (once && text.Length > 0) Toast(text, 12); });
+        _ears ??= new Ears();
+        var voice = _voice = new VoiceAssistant(brain, language, _ears) { Once = once || !AppSettings.Current.VoiceContinuous };
+        _resumeMusic = false;
+        // 聽到的話、回答都顯示在膠囊上，島收著也看得到
+        voice.Said += text => Dispatcher.BeginInvoke(() => { Say(text); _voiceLine = text; UpdateTexts(); });
+        voice.Listening += on => Dispatcher.BeginInvoke(() =>
+        {
+            _micOpen = on;
+            // 喇叭在放歌的話麥克風會一直收到歌聲，以為還有人在講話：先暫停，問完再繼續
+            // 用當下的播放狀態判斷（剛切歌時畫面上那份可能還沒更新）
+            if (on && AppSettings.Current.PauseWhileListening && _media.Current?.Playing == true) { _media.Pause(); _resumeMusic = true; }
+        });
+        voice.NeedsSetting += page => Dispatcher.BeginInvoke(() =>
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(page) { UseShellExecute = true }); }
+            catch (Exception x) { Log.Write("settings: " + x.Message); }
+        });
         voice.Stopped += () => Dispatcher.BeginInvoke(() =>
         {
             if (_voice == voice) _voice = null;
+            _micOpen = false;
+            // 最後那句回答在膠囊上多留一下再換回歌詞
+            if (_voiceLine.Length > 0) Toast(_voiceLine, 8, cheer: false);
+            _voiceLine = "";
+            if (_resumeMusic) _media.Play();
+            _resumeMusic = false;
             VoiceButton.Content = "";
         });
         VoiceButton.Content = "";   // 停止
         _ = Task.Run(voice.RunAsync);
     }
 
+    /// <summary>助手要用某個工具：做完之後回一句話讓它知道結果。（給 AI 看的，所以不翻譯。）</summary>
+    private string Tool(string tool, System.Text.Json.Nodes.JsonObject arguments)
+    {
+        Log.Write($"tool: {tool} {arguments.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}");
+        string Arg(string name) => arguments[name]?.ToString() ?? "";
+        double Number(string name, double fallback) => double.TryParse(Arg(name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
+        var s = AppSettings.Current;
+        try
+        {
+            switch (tool)
+            {
+                case "music": return Music(Arg("action"));
+
+                case "lyrics":
+                {
+                    if (_track is not { } track) return "目前沒有在播放音樂";
+                    if (_sheet is not { } sheet) return $"《{track.Title}》找不到歌詞";
+                    int now = sheet.Synced ? Lyrics.Lrc.LineAt(sheet.Lines, track.Now + _lyricShift) : -1;
+                    var text = new System.Text.StringBuilder($"《{track.Title}》— {track.Artist}\n");
+                    for (int i = 0; i < sheet.Lines.Count && i < 160; i++)
+                    {
+                        if (sheet.Lines[i].Text.Length == 0) continue;
+                        text.Append(i == now ? "【正在唱】" : "").Append(sheet.Lines[i].Text);
+                        if (sheet.Translation is { } tr && i < tr.Count && tr[i].Length > 0) text.Append("（").Append(tr[i]).Append('）');
+                        text.Append('\n');
+                    }
+                    return text.ToString();
+                }
+
+                case "todo":
+                {
+                    var words = Arg("text").Trim();
+                    TodoItem? Find() => s.Todos.FirstOrDefault(t => words.Length > 0 && t.Text.Contains(words, StringComparison.OrdinalIgnoreCase));
+                    switch (Arg("action"))
+                    {
+                        case "add":
+                            if (words.Length == 0) return "沒有給待辦的內容";
+                            s.Todos.Add(new TodoItem { Text = words }); s.Save(); RefreshTools();
+                            return $"已加入待辦：{words}";
+                        case "done":
+                            if (Find() is not { } done) return $"找不到包含「{words}」的待辦";
+                            done.Done = true; s.Save(); RefreshTools();
+                            return $"已標成完成：{done.Text}";
+                        case "remove":
+                            if (Find() is not { } gone) return $"找不到包含「{words}」的待辦";
+                            s.Todos.Remove(gone); s.Save(); RefreshTools();
+                            return $"已刪除：{gone.Text}";
+                        default:
+                            return s.Todos.Count == 0 ? "待辦清單是空的" : string.Join("\n", s.Todos.Select(t => (t.Done ? "[已完成] " : "[未完成] ") + t.Text));
+                    }
+                }
+
+                case "timer":
+                {
+                    string Left() { var left = _pomodoro.Left(DateTime.Now); return $"{(int)left.TotalMinutes} 分 {left.Seconds} 秒"; }
+                    switch (Arg("action"))
+                    {
+                        case "start":
+                            if (Number("minutes", 0) is > 0 and var minutes)
+                                _pomodoro = new Pomodoro { Focus = TimeSpan.FromMinutes(Math.Clamp(minutes, 1, 180)), Break = TimeSpan.FromMinutes(Math.Clamp(s.BreakMinutes, 1, 60)) };
+                            if (!_pomodoro.Running) _pomodoro.Toggle(DateTime.Now);
+                            UpdateTimer();
+                            return $"番茄鐘開始，剩 {Left()}";
+                        case "pause":
+                            if (_pomodoro.Running) _pomodoro.Toggle(DateTime.Now);
+                            UpdateTimer();
+                            return $"番茄鐘已暫停，剩 {Left()}";
+                        case "reset": _pomodoro.Reset(); UpdateTimer(); return "番茄鐘已歸零";
+                        default: return _pomodoro.Running ? $"{(_pomodoro.Resting ? "休息中" : "專注中")}，剩 {Left()}" : $"番茄鐘沒有在跑，目前設定剩 {Left()}";
+                    }
+                }
+
+                case "volume":
+                {
+                    int steps = (int)Math.Clamp(Number("steps", 2), 1, 10) * (Arg("direction") == "down" ? -1 : 1);
+                    // Roon 有自己的音量；不是 Roon 在播就調整台電腦的音量
+                    if (_media.Nudge(steps) is { } roon) return $"Roon 音量現在是 {roon}";
+                    return _system.Nudge(steps * 4) is { } system ? $"電腦音量現在是 {system}%" : "沒有可以調音量的裝置";
+                }
+
+                case "lyrics_fix":
+                {
+                    if (_track == null) return "目前沒有在播放音樂";
+                    int ms = (int)Math.Round(Math.Clamp(Number("seconds", 0.3), 0.1, 5) * 1000);
+                    switch (Arg("action"))
+                    {
+                        case "other": LyricsOther_Click(this, new RoutedEventArgs()); return "正在換另一個來源的歌詞";
+                        case "earlier": ShiftLyrics(ms); return $"歌詞提早了 {ms / 1000.0:0.0} 秒，目前總共{(_lyricShift.TotalMilliseconds >= 0 ? "提早" : "延後")} {Math.Abs(_lyricShift.TotalSeconds):0.0} 秒";
+                        case "later": ShiftLyrics(-ms); return $"歌詞延後了 {ms / 1000.0:0.0} 秒，目前總共{(_lyricShift.TotalMilliseconds >= 0 ? "提早" : "延後")} {Math.Abs(_lyricShift.TotalSeconds):0.0} 秒";
+                        default: LyricsReset_Click(this, new RoutedEventArgs()); return "歌詞已還原";
+                    }
+                }
+            }
+            return "沒有這個工具";
+        }
+        catch (Exception e) { Log.Write($"tool {tool}: {e.Message}"); return "執行時發生錯誤"; }
+    }
+
     /// <summary>語音助手要求的音樂動作；回傳給 Claude 看的結果。</summary>
     private string Music(string action)
     {
         var track = _track;
+        // 使用者用說的控制了播放：照他說的做，結束時不要再自動恢復，免得跟他的指令打架。
+        // 一律用明確的「播放」「暫停」而不是「切換」：聆聽時我們可能已經先替他暫停了，
+        // 而且有些播放器切歌後自己就開始播，這時再切換一次反而會把它停掉。
+        if (action is "play" or "pause" or "next" or "previous") _resumeMusic = false;
         switch (action)
         {
-            case "play_pause": _media.PlayPause(); return track == null ? "目前沒有播放器" : track.Playing ? "已暫停" : "已開始播放";
-            case "next": _media.Next(); return track == null ? "目前沒有播放器" : "已切到下一首";
-            case "previous": _media.Previous(); return track == null ? "目前沒有播放器" : "已切到上一首";
+            case "play": _media.Play(); return track == null ? "目前沒有播放器" : "已開始播放";
+            case "pause": _media.Pause(); return track == null ? "目前沒有播放器" : "已暫停";
+            case "next": _media.Next(); _media.Play(); return track == null ? "目前沒有播放器" : "已切到下一首並播放";
+            case "previous": _media.Previous(); _media.Play(); return track == null ? "目前沒有播放器" : "已切到上一首並播放";
             case "now_playing":
                 return track == null ? "目前沒有在播放音樂"
-                    : $"正在{(track.Playing ? "播放" : "暫停")}：{track.Title}，演出者 {track.Artist}，專輯 {track.Album}，來源 {track.Source}";
+                    // 為了收音暫時替他暫停的不算暫停：對使用者來說這首歌是在播的
+                    : $"正在{(track.Playing || _resumeMusic ? "播放" : "暫停")}：{track.Title}，演出者 {track.Artist}，專輯 {track.Album}，來源 {track.Source}";
             default: return "不認得的動作";
         }
     }

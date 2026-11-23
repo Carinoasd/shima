@@ -55,6 +55,7 @@ public partial class IslandWindow
         AudioSwitch.IsChecked = s.AudioReactive;
         NotifySwitch.IsChecked = s.Notifications;
         SystemSwitch.IsChecked = s.SystemStatus;
+        DictationSwitch.IsChecked = s.SpeechEngine == "windows";
         WaterSwitch.IsChecked = s.Water;
         WaterBox.Text = s.WaterMinutes.ToString();
         DiscordBox.Text = s.DiscordClientId;
@@ -105,6 +106,7 @@ public partial class IslandWindow
         s.HideInFullscreen = FullscreenSwitch.IsChecked == true;
         s.AudioReactive = AudioSwitch.IsChecked == true;
         s.SystemStatus = SystemSwitch.IsChecked == true;
+        s.SpeechEngine = DictationSwitch.IsChecked == true ? "windows" : "whisper";
         if (s.Water != (WaterSwitch.IsChecked == true)) { s.Water = WaterSwitch.IsChecked == true; _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes); }
         s.Save();
     }

@@ -51,6 +51,34 @@ public sealed record AiService(string Id, string Name, string BaseUrl, bool Need
     public static AiService Of(string id) => All.FirstOrDefault(s => s.Id == id) ?? All[0];
 }
 
+/// <summary>助手能用的一個工具。Properties 是 JSON Schema 的 properties。</summary>
+public sealed record AssistantTool(string Name, string Description, JsonObject Properties, string[] Required)
+{
+    private static JsonObject Text(string description) => new() { ["type"] = "string", ["description"] = description };
+    private static JsonObject Choice(string description, params string[] values) =>
+        new() { ["type"] = "string", ["enum"] = new JsonArray(values.Select(v => (JsonNode)v).ToArray()), ["description"] = description };
+    private static JsonObject Number(string description) => new() { ["type"] = "number", ["description"] = description };
+
+    /// <summary>
+    /// 助手能做的事：除了聊天，就是操作 Shima 自己的功能。說明是寫給 AI 看的，要講清楚什麼時候該用。
+    /// </summary>
+    public static readonly AssistantTool[] All =
+    [
+        new("music", "控制使用者電腦上正在播放的音樂，或查詢現在播的是哪一首。使用者提到播放、暫停、切歌、上一首、下一首、這首歌是什麼時使用。",
+            new() { ["action"] = Choice("play：開始或繼續播放；pause：暫停；next：下一首；previous：上一首；now_playing：查詢現在播放的歌", "play", "pause", "next", "previous", "now_playing") }, ["action"]),
+        new("lyrics", "讀取現在這首歌的完整歌詞（有的話附中文翻譯），並標出正在唱的那一句。使用者問「這句歌詞什麼意思」「這首歌在唱什麼」「剛剛那句是什麼」時，先用這個工具拿到歌詞再回答。",
+            [], []),
+        new("todo", "管理使用者的待辦清單。使用者說「提醒我…」「幫我記…」「加一個待辦」時用 add；問有哪些待辦用 list；說做完了用 done；要刪掉用 remove。",
+            new() { ["action"] = Choice("add：新增；list：列出全部；done：標成已完成；remove：刪除", "add", "list", "done", "remove"), ["text"] = Text("add 時是待辦的內容；done、remove 時是要找的那一項的關鍵字") }, ["action"]),
+        new("timer", "控制番茄鐘（專注計時器）。使用者說「開始專注」「計時 25 分鐘」「暫停計時」「還剩多久」時使用。",
+            new() { ["action"] = Choice("start：開始（可指定分鐘數）；pause：暫停；reset：歸零；status：查詢剩餘時間", "start", "pause", "reset", "status"), ["minutes"] = Number("start 時要專注幾分鐘；不給就用使用者原本的設定") }, ["action"]),
+        new("volume", "調整音量。使用者說「大聲一點」「小聲一點」「音量調到差不多一半」時使用。",
+            new() { ["direction"] = Choice("up：大聲；down：小聲", "up", "down"), ["steps"] = Number("調幾格，預設 2；「一點點」用 1，「很多」用 5") }, ["direction"]),
+        new("lyrics_fix", "歌詞有問題時校正。歌詞內容不對、抓到別首歌或別的版本時用 other 換一份來源；歌詞比歌聲慢了用 earlier 提早；比歌聲快了用 later 延後；要回到原本用 reset。",
+            new() { ["action"] = Choice("other：換另一個來源的歌詞；earlier：提早顯示；later：延後顯示；reset：還原", "other", "earlier", "later", "reset"), ["seconds"] = Number("earlier、later 時要移多少秒，預設 0.3") }, ["action"]),
+    ];
+}
+
 public static class Brain
 {
     /// <summary>所有服務共用的角色說明。</summary>
@@ -58,14 +86,14 @@ public static class Brain
         "你是 Shima 的助手，住在使用者 Windows 桌面頂端的小島裡。你的回答會顯示在很小的面板上或被語音唸出來，所以用口語、簡短的句子，" +
         "通常一到三句；不要用 Markdown、條列、表情符號或網址。使用者用什麼語言說話就用什麼語言回答" +
         (Loc.Lang == "zh-TW" ? "，中文一律用臺灣的繁體中文用語。" : $"；聽不出語言時用 {language}。") +
-        "使用者說的話可能來自語音辨識，會有同音錯字，請依上下文理解。";
+        "使用者說的話可能來自語音辨識，會有同音錯字，請依上下文理解。" +
+        "你可以用工具替使用者操作這座島：控制音樂、讀現在這首歌的歌詞、管理待辦、番茄鐘、音量、校正歌詞。做完動作後用一句話說你做了什麼。";
 
-    public const string MusicDescription = "控制使用者電腦上正在播放的音樂，或查詢現在播的是哪一首。使用者提到播放、暫停、切歌、上一首、下一首、這首歌是什麼時使用。";
-    public const string ActionDescription = "play_pause：播放或暫停；next：下一首；previous：上一首；now_playing：查詢現在播放的歌";
-    public static readonly string[] Actions = ["play_pause", "next", "previous", "now_playing"];
+    /// <summary>執行一個工具：名稱、參數 → 給 AI 看的結果。</summary>
+    public delegate string Run(string tool, JsonObject arguments);
 
     /// <summary>照設定建立目前選的服務；金鑰或模型還沒填好就是 null，problem 說缺什麼。</summary>
-    public static IBrain? Create(Func<string, string> music, string language, out string problem)
+    public static IBrain? Create(Run run, string language, out string problem)
     {
         var s = AppSettings.Current;
         var service = AiService.Of(s.AiService);
@@ -73,16 +101,16 @@ public static class Brain
         var model = s.AiModels.GetValueOrDefault(service.Id, service.Id == "claude" ? ClaudeBrain.DefaultModel : "");
         problem = "";
         if (service.NeedsKey && key.Length == 0 && service.Id != AiService.Custom) { problem = L.T("先貼上 API 金鑰"); return null; }
-        if (service.Id == "claude") return new ClaudeBrain(key, model, language, music);
+        if (service.Id == "claude") return new ClaudeBrain(key, model, language, run);
         var url = service.Id == AiService.Custom ? s.AiCustomUrl.Trim().TrimEnd('/') : service.BaseUrl;
         if (url.Length == 0) { problem = L.T("先填 API 網址"); return null; }
         if (model.Length == 0) { problem = L.T("先選模型"); return null; }
-        return new OpenAiBrain(url, key, model, language, music);
+        return new OpenAiBrain(url, key, model, language, run);
     }
 }
 
 /// <summary>Claude，走官方的 Anthropic SDK。</summary>
-public sealed class ClaudeBrain(string apiKey, string model, string language, Func<string, string> music) : IBrain
+public sealed class ClaudeBrain(string apiKey, string model, string language, Brain.Run run) : IBrain
 {
     /// <remarks>
     /// 回答一兩句話、偶爾切歌用不到最強的模型：Haiku 便宜很多，回應也快，語音對話比較需要的是反應速度。
@@ -93,19 +121,16 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Fu
     private readonly AnthropicClient _client = new() { ApiKey = apiKey };
     private readonly List<MessageParam> _messages = [];
 
-    private static readonly Tool MusicTool = new()
+    private static readonly ToolUnion[] Tools = AssistantTool.All.Select(t => (ToolUnion)new Tool
     {
-        Name = "music",
-        Description = Brain.MusicDescription,
+        Name = t.Name,
+        Description = t.Description,
         InputSchema = new()
         {
-            Properties = new Dictionary<string, JsonElement>
-            {
-                ["action"] = JsonSerializer.SerializeToElement(new { type = "string", @enum = Brain.Actions, description = Brain.ActionDescription }),
-            },
-            Required = ["action"],
+            Properties = t.Properties.ToDictionary(p => p.Key, p => JsonSerializer.SerializeToElement(p.Value)),
+            Required = t.Required,
         },
-    };
+    }).ToArray();
 
     public async Task<string> ThinkAsync(string said, CancellationToken stop)
     {
@@ -118,7 +143,7 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Fu
                 MaxTokens = 16000,
                 System = Brain.Prompt(language),
                 OutputConfig = new OutputConfig { Effort = Effort.Low },
-                Tools = [MusicTool],
+                Tools = Tools,
                 Messages = _messages,
             }, stop);
 
@@ -139,8 +164,9 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Fu
                 else if (block.TryPickToolUse(out ToolUseBlock? use))
                 {
                     echo.Add(new ToolUseBlockParam { ID = use.ID, Name = use.Name, Input = use.Input });
-                    var action = use.Input.TryGetValue("action", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() ?? "" : "";
-                    results.Add(new ToolResultBlockParam { ToolUseID = use.ID, Content = music(action) });
+                    var arguments = new JsonObject();
+                    foreach (var (key, value) in use.Input) arguments[key] = JsonNode.Parse(value.GetRawText());
+                    results.Add(new ToolResultBlockParam { ToolUseID = use.ID, Content = run(use.Name, arguments) });
                 }
             }
             _messages.Add(new AssistantMessageParam { Content = echo });
@@ -166,7 +192,7 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Fu
 }
 
 /// <summary>OpenAI 相容的 Chat Completions：OpenAI、Gemini、DeepSeek、Ollama 等等。</summary>
-public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, string language, Func<string, string> music) : IBrain
+public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, string language, Brain.Run run) : IBrain
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
 
@@ -194,29 +220,21 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         foreach (var m in messages) all.Add(m?.DeepClone());
         var body = new JsonObject { ["model"] = model, ["messages"] = all };
         if (tools)
-            body["tools"] = new JsonArray(new JsonObject
+            body["tools"] = new JsonArray(AssistantTool.All.Select(t => (JsonNode)new JsonObject
             {
                 ["type"] = "function",
                 ["function"] = new JsonObject
                 {
-                    ["name"] = "music",
-                    ["description"] = Brain.MusicDescription,
+                    ["name"] = t.Name,
+                    ["description"] = t.Description,
                     ["parameters"] = new JsonObject
                     {
                         ["type"] = "object",
-                        ["properties"] = new JsonObject
-                        {
-                            ["action"] = new JsonObject
-                            {
-                                ["type"] = "string",
-                                ["enum"] = new JsonArray(Brain.Actions.Select(a => (JsonNode)a).ToArray()),
-                                ["description"] = Brain.ActionDescription,
-                            },
-                        },
-                        ["required"] = new JsonArray("action"),
+                        ["properties"] = t.Properties.DeepClone(),
+                        ["required"] = new JsonArray(t.Required.Select(r => (JsonNode)r).ToArray()),
                     },
                 },
-            });
+            }).ToArray());
         return body;
     }
 
@@ -248,9 +266,9 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             _messages.Add(message.DeepClone());
             foreach (var call in calls)
             {
-                string action = "";
-                try { action = JsonNode.Parse(call?["function"]?["arguments"]?.ToString() ?? "{}")?["action"]?.ToString() ?? ""; } catch { }
-                _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = music(action) });
+                JsonObject arguments = [];
+                try { arguments = JsonNode.Parse(call?["function"]?["arguments"]?.ToString() is { Length: > 0 } raw ? raw : "{}") as JsonObject ?? []; } catch { }
+                _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = run(call?["function"]?["name"]?.ToString() ?? "", arguments) });
             }
         }
         return L.T("我有點卡住了，再說一次好嗎？");

@@ -74,6 +74,20 @@ public sealed class AppSettings
     /// <summary>語音助手聽與說的語言。</summary>
     /// <remarks>空字串：跟著介面語言。</remarks>
     public string VoiceLanguage { get; set; } = "";
+    /// <summary>語音辨識用哪一種：whisper（在這台電腦上辨識）或 windows（Windows 的聽寫，要開線上語音辨識）。</summary>
+    public string SpeechEngine { get; set; } = "whisper";
+    /// <summary>本機語音辨識的模型：tiny（75 MB）、base（150 MB）、small（470 MB）、medium（1.5 GB）。越大越準也越慢。</summary>
+    public string WhisperModel { get; set; } = "base";
+
+    /// <summary>
+    /// 按一次麥克風就一直對話到再按一次為止。預設關閉：問一句答一句就結束，
+    /// 因為喇叭在放音樂時一直開著麥克風，它會把歌聲當成你在講話而自己回答。
+    /// </summary>
+    public bool VoiceContinuous { get; set; }
+
+    /// <summary>語音助手在聽的時候先把音樂暫停（不然麥克風會收到歌聲），問完再繼續播。</summary>
+    public bool PauseWhileListening { get; set; } = true;
+
     /// <summary>問問題用哪一家的 AI：AiService.All 裡的代號。</summary>
     public string AiService { get; set; } = "claude";
     /// <summary>每一家的 API 金鑰，用 Windows 的 DPAPI 加密後存放（只有這個 Windows 帳號解得開）。</summary>

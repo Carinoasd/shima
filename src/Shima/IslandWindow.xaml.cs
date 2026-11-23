@@ -47,7 +47,7 @@ public partial class IslandWindow : Window
     private double _pillWidth = IdleWidth;
     private IntPtr _hwnd;
 
-    public IslandWindow(bool smoke, string? shotFolder = null)
+    public IslandWindow(bool smoke, string? shotFolder = null, List<string>? asks = null)
     {
         _smoke = smoke;
         InitializeComponent();
@@ -77,6 +77,19 @@ public partial class IslandWindow : Window
             Refresh();
             _tick.Start();
             if (shotFolder != null) { await ShootAsync(shotFolder); return; }
+            if (asks is { Count: > 0 })
+            {
+                await Task.Delay(7000);
+                Refresh();
+                foreach (var question in asks)
+                {
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    await AskAsync(question);
+                    Log.Write($"ask-test（{clock.Elapsed.TotalSeconds:0.0}s）問「{question}」→ 答「{VoiceText.Text.Replace('\n', ' ')}」");
+                }
+                Close();
+                return;
+            }
             if (_smoke)
             {
                 await Task.Delay(2500);
@@ -86,7 +99,8 @@ public partial class IslandWindow : Window
         };
 
         Buddy.Kind = AppSettings.Current.Character;
-        Buddy.Level = Meter.Level = () => _meter.Running ? _meter.Level : 0.35f;
+        Buddy.Level = () => _meter.Running ? _meter.Level : 0.35f;
+        Meter.Level = () => _micOpen ? Agents.Ears.Level : _meter.Running ? _meter.Level : 0.35f;
         Closed += (_, _) => _meter.Dispose();
         foreach (var (id, name) in Mascot.All)
         {
@@ -207,7 +221,7 @@ public partial class IslandWindow : Window
             // 只在真的有歌在播、島也看得到的時候才擷取聲音
             bool listen = AppSettings.Current.AudioReactive && _track?.Playing == true && !_hiddenForFullscreen;
             if (listen && !_meter.Running) _meter.Start(); else if (!listen && _meter.Running) _meter.Stop();
-            Meter.Visibility = listen ? Visibility.Visible : Visibility.Collapsed;
+            Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateTimer();
         UpdateTexts();
@@ -219,6 +233,13 @@ public partial class IslandWindow : Window
     private void UpdateTexts()
     {
         var track = _track;
+        // 語音助手正在聽或回答：優先顯示，音量條換成麥克風的音量
+        if (_voice != null && _voiceLine.Length > 0)
+        {
+            Meter.Visibility = _micOpen ? Visibility.Visible : Visibility.Collapsed;
+            Pill_Say(_voiceLine);
+            return;
+        }
         if (_toast.Length > 0 && DateTime.Now < _toastUntil) { Pill_Say(_toast); return; }
         _toast = "";
         if (track == null)
@@ -288,7 +309,7 @@ public partial class IslandWindow : Window
     private void Pill_Say(string text)
     {
         PillLine.Say(text);
-        double wanted = Math.Clamp(Math.Ceiling(PillLine.TextWidth) + 7 + (_track != null ? 31 : 5) + 8 + (Buddy.Kind == "none" ? 8 : 32), MinPill, MaxPill);
+        double wanted = Math.Clamp(Math.Ceiling(PillLine.TextWidth) + 7 + (_track != null ? 31 : 5) + 8 + (Buddy.Kind == "none" ? 8 : 32) + (Meter.Visibility == Visibility.Visible ? 21 : 0), MinPill, MaxPill);
         if (Math.Abs(wanted - _pillWidth) > 0.5) { _pillWidth = wanted; Morph(); }
     }
 

@@ -72,7 +72,11 @@ Open the island → the microphone tab.
 
 **Claude Code**: Connect adds four hooks to Claude Code's `settings.json` (one for Windows, one for the default WSL distribution). They only use `curl.exe` to send events to `localhost:47813`, which Shima listens on. Disconnect removes them and leaves everything else alone. Before the first change a copy is kept as `settings.json.before-shima.bak`. When Shima is not running, or the island is hidden behind a full-screen app, Claude Code asks in the terminal as usual.
 
-**Ask an AI**: pick a service, paste that provider's API key (stored encrypted with Windows DPAPI, readable only by your Windows account), then press the model button and choose from the list that provider actually offers. After that, type in the box, or press the microphone and speak (press again to stop). Speech recognition and speech synthesis are the ones built into Windows; the conversation goes to the provider you chose and is billed by them.
+**Ask an AI**: pick a service, paste that provider's API key (stored encrypted with Windows DPAPI, readable only by your Windows account), then press the model button and choose from the list that provider actually offers. After that, type in the box, or press the microphone and speak: one question, and it stops after answering; it listens once more only when it asks you something back. The conversation goes to the provider you chose and is billed by them.
+
+Speech is recognised on your own computer with [Whisper](https://github.com/ggerganov/whisper.cpp) by default: no Windows setting to turn on, no language pack to install, the audio never leaves the machine, and Chinese, Japanese, English and many more are understood. The first use downloads a model (about 150 MB) to `%LOCALAPPDATA%\Shima\models` and creates a `runtimes` folder next to the executable for the recognition libraries. Windows dictation can be chosen in Settings instead; it needs "Online speech recognition" turned on in Windows and the speech pack for your language. Answers are read aloud with the voices built into Windows.
+
+The music is paused while it listens (otherwise the microphone hears the song) and resumes afterwards.
 
 | Service | How it is reached |
 | --- | --- |
@@ -104,6 +108,10 @@ With no key entered, the provider's usual environment variable is read (`ANTHROP
 | `DiscordCover` | `true` | Look the cover up on iTunes Search for Discord |
 | `FocusMinutes` / `BreakMinutes` | `25` / `5` | Pomodoro |
 | `ChatSite` | `claude` | `claude`, `gemini`, `chatgpt` |
+| `SpeechEngine` | `whisper` | Speech recognition: `whisper` (on this computer) or `windows` (Windows dictation) |
+| `WhisperModel` | `base` | Local recognition model: `tiny`, `base`, `small`, `medium`; larger is more accurate and slower |
+| `PauseWhileListening` | `true` | Pause the music while the voice assistant listens, resume afterwards |
+| `VoiceContinuous` | `false` | Keep the conversation going after one press of the microphone until you press again. By default it is one question, one answer; not recommended while speakers are playing music, because the microphone takes the song for speech |
 | `AiService` | `claude` | Which provider answers: `claude`, `openai`, `gemini`, `deepseek`, `xai`, `mistral`, `groq`, `openrouter`, `ollama`, `custom` |
 | `AiModels` | `{}` | The model chosen for each provider |
 | `AiCustomUrl` | empty | API URL when `custom` is chosen |

@@ -40,6 +40,9 @@ public interface IMediaSource
     Track? Current { get; }
     event Action? Changed;
     void PlayPause();
+    /// <summary>明確地播放／暫停（不是切換）：已經在播就維持在播，不會因為時機不巧反而變成暫停。</summary>
+    void Play();
+    void Pause();
     void Next();
     void Previous();
     void Seek(TimeSpan position);
