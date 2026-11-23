@@ -118,9 +118,18 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="TextBox">
-            <Border Background="#1FFFFFFF" CornerRadius="10" Padding="10,0">
+            <Border x:Name="Bg" Background="#1FFFFFFF" BorderBrush="Transparent" BorderThickness="1" CornerRadius="10" Padding="10,0">
               <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="#2BFFFFFF"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="#2BFFFFFF"/>
+                <Setter TargetName="Bg" Property="BorderBrush" Value="#80FFFFFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -201,7 +210,7 @@
 
           <!-- 展開 -->
           <Grid x:Name="Panel" Width="408" Margin="16,12,16,16" HorizontalAlignment="Center" VerticalAlignment="Top"
-                Opacity="0" IsHitTestVisible="False">
+                Opacity="0" IsHitTestVisible="False" PreviewMouseDown="Panel_PreviewMouseDown">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto"/>
               <RowDefinition Height="Auto"/>
@@ -304,7 +313,7 @@
                 <Button x:Name="ServiceButton" DockPanel.Dock="Left" Style="{StaticResource Pill}" Height="28" Padding="12,0" ToolTip="AI 服務" Click="Service_Click"/>
                 <Button x:Name="ModelButton" Style="{StaticResource Pill}" Height="28" Padding="12,0" Margin="8,0,0,0" HorizontalAlignment="Left" MaxWidth="290" ToolTip="模型" Click="Model_Click"/>
               </DockPanel>
-              <TextBox x:Name="UrlBox" Style="{StaticResource Input}" Height="30" Margin="0,8,0,0" LostFocus="Url_LostFocus" ToolTip="API 網址（OpenAI 相容，結尾到 /v1）" Visibility="Collapsed"/>
+              <TextBox x:Name="UrlBox" Style="{StaticResource Input}" Height="30" Margin="0,8,0,0" LostKeyboardFocus="Url_LostKeyboardFocus" KeyDown="Url_KeyDown" ToolTip="API 網址（OpenAI 相容，結尾到 /v1）" Visibility="Collapsed"/>
               <Grid x:Name="KeyRow" Height="32" Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="32"/>
@@ -360,7 +369,8 @@
               <CheckBox x:Name="UpdateSwitch" Style="{StaticResource Switch}" Content="檢查新版" Click="Switch_Click"/>
               <CheckBox x:Name="DictationSwitch" Style="{StaticResource Switch}" Content="語音辨識用 Windows 的聽寫" Click="Switch_Click"/>
               <DockPanel Height="32">
-                <TextBox x:Name="WaterBox" DockPanel.Dock="Right" Style="{StaticResource Input}" Height="26" Width="52" Margin="8,0,0,0" LostFocus="SettingsText_LostFocus" ToolTip="每隔幾分鐘"/>
+                <TextBlock DockPanel.Dock="Right" Text="分鐘" FontSize="12" Foreground="#90FFFFFF" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                <TextBox x:Name="WaterBox" DockPanel.Dock="Right" Style="{StaticResource Input}" Height="26" Width="52" Margin="8,0,0,0" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown" ToolTip="每隔幾分鐘"/>
                 <CheckBox x:Name="WaterSwitch" Style="{StaticResource Switch}" Content="喝水提醒" Click="Switch_Click"/>
               </DockPanel>
               <StackPanel x:Name="MoreSettings"/>
@@ -372,11 +382,11 @@
               </DockPanel>
               <StackPanel x:Name="FoldersBox"/>
               <TextBlock Text="Discord Application ID" FontSize="12" Foreground="#90FFFFFF" Margin="2,8,0,6"/>
-              <TextBox x:Name="DiscordBox" Style="{StaticResource Input}" Height="30" LostFocus="SettingsText_LostFocus"/>
+              <TextBox x:Name="DiscordBox" Style="{StaticResource Input}" Height="30" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
               <TextBlock Text="番茄鐘：專注／休息（分鐘）" FontSize="12" Foreground="#90FFFFFF" Margin="2,12,0,6"/>
               <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="FocusBox" Style="{StaticResource Input}" Height="30" Width="64" LostFocus="SettingsText_LostFocus"/>
-                <TextBox x:Name="BreakBox" Style="{StaticResource Input}" Height="30" Width="64" Margin="8,0,0,0" LostFocus="SettingsText_LostFocus"/>
+                <TextBox x:Name="FocusBox" Style="{StaticResource Input}" Height="30" Width="64" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
+                <TextBox x:Name="BreakBox" Style="{StaticResource Input}" Height="30" Width="64" Margin="8,0,0,0" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
               </StackPanel>
             </StackPanel>
             </ScrollViewer>

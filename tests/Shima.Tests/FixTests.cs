@@ -165,3 +165,20 @@ public class MascotRedrawTests
         Assert.NotEqual(Sign("eyes", 1.0, sinceBlink: 0.05), Sign("eyes", 1.03, sinceBlink: 0.08));
     }
 }
+
+public class SettingsInputTests
+{
+    [Theory]
+    [InlineData("30", 60, 5, 480, 30)]
+    [InlineData(" 45 ", 60, 5, 480, 45)]
+    [InlineData("1", 60, 5, 480, 5)]
+    [InlineData("-10", 60, 5, 480, 5)]
+    [InlineData("999", 60, 5, 480, 480)]
+    [InlineData("", 60, 5, 480, 60)]
+    [InlineData("   ", 60, 5, 480, 60)]
+    [InlineData("abc", 60, 5, 480, 60)]
+    [InlineData("30.5", 60, 5, 480, 60)]
+    [InlineData(null, 60, 5, 480, 60)]
+    public void 設定頁的分鐘數輸入解析與範圍限制(string? text, int fallback, int min, int max, int expected) =>
+        Assert.Equal(expected, AppSettings.ParseMinutes(text, fallback, min, max));
+}

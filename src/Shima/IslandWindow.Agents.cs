@@ -212,12 +212,23 @@ public partial class IslandWindow
         menu.IsOpen = true;
     }
 
-    private void Url_LostFocus(object sender, RoutedEventArgs e)
+    private void CommitUrl()
     {
-        if (_loadingKey || UrlBox.Text.Trim() == AppSettings.Current.AiCustomUrl) return;
-        AppSettings.Current.AiCustomUrl = UrlBox.Text.Trim();
+        if (_loadingKey) return;
+        var url = UrlBox.Text.Trim();
+        if (url != UrlBox.Text) UrlBox.Text = url;
+        if (url == AppSettings.Current.AiCustomUrl) return;
+        AppSettings.Current.AiCustomUrl = url;
         AppSettings.Current.Save();
         _asker = null;
+    }
+
+    private void Url_LostKeyboardFocus(object sender, System.Windows.Input.KeyboardFocusChangedEventArgs e) => CommitUrl();
+
+    private void Url_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter) { CommitUrl(); System.Windows.Input.Keyboard.ClearFocus(); e.Handled = true; }
+        else if (e.Key == System.Windows.Input.Key.Escape) { UrlBox.Text = AppSettings.Current.AiCustomUrl; System.Windows.Input.Keyboard.ClearFocus(); e.Handled = true; }
     }
 
     private async void Agent_Click(object sender, RoutedEventArgs e)

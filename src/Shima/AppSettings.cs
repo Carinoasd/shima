@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -218,4 +219,8 @@ public sealed class AppSettings
         var ui = System.Windows.Application.Current?.Dispatcher;
         if (ui == null || ui.CheckAccess()) Run(); else ui.BeginInvoke(Run);
     }
+
+    /// <summary>設定頁的分鐘數輸入框：看得懂就夾在 [min, max]，空白或不是整數就維持原本的值。</summary>
+    public static int ParseMinutes(string? text, int fallback, int min, int max) =>
+        int.TryParse(text?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? Math.Clamp(value, min, max) : fallback;
 }
