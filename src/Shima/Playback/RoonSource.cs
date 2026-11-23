@@ -162,7 +162,12 @@ public sealed class RoonSource : IMediaSource
                 var fresh = msg.Body?["token"]?.ToString() ?? "";
                 var core = _coreId;
                 if (fresh.Length > 0 && core.Length > 0)
-                    AppSettings.Change(s => { if (!s.RoonTokens.TryGetValue(core, out var old) || old != fresh) s.RoonTokens[core] = fresh; });
+                    AppSettings.Change(s =>
+                    {
+                        if (s.RoonTokens.TryGetValue(core, out var old) && old == fresh) return false;
+                        s.RoonTokens[core] = fresh;
+                        return true;
+                    });
                 Log.Write("roon: 已連上 " + msg.Body?["display_name"]);
                 _registered = true;
                 bool browse = Provides(msg.Body, RoonBrowse.Service);
@@ -191,7 +196,7 @@ public sealed class RoonSource : IMediaSource
                     if (shownZone?["state"]?.ToString() == "playing" && AppSettings.Current.RoonZone != _zoneId) remember = _zoneId;
                 }
                 // 存檔要寫磁碟，不能拿著鎖做（畫面那邊讀現在的歌會被卡住），也不在這條執行緒做
-                if (remember != null) AppSettings.Change(s => s.RoonZone = remember);
+                if (remember != null) AppSettings.Change(s => { if (s.RoonZone == remember) return false; s.RoonZone = remember; return true; });
                 Changed?.Invoke();
                 if (newCover) _ = LoadCoverAsync();
                 await SyncQueueAsync();

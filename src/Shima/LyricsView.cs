@@ -92,9 +92,10 @@ public sealed class LyricsView : FrameworkElement
         int now = Current;
         // 沒在看的時候直接跳到位置，打開時就已經在對的地方；位置沒變就什麼都不做，
         // 不然島收著的時候每 0.1 秒都在重畫一塊看不到的東西
+        // 明確要求跳到位置的（大小變了、換歌詞了）不能省：收著的時候高度還是 0，展開後要重算一次
         if (!Active)
         {
-            if (now == _index) return;
+            if (now == _index && !jump) return;
             jump = true;
         }
         if (now == _index && !jump) return;

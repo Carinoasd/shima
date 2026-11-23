@@ -247,6 +247,8 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
             if (results.Count == 0) return string.Join(" ", spoken).Trim() is { Length: > 0 } reply ? reply : L.T("嗯。");
             _messages.Add(new UserMessageParam { Content = results });
         }
+        // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
+        Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 
@@ -365,6 +367,8 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
                 _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = run(call?["function"]?["name"]?.ToString() ?? "", arguments) });
             }
         }
+        // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
+        Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 

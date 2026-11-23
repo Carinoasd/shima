@@ -74,7 +74,8 @@ public sealed class LocalProvider : ILyricsProvider
             if (_index != null && DateTime.Now - _indexedAt < TimeSpan.FromMinutes(5)) return _index;
             var index = new Dictionary<string, string>();
             Directory.CreateDirectory(Folder);
-            foreach (var root in AppSettings.Current.LyricsFolders.Prepend(Folder))
+            // 先複製一份：這裡在背景執行緒，使用者同時在設定頁加減資料夾的話，邊走邊改會出錯
+            foreach (var root in AppSettings.Current.LyricsFolders.ToArray().Prepend(Folder))
             {
                 try
                 {

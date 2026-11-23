@@ -204,7 +204,8 @@ public sealed class AgentBridge
             var request = context.Request;
             var door = Gate(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
                 request.Headers["Origin"] != null, token, deckToken);
-            if (door == Door.Refuse || request.ContentLength64 > MaxBody) { response.StatusCode = 403; return; }
+            if (door == Door.Refuse) { response.StatusCode = 403; return; }
+            if (request.ContentLength64 > MaxBody) { response.StatusCode = 413; return; }
             if (door == Door.Deck) { await DeckAsync(request, response); return; }
 
             if (await ReadLimitedAsync(request.InputStream, MaxBody) is not { } text) { response.StatusCode = 413; return; }

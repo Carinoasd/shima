@@ -365,6 +365,10 @@ public sealed class AgentRules
             if (arg.StartsWith('@')) return $"參數 {arg} 是回應檔";
             // 2. 危險旗標名單
             if (FlagProblem(program, arg) is { } flag) return flag;
+            // 單橫線的旗標可以把好幾個字母併在一起、最後一個直接黏著它的值（cp -rt/etc、grep -rf.env）。
+            // 不知道每個程式哪個字母要吃值，就切不出哪一段是路徑，所以只放行純英數的（-rf、-xvf、-j4）；
+            // 黏著 / . ~ : 之類的一律問人。
+            if (arg.Length > 1 && arg[0] == '-' && !arg.StartsWith("--") && !arg[1..].All(char.IsAsciiLetterOrDigit)) return $"旗標 {arg} 黏著別的東西";
             // 3. 參數裡的路徑：不能跑出專案、不能指到設定／hook／金鑰
             foreach (var piece in PathPieces(arg))
             {
@@ -389,26 +393,32 @@ public sealed class AgentRules
         foreach (var d in DangerousFlags)
             if (string.Equals(name, d, StringComparison.OrdinalIgnoreCase) || (isLong && d.StartsWith(name, StringComparison.OrdinalIgnoreCase)))
                 return $"旗標 {arg} 能指定外部程式、設定或輸出檔";
+        // 只看 : 前面的旗標字母：dotnet 的 -v:normal 裡，normal 是值不是旗標
         if (!isLong && DangerousShortFlags.TryGetValue(Bare(program), out var letters))
-            foreach (char c in arg[1..])
+            foreach (char c in name)
                 if (char.IsAsciiLetter(c) && letters.Contains(char.ToLowerInvariant(c)))
                     return $"旗標 {arg} 對 {program} 是危險的 -{c}";
         return null;
     }
 
     /// <summary>
-    /// 一個參數裡可能是路徑的部分：整個字、黏在單字母旗標後面的值（-o../x、-I/x），再用 : 切開（a:b 路徑清單、HEAD:path、網址）。
-    /// 長旗標本身不算路徑（它的值是下一個字，會另外檢查）。
+    /// 一個參數裡可能是路徑的部分。旗標本身不算（單橫線的已經確認是純英數，長旗標的值是下一個字）。
+    /// 整個字一定要檢查一次，不能先用 : 切開：C:/work/a.cs 切開就不是 Windows 路徑了，
+    /// 而 D:secret.txt（磁碟機相對路徑）與 a.txt:stream（NTFS 的替代資料流）切開後兩段看起來都很正常。
+    /// 開頭不是磁碟機代號的，再另外檢查 : 後面的每一段（HEAD:.env、a:b 這種路徑清單、網址）。
     /// </summary>
     private static IEnumerable<string> PathPieces(string arg)
     {
-        foreach (var part in arg.Split(':'))
+        if (arg.Length == 0 || arg[0] == '-') 
         {
-            if (part.Length == 0) continue;
-            if (part.StartsWith("--")) continue;
-            if (part[0] == '-') { if (part.Length > 2) yield return part[2..]; continue; }
-            yield return part;
+            // 長旗標帶著 : 的值（dotnet 的 --logger:x）
+            foreach (var value in arg.Split(':').Skip(1)) if (value.Length > 0) yield return value;
+            yield break;
         }
+        yield return arg;
+        bool drive = arg.Length >= 2 && char.IsAsciiLetter(arg[0]) && arg[1] == ':';
+        if (drive || !arg.Contains(':')) yield break;
+        foreach (var part in arg.Split(':')) if (part.Length > 0) yield return part;
     }
 
     /// <summary>
@@ -455,6 +465,11 @@ public sealed class AgentRules
         var parts = pattern.Split('/', '\\');
         if (parts.Contains("..")) return "樣式往上跳出資料夾";
         if (Sensitive(parts)) return "樣式指到設定、hook 或金鑰";
+        // { } 裡的每個選項也都是名字：{.env,.git}/**
+        var names = pattern.Split('/', '\\', '{', '}', ',');
+        if (Sensitive(names)) return "樣式指到設定、hook 或金鑰";
+        // . 開頭又帶萬用字元的名字會比對到隱藏檔：**/.env*、.*、.?nv、.[e]nv
+        if (names.Any(n => n.StartsWith('.') && n.IndexOfAny(['*', '?', '[', ']']) >= 0)) return "樣式會比對到隱藏檔";
         return null;
     }
 

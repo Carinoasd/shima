@@ -250,6 +250,7 @@ public partial class IslandWindow
         });
         Skills.Alarms = alarms;
         alarms.Start();
+        Closed += (_, _) => alarms.Dispose();
     }
 
     /// <summary>喚醒詞：設定開著、而且語音助手沒在用麥克風的時候才聽。</summary>

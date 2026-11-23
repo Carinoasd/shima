@@ -129,6 +129,8 @@ public partial class IslandWindow : Window
             _meter.Dispose();
             _bridge.Stop();
             _discord.Dispose();   // 每次都讀欄位：設定頁改了 Discord 的 ID 會換一個新的
+            _voice?.Stop();
+            _ears?.Dispose();
             if (_rendering) { CompositionTarget.Rendering -= OnFrame; _rendering = false; }   // 動畫跑到一半就關了
         };
         foreach (var (id, name) in Mascot.All)
@@ -175,6 +177,7 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 內容
 
     private ImageSource? _coverBrushFor;
+    private static readonly Brush NoCover = Frozen(Color.FromRgb(0x2A, 0x2A, 0x2A));
     private bool _closed;
 
     private void Refresh()
@@ -194,8 +197,8 @@ public partial class IslandWindow : Window
             if (!ReferenceEquals(track.Cover, _coverBrushFor) || Cover.Background == null)
             {
                 _coverBrushFor = track.Cover;
-                Brush cover = track.Cover != null ? new ImageBrush(track.Cover) { Stretch = Stretch.UniformToFill } : new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
-                cover.Freeze();
+                Brush cover = NoCover;
+                if (track.Cover != null) { cover = new ImageBrush(track.Cover) { Stretch = Stretch.UniformToFill }; cover.Freeze(); }
                 Cover.Background = PillCover.Background = cover;
             }
         }
@@ -204,7 +207,8 @@ public partial class IslandWindow : Window
             TitleText.Text = L.T("沒有正在播放的音樂");
             ArtistText.Text = SourceText.Text = Elapsed.Text = Remaining.Text = "";
             BarFill.Width = 0;
-            Cover.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+            Cover.Background = NoCover;
+            _coverBrushFor = null;   // 同一張封面的歌再回來時要重新套上
         }
         PillCover.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
         Pill.Margin = has ? new Thickness(7, 0, 8, 0) : new Thickness(12, 0, 8, 0);
@@ -462,7 +466,6 @@ public partial class IslandWindow : Window
         var open = _expanded ? OpenSize() : default;
         _w.Target = _expanded ? open.Width : _pillWidth;
         _h.Target = _expanded ? open.Height : PillHeight;
-        Pill.Visibility = Visibility.Visible;   // 變形途中膠囊與面板會交叉淡入淡出
         Panel.IsHitTestVisible = _expanded;
 
         // 透明視窗有東西在動就要整塊重畫，所以平常只留夠用的高度，要展開更大時才長高
@@ -473,6 +476,9 @@ public partial class IslandWindow : Window
 
         if (_rendering || (_w.Settled && _h.Settled)) return;
         _rendering = true;
+        // 真的要變形了才把膠囊叫回來（途中它會跟面板交叉淡入淡出）。
+        // 不能放在前面：Roon 每秒回報進度都會走到這個方法，展開著的時候膠囊就一直被叫醒
+        Pill.Visibility = Visibility.Visible;
         Lighten(true);
         _lastFrame = TimeSpan.Zero;
         CompositionTarget.Rendering += OnFrame;

@@ -399,4 +399,76 @@ public class AgentRulesSecurityTests
     [InlineData("/home/someone/proj", @"C:\home\someone\proj", false)]
     [InlineData("relative", "relative", false)]
     public void SameFolder_也用同一套正規化(string a, string b, bool same) => Assert.Equal(same, AgentRules.SameFolder(a, b));
+
+    // ---------------------------------------------------------------- 第二輪審查找到的繞過
+
+    [Theory]
+    [InlineData("ls -la src")]
+    [InlineData("ls -rt")]
+    [InlineData("ls -1 src/a")]
+    public void 純英數的合併短旗標照常放行(string command) => Assert.True(BashCovers("ls", command));
+
+    [Theory]
+    [InlineData("ls -rt/etc payload")]            // -r 加 -t /etc：第二個字母黏在路徑前面
+    [InlineData("ls -rt../../etc payload")]
+    [InlineData("ls -rf/etc/passwd .")]
+    [InlineData("ls -rf.env .")]
+    [InlineData("ls -o../x")]
+    [InlineData("ls -I/x")]
+    [InlineData("ls -a~/x")]
+    public void 短旗標黏著路徑的一律問人(string command) => Assert.False(BashCovers("ls", command));
+
+    [Theory]
+    [InlineData(@"C:/work/app/src/a.cs", true)]              // 專案裡的 Windows 路徑：不能被冒號切壞
+    [InlineData(@"c:\work\app\src\a.cs", true)]
+    [InlineData(@"D:secret.txt", false)]                      // 磁碟機相對路徑
+    [InlineData(@"C:secret.txt", false)]
+    [InlineData(@"a.txt:stream", false)]                      // NTFS 替代資料流
+    [InlineData(@"C:/work/app-secret/a.cs", false)]
+    [InlineData(@"C:/work/app/.env", false)]
+    public void Bash參數裡的Windows路徑整段檢查_不先用冒號切開(string argument, bool allowed)
+    {
+        // 測試不能含反斜線的指令（那會被當成跳脫），所以反斜線的那一筆直接測參數檢查
+        Assert.Equal(allowed, AgentRules.ArgumentProblem("ls", [argument], Win, Win) == null);
+    }
+
+    [Theory]
+    [InlineData("ls HEAD:.env")]
+    [InlineData("ls a:../../x")]
+    [InlineData("ls --logger:/etc/x")]
+    public void 冒號後面的每一段也要檢查(string command) => Assert.False(BashCovers("ls", command));
+
+    [Fact]
+    public void 冒號前面的旗標字母才算旗標()
+    {
+        // dotnet 的 -l 是危險的（logger），但 -v:normal 裡的 l 是值的一部分。黏著東西的短旗標本來就會問，
+        // 這裡確認的是原因不是「危險的 -l」
+        var why = AgentRules.ArgumentProblem("dotnet", ["-v:normal"], Wsl, Wsl);
+        Assert.NotNull(why);
+        Assert.DoesNotContain("危險", why);
+    }
+
+    [Theory]
+    [InlineData("**/.env*")]
+    [InlineData(".*")]
+    [InlineData(".?nv")]
+    [InlineData(".[e]nv")]
+    [InlineData("{.env,.git}/**")]
+    [InlineData("src/{a,.ssh}/x")]
+    [InlineData("**/.e*")]
+    public void 會比對到隱藏檔或敏感名稱的樣式不放行(string pattern)
+    {
+        foreach (var (tool, key) in new[] { ("Glob", "pattern"), ("Grep", "glob") })
+        {
+            var input = new JsonObject { [key] = pattern, ["pattern"] = tool == "Grep" ? "x" : pattern };
+            Assert.False(AgentRules.Covers(new AgentRule(tool, null, Wsl), tool, input, Wsl), $"{tool} {pattern}");
+        }
+    }
+
+    [Theory]
+    [InlineData("**/*.cs")]
+    [InlineData("src/{a,b}/*.ts")]
+    [InlineData("docs/**")]
+    public void 一般的樣式照常放行(string pattern) =>
+        Assert.True(AgentRules.Covers(new AgentRule("Glob", null, Wsl), "Glob", new JsonObject { ["pattern"] = pattern }, Wsl));
 }

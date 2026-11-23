@@ -35,6 +35,7 @@ public sealed class AudioMeter : IDisposable
 
     public void Start()
     {
+        WasapiLoopbackCapture? failed = null;
         lock (_gate)
         {
             if (_capture != null) return;
@@ -53,9 +54,11 @@ public sealed class AudioMeter : IDisposable
             {
                 Log.Write("audio meter: " + e.Message);
                 _capture = null;
-                try { capture?.Dispose(); } catch { }
+                failed = capture;
             }
         }
+        // 跟 Stop() 一樣：釋放會等錄音執行緒結束，那條執行緒的 RecordingStopped 要拿 _gate，所以出了鎖才釋放
+        try { failed?.Dispose(); } catch { }
     }
 
     public void Stop()

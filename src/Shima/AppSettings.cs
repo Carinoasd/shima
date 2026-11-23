@@ -211,9 +211,10 @@ public sealed class AppSettings
     /// 從背景執行緒改設定並存檔（例如 Roon 連線那條執行緒）。設定裡的清單與字典不是給多條執行緒同時用的，
     /// 存檔時又要把它們整個走過一遍，所以一律排回畫面的執行緒去做；沒有畫面（跑測試）就直接做。
     /// </summary>
-    public static void Change(Action<AppSettings> change)
+    /// <param name="change">回傳 true 表示真的改了、要存檔；沒改就不寫磁碟（Roon 每次重連都會走到這裡）。</param>
+    public static void Change(Func<AppSettings, bool> change)
     {
-        void Run() { change(Current); Current.Save(); }
+        void Run() { if (change(Current)) Current.Save(); }
         var ui = System.Windows.Application.Current?.Dispatcher;
         if (ui == null || ui.CheckAccess()) Run(); else ui.BeginInvoke(Run);
     }

@@ -97,6 +97,7 @@ public sealed class Ears : IDisposable
         {
             if (_disposed) ReleaseFactory();
             _lock.Release();
+            Swept();
         }
     }
 
@@ -203,6 +204,7 @@ public sealed class Ears : IDisposable
             // 辨識途中被 Dispose：那時拿不到鎖、沒辦法釋放，由這裡補做
             if (_disposed) ReleaseFactory();
             _lock.Release();
+            Swept();
         }
     }
 
@@ -320,6 +322,17 @@ public sealed class Ears : IDisposable
     {
         _disposed = true;
         if (!_lock.Wait(0)) return;
+        try { ReleaseFactory(); }
+        finally { _lock.Release(); }
+    }
+
+    /// <summary>
+    /// 放掉鎖之後再看一次。Dispose 可能剛好卡在「這邊已經看過 _disposed 是 false」與「這邊放掉鎖」之間：
+    /// 它拿不到鎖就走了，這邊也沒釋放，模型就漏掉了。放掉鎖之後雙方總有一邊會看到對方，補做一次。
+    /// </summary>
+    private void Swept()
+    {
+        if (!_disposed || !_lock.Wait(0)) return;
         try { ReleaseFactory(); }
         finally { _lock.Release(); }
     }
