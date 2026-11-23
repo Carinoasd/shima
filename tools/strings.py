@@ -24,6 +24,7 @@ ROWS = """
 播放裝置 | 播放设备 | Playback device | 再生デバイス | 재생 장치 | Dispositivo de reproducción | Périphérique de lecture | Wiedergabegerät | Dispositivo de reprodução | Dispositivo di riproduzione | Устройство воспроизведения
 無法切換播放裝置 | 无法切换播放设备 | Couldn't switch playback device | 再生デバイスを切り替えられません | 재생 장치를 전환할 수 없습니다 | No se pudo cambiar el dispositivo | Impossible de changer de périphérique | Gerät konnte nicht gewechselt werden | Não foi possível trocar o dispositivo | Impossibile cambiare dispositivo | Не удалось сменить устройство
 回到螢幕正中間 | 回到屏幕正中间 | Back to top centre | 画面中央に戻す | 화면 가운데로 | Volver al centro | Revenir au centre | Zurück zur Mitte | Voltar ao centro | Torna al centro | Вернуть в центр
+大小 | 大小 | Size | サイズ | 크기 | Tamaño | Taille | Größe | Tamanho | Dimensione | Размер
 結束 | 退出 | Quit | 終了 | 종료 | Salir | Quitter | Beenden | Sair | Esci | Выход
 音樂 | 音乐 | Music | 音楽 | 음악 | Música | Musique | Musik | Música | Musica | Музыка
 聊天 | 聊天 | Chat | チャット | 채팅 | Chat | Chat | Chat | Chat | Chat | Чат

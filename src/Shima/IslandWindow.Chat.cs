@@ -66,12 +66,14 @@ public partial class IslandWindow
             var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(null, data);
             var web = new WebView2CompositionControl();
-            ChatHost.Child = web;
+            _chatFrame.Children.Add(web);   // 隔一層反向縮放，島的大小不是 100% 時瀏覽器才清楚（IslandWindow.Scale.cs）
+            ChatHost.Child = _chatFrame;
             await web.EnsureCoreWebView2Async(environment);
             // 登入流程常會開新視窗：留在同一頁裡
             web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; web.CoreWebView2.Navigate(e.Uri); };
             web.CoreWebView2.Navigate(Site().Url);
             _web = web;
+            ScaleChat();
         }
         catch (Exception e)
         {

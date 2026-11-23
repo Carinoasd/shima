@@ -210,7 +210,9 @@ public partial class IslandWindow
     private void AnnounceTrack(Track track)
     {
         if (!_hiddenForFullscreen || !AppSettings.Current.FullscreenToast) return;
-        (_mini ??= NewMini()).Show(track.Cover, track.Title, track.Artist, ThemeAccent(track.Cover));
+        var mini = _mini ??= NewMini();
+        mini.Scale = _scale;
+        mini.Show(track.Cover, track.Title, track.Artist, ThemeAccent(track.Cover));
     }
 
     private MiniToast NewMini()

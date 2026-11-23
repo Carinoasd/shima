@@ -145,6 +145,39 @@ public partial class IslandWindow
                 _expanded = true;
             }
 
+            // 島的大小：只改記憶體裡的值，拍完改回 1，不存檔
+            {
+                var look = AppSettings.Current;
+                look.Scale = 1.3;
+                _expanded = false;
+                Pill.Visibility = Visibility.Visible;
+                ApplyScale();
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-130-pill");
+
+                _expanded = true;
+                TabMusic.IsChecked = true; _tab = Tab.Music;
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-130-music");
+
+                TabSettings.IsChecked = true; _tab = Tab.Settings;
+                _settingsSection = SettingsSection.Look;
+                RefreshSettings();
+                SettingsScroll.ScrollToVerticalOffset(0);
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-130-settings");
+                _settingsSection = SettingsSection.General;
+
+                look.Scale = 0.9;
+                ApplyScale();
+                TabMusic.IsChecked = true; _tab = Tab.Music;
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-90-music");
+
+                look.Scale = 1;
+                ApplyScale();
+            }
+
             // 聆聽放最後：後面的引導卡片與收藏截圖都接著這一頁
             TabLibrary.IsChecked = true;
             _tab = Tab.Library;
@@ -257,7 +290,7 @@ public partial class IslandWindow
         var open = OpenSize();
         _w.Jump(_expanded ? open.Width : _pillWidth);
         _h.Jump(_expanded ? open.Height : PillHeight);
-        Height = Math.Max(BaseWindowHeight, 8 + _h.Value + 48);
+        Height = WindowHeightFor(_h.Value);
         Panel.IsHitTestVisible = _expanded;
         Apply();
         LyricsList.Active = _expanded && _tab == Tab.Music;
@@ -290,13 +323,16 @@ public partial class IslandWindow
         for (int i = 0; i < (Spectrum.Active ? 12 : 80); i++) Spectrum.Step();
         UpdateLayout();
         const double pad = 28, scale = 2;
-        double w = Host.ActualWidth + pad * 2, h = Host.ActualHeight + pad * 2;
+        // 島的大小不是 100% 時：VisualBrush 只畫 Host 自己，不含 Root 上的縮放，要自己乘回去（連墊的邊一起，陰影也跟著變大）
+        double w = (Host.ActualWidth + pad * 2) * _scale, h = (Host.ActualHeight + pad * 2) * _scale;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
             // 墊一塊桌面色，島的陰影和圓角才看得出來
             dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x3A, 0x48, 0x5C)), null, new Rect(0, 0, w, h));
+            if (_scale != 1) dc.PushTransform(new ScaleTransform(_scale, _scale));
             dc.DrawRectangle(new VisualBrush(Host) { Stretch = Stretch.None }, null, new Rect(pad, pad, Host.ActualWidth, Host.ActualHeight));
+            if (_scale != 1) dc.Pop();
         }
         var bitmap = new RenderTargetBitmap((int)(w * scale), (int)(h * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         bitmap.Render(visual);

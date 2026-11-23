@@ -55,8 +55,7 @@ public partial class IslandWindow : Window
         FontFamily = Loc.Font;
         Loc.Translate(this);
         ApplyLyricsLines();
-
-        Place();
+        ApplyScale();   // 視窗的大小跟著島的大小，也會呼叫 Place()
 
         SourceInitialized += (_, _) =>
         {
@@ -481,7 +480,7 @@ public partial class IslandWindow : Window
         Panel.IsHitTestVisible = _expanded;
 
         // 透明視窗有東西在動就要整塊重畫，所以平常只留夠用的高度，要展開更大時才長高
-        double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
+        double needed = WindowHeightFor(_h.Target);
         if (needed > Height) Height = needed;
         // 要打字的分頁才讓視窗拿鍵盤焦點
         SetActivatable(_expanded && (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && _queueOpen));
@@ -537,7 +536,7 @@ public partial class IslandWindow : Window
             // 完全展開後膠囊被面板蓋住、透明度是 0，但裡面的角色、音量條、歌詞還在動，每動一次整個透明視窗都要重畫。
             // 收起來不佔位置，它們自己就會停。（面板不能這樣做：展開前要先量它有多大。）
             if (_expanded && Pill.Opacity < 0.01) Pill.Visibility = Visibility.Collapsed;
-            double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
+            double needed = WindowHeightFor(_h.Target);
             if (Math.Abs(Height - needed) > 1) Height = needed;
         }
     }
@@ -685,16 +684,10 @@ public partial class IslandWindow : Window
     private void Place()
     {
         var s = AppSettings.Current;
-        double left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2, top = SystemParameters.WorkArea.Top;
-        if (s.IslandX is { } x && s.IslandY is { } y &&
-            x > SystemParameters.VirtualScreenLeft && x < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth &&
-            y >= SystemParameters.VirtualScreenTop && y < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 40)
-        {
-            left = x - Width / 2;
-            top = y;
-        }
-        Left = _smoke ? -5000 : left;
-        Top = top;
+        var screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, 440 * _scale);
+        Left = _smoke ? -5000 : at.X;
+        Top = at.Y;
     }
 
     private Point? _dragFrom;
