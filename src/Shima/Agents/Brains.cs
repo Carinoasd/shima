@@ -134,7 +134,7 @@ public sealed record AssistantTool(string Name, string Description, JsonObject P
             {
                 ["action"] = Choice("add：新增；list：列出全部；cancel：取消一個", "add", "list", "cancel"),
                 ["minutes"] = Number("add 時，幾分鐘後提醒（相對時間用這個，例如「半小時後」給 30）"),
-                ["at"] = Text("add 時，幾點提醒（絕對時間用這個），24 小時制 HH:mm，例如 07:30、19:05；明天的寫「明天 07:30」。只給時間而今天已經過了就是明天。minutes 和 at 擇一"),
+                ["at"] = Text("add 時，幾點提醒（絕對時間用這個），24 小時制 HH:mm，例如 07:30、19:05；明天的寫「明天 07:30」，更遠的寫完整日期「2026-12-01 07:30」（最遠六十天）。只給時間而今天已經過了就是明天。minutes 和 at 擇一"),
                 ["repeat"] = Choice("add 時可選，要重複才給：daily：每天；weekdays：週一到週五；mon、tue、wed、thu、fri、sat、sun：每週的那一天。重複的一定要用 at 給幾點；不重複就不要給", "daily", "weekdays", "mon", "tue", "wed", "thu", "fri", "sat", "sun"),
                 ["text"] = Text("add 時是到時要說的內容（例如「關火」）；cancel 時是提醒的編號或內容關鍵字"),
             }, ["action"]),

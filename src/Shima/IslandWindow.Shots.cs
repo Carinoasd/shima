@@ -209,6 +209,20 @@ public partial class IslandWindow
                 Refresh();
                 Snap();
             }
+
+            // 月曆：滑鼠停在有提醒的那一天
+            if (Demo.On && _alarms?.List.Count > 0)
+            {
+                var days = Shima.Agents.Alarms.InMonth(_alarms.List, DateTime.Today, DateTime.Now);
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                RefreshTools();
+                Snap();
+                if (days.Count > 0) Month.Peek(days.Keys.First());
+                await Save(folder, "c-month-tip");
+                Month.Peek(0);
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

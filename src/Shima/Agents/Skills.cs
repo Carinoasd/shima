@@ -171,7 +171,7 @@ public static class Skills
                 var at = Alarms.When(Arg("at"), repeat != null && Arg("at").Length > 0 ? null : Number(arguments, "minutes"), now);
                 if (at == null) return Arg("at").Length == 0 && Number(arguments, "minutes") == null
                     ? "沒有給時間：要幾分鐘後還是幾點？"
-                    : "看不懂這個時間（只能排一星期內，幾點請用 24 小時制 HH:mm）";
+                    : "看不懂這個時間（只能排六十天內，幾點請用 24 小時制 HH:mm）";
                 var text = Arg("text") is { Length: > 0 } words ? words : "時間到了";
                 // 重複的只看幾點：第一次是現在之後第一個符合的那天
                 if (repeat != null)

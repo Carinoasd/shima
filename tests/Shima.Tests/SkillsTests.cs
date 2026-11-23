@@ -383,10 +383,10 @@ public class AlarmTests
     [InlineData("12:60", null)]
     [InlineData("等一下", null)]
     [InlineData("2026-11-22 07:30", null)]   // 過去
-    [InlineData("2026-12-25 07:30", null)]   // 超過一星期
+    [InlineData("2027-03-25 07:30", null)]   // 超過六十天
     [InlineData(null, 0.0)]
     [InlineData(null, -5.0)]
-    [InlineData(null, 20000.0)]
+    [InlineData(null, 90000.0)]
     public void 看不懂或不合理的時間是null(string? at, double? minutes)
     {
         Assert.Null(Alarms.When(at, minutes, Now));
