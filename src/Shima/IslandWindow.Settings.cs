@@ -297,6 +297,7 @@ public partial class IslandWindow
         if (_smoke) return;
         _system.Changed += line => Dispatcher.BeginInvoke(() => { if (AppSettings.Current.SystemStatus) Toast(line, 2.5, cheer: false); });
         _system.Start();
+        InitAudioOutputs();
         Closed += (_, _) => _system.Dispose();
     }
 
@@ -304,6 +305,7 @@ public partial class IslandWindow
     private void PollStatus()
     {
         _system.Poll();
+        UpdateAudioButton();
         var s = AppSettings.Current;
         if (!s.Water || DateTime.Now < _waterAt) return;
         _waterAt = DateTime.Now.AddMinutes(Math.Clamp(s.WaterMinutes, 5, 480));

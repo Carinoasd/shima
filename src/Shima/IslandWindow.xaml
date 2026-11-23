@@ -169,6 +169,7 @@
           <MenuItem Header="解釋這句歌詞" Click="ExplainLine_Click"/>
           <MenuItem x:Name="DesktopLyricsItem" Header="桌面歌詞" IsCheckable="True" Click="DesktopLyrics_Click"/>
           <MenuItem x:Name="DesktopLockItem" Header="鎖定桌面歌詞" IsCheckable="True" Click="DesktopLock_Click"/>
+          <MenuItem x:Name="AudioMenu" Header="播放裝置"/>
           <MenuItem Header="開啟歌詞資料夾" Click="LyricsFolder_Click"/>
           <MenuItem Header="回到螢幕正中間" Click="ResetPlace_Click"/>
           <MenuItem Header="結束" Click="Quit_Click"/>
@@ -274,6 +275,7 @@
                 <Button Style="{StaticResource Key}" Content="&#xE893;" Click="Next_Click"/>
                 <Button x:Name="FavoriteButton" Style="{StaticResource Key}" FontSize="13" Content="&#xEB51;" ToolTip="收藏這句歌詞" Click="Favorite_Click"/>
                 <Button x:Name="QueueButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE8FD;" ToolTip="接下來播放" Click="Queue_Click"/>
+                <Button x:Name="AudioButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE767;" ToolTip="播放裝置" Visibility="Collapsed" Click="Audio_Click"/>
               </StackPanel>
 
               <Grid x:Name="QueueHost" Grid.Row="5" Margin="0,10,0,0" Height="300" Visibility="Collapsed"/>

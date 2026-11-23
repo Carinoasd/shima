@@ -20,6 +20,7 @@ public sealed class AudioMeter : IDisposable
     private long _heardAt;
     private readonly float[] _recent = new float[Spectrum.Size];   // 最近的單聲道取樣，環狀
     private int _write, _rate = 48000;
+    private string _deviceId = "";
 
     /// <summary>最近的音量，沒有新聲音就很快掉回 0。</summary>
     public float Level
@@ -43,6 +44,7 @@ public sealed class AudioMeter : IDisposable
             try
             {
                 capture = new WasapiLoopbackCapture();
+                _deviceId = DefaultId();
                 var mine = capture;
                 mine.DataAvailable += (_, e) => Hear(e.Buffer, e.BytesRecorded, mine.WaveFormat);
                 mine.RecordingStopped += (_, e) => Stopped(mine, e.Exception);
@@ -59,6 +61,25 @@ public sealed class AudioMeter : IDisposable
         }
         // 跟 Stop() 一樣：釋放會等錄音執行緒結束，那條執行緒的 RecordingStopped 要拿 _gate，所以出了鎖才釋放
         try { failed?.Dispose(); } catch { }
+    }
+
+    /// <summary>
+    /// 迴路擷取綁在開始時的那個裝置，預設裝置換了它不會自己跟過去（舊裝置還在的話根本不會停），
+    /// 所以由島定期問：預設的不是當初擷取的那個就重開。沒在擷取時什麼都不做。
+    /// </summary>
+    public void FollowDefault()
+    {
+        if (_capture == null) return;
+        var now = DefaultId();
+        if (now.Length == 0 || now == _deviceId) return;
+        Stop();
+        Start();
+    }
+
+    private static string DefaultId()
+    {
+        try { using var enumerator = new MMDeviceEnumerator(); using var d = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia); return d.ID; }
+        catch { return ""; }
     }
 
     public void Stop()
