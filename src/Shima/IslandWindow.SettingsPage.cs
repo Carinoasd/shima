@@ -150,6 +150,8 @@ public partial class IslandWindow
         rows.Add(Choice("歌詞行數", [("3", "少"), ("5", "中"), ("7", "多")],
             () => s.LyricsLines <= 3 ? "3" : s.LyricsLines >= 7 ? "7" : "5",
             v => { s.LyricsLines = int.Parse(v, CultureInfo.InvariantCulture); ApplyLyricsLines(); }));
+        rows.Add(Choice("沒在播歌時顯示", [("clock", "時間"), ("date", "日期與時間"), ("alarm", "下一個提醒"), ("none", "不顯示")],
+            () => IdleLine.Normalize(s.IdleShows), v => { s.IdleShows = v; UpdateTexts(); }));
 
         // —— 其他功能的設定列接在這裡（外觀）——
     }
