@@ -87,7 +87,9 @@ public partial class IslandWindow : Window
         {
             _media.Changed += () => Dispatcher.BeginInvoke(Refresh);
             if (!_smoke) _discord.Start();
-            await _media.StartAsync();
+            // 讀不到系統的媒體資訊也要繼續：後面的計時器沒啟動的話，整座島就不會動了
+            try { await _media.StartAsync(); }
+            catch (Exception x) { Log.Write("media: " + x.Message); }
             Refresh();
             _tick.Start();
             if (shotFolder != null) { await ShootAsync(shotFolder); return; }
@@ -121,7 +123,13 @@ public partial class IslandWindow : Window
         Buddy.Bass = () => _meter.Running ? (float)_meter.Bands(64).Take(7).Average(b => SpectrumView.Scale(b)) : 0;
         _bridge.Level = () => _meter.Running ? _meter.Level : -1;
         _bridge.Bands = count => _meter.Bands(count);
-        Closed += (_, _) => _meter.Dispose();
+        Closed += (_, _) =>
+        {
+            _closed = true;
+            _meter.Dispose();
+            _bridge.Stop();
+            if (_rendering) { CompositionTarget.Rendering -= OnFrame; _rendering = false; }   // 動畫跑到一半就關了
+        };
         foreach (var (id, name) in Mascot.All)
         {
             var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == Buddy.Kind, Tag = id };
@@ -165,6 +173,9 @@ public partial class IslandWindow : Window
 
     // ---------------------------------------------------------------- 內容
 
+    private ImageSource? _coverBrushFor;
+    private bool _closed;
+
     private void Refresh()
     {
         var track = _media.Current;
@@ -178,8 +189,14 @@ public partial class IslandWindow : Window
             ArtistText.Text = track.Artist;
             SourceText.Text = _media.ZoneName is { Length: > 0 } zone ? $"{track.Source} · {zone}" : track.Source;
             PlayButton.Content = track.Playing ? "" : "";
-            Brush cover = track.Cover != null ? new ImageBrush(track.Cover) { Stretch = Stretch.UniformToFill } : new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
-            Cover.Background = PillCover.Background = cover;
+            // Roon 每秒回報一次進度都會走到這裡；封面沒換就不要每秒做一支新的筆刷
+            if (!ReferenceEquals(track.Cover, _coverBrushFor) || Cover.Background == null)
+            {
+                _coverBrushFor = track.Cover;
+                Brush cover = track.Cover != null ? new ImageBrush(track.Cover) { Stretch = Stretch.UniformToFill } : new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+                cover.Freeze();
+                Cover.Background = PillCover.Background = cover;
+            }
         }
         else
         {
@@ -318,7 +335,7 @@ public partial class IslandWindow : Window
         var pos = track.Now;
         bool timed = track.Duration > TimeSpan.Zero;
         // 進度條每 0.1 秒都在變，改它會讓整個面板重新排版；島收著的時候看不到，就不用做
-        if (_expanded || _rendering)
+        if (_expanded && _tab == Tab.Music || _rendering)
         {
             Elapsed.Text = timed ? Clock(pos) : "";
             Remaining.Text = timed ? "-" + Clock(track.Duration - pos) : "";
@@ -359,7 +376,7 @@ public partial class IslandWindow : Window
         if (!ReferenceEquals(deck.Track, track) || !ReferenceEquals(deck.Sheet, shown) || !ReferenceEquals(deck.Second, second) || deck.Shift != LyricLead + _lyricShift)
             _bridge.Deck = new Agents.DeckState(track, shown, second, LyricLead + _lyricShift);
         LyricsList.Active = _expanded && _tab == Tab.Music;
-        Spectrum.Active = LyricsList.Active;
+        Spectrum.Active = LyricsList.Active && track.Playing && AppSettings.Current.AudioReactive;
         LyricsList.Wake();
 
         // 膠囊跟著這一行字的長短伸縮
@@ -395,8 +412,9 @@ public partial class IslandWindow : Window
     private void SetExpanded(bool expanded)
     {
         if (_expanded == expanded) return;
-        _expanded = expanded;
+        // 權限請求顯示中不能收起來。要先擋，再改狀態：不然狀態說「收著」、畫面卻還開著，之後就再也收不起來
         if (!expanded && _tab == Tab.Ask) return;
+        _expanded = expanded;
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
     }
@@ -439,9 +457,11 @@ public partial class IslandWindow : Window
 
     private void Morph()
     {
-        var open = OpenSize();
+        // 收著的時候不需要知道展開有多大：量一次要把整個面板重新排版，而換歌、每秒的進度回報都會走到這裡
+        var open = _expanded ? OpenSize() : default;
         _w.Target = _expanded ? open.Width : _pillWidth;
         _h.Target = _expanded ? open.Height : PillHeight;
+        Pill.Visibility = Visibility.Visible;   // 變形途中膠囊與面板會交叉淡入淡出
         Panel.IsHitTestVisible = _expanded;
 
         // 透明視窗有東西在動就要整塊重畫，所以平常只留夠用的高度，要展開更大時才長高
@@ -495,6 +515,9 @@ public partial class IslandWindow : Window
             CompositionTarget.Rendering -= OnFrame;
             _rendering = false;
             Lighten(false);
+            // 完全展開後膠囊被面板蓋住、透明度是 0，但裡面的角色、音量條、歌詞還在動，每動一次整個透明視窗都要重畫。
+            // 收起來不佔位置，它們自己就會停。（面板不能這樣做：展開前要先量它有多大。）
+            if (_expanded && Pill.Opacity < 0.01) Pill.Visibility = Visibility.Collapsed;
             double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
             if (Math.Abs(Height - needed) > 1) Height = needed;
         }
@@ -564,7 +587,9 @@ public partial class IslandWindow : Window
     {
         if (_track is not { } track) return;
         var key = _trackKey;
-        var all = await _lyrics.AllAsync(track);
+        List<LyricsHit> all;
+        try { all = await _lyrics.AllAsync(track); }
+        catch (Exception x) { Log.Write("歌詞: " + x.Message); Toast(L.T("找不到其他歌詞"), 3); return; }
         if (key != _trackKey) return;
         if (all.Count == 0) { Toast(L.T("找不到其他歌詞"), 3); return; }
         var next = all[(all.FindIndex(h => h.Provider == _lyricsFrom) + 1) % all.Count];

@@ -37,15 +37,25 @@ public sealed record DeckState(Track? Track, LyricSheet? Sheet, IReadOnlyList<st
         return json;
     }
 
+    /// <summary>封面編成 JPEG。同一張封面只編一次（每秒都會換一個新的 DeckState，所以記在封面那個物件上）。</summary>
     public byte[]? CoverJpeg()
     {
         if (Track?.Cover is not BitmapSource { IsFrozen: true } image) return null;
-        var encoder = new JpegBitmapEncoder { QualityLevel = 85 };
-        encoder.Frames.Add(BitmapFrame.Create(image));
-        using var stream = new MemoryStream();
-        encoder.Save(stream);
-        return stream.ToArray();
+        lock (Encoded)
+        {
+            if (Encoded.TryGetValue(image, out var known)) return known;
+            var encoder = new JpegBitmapEncoder { QualityLevel = 85 };
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using var stream = new MemoryStream();
+            encoder.Save(stream);
+            var bytes = stream.ToArray();
+            Encoded.Add(image, bytes);
+            return bytes;
+        }
     }
+
+    // 封面被回收時，編好的那份也跟著放掉
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource, byte[]> Encoded = [];
 }
 
 /// <summary>島上音樂以外的事，Stream Dock 的長條跟著插播。Kind：ask（Claude Code 要權限）、voice（語音助手）、toast（一句提示），或空字串。</summary>
@@ -85,7 +95,7 @@ public static class StreamDock
                 using var to = File.Create(Path.Combine(folder, name[Prefix.Length..]));
                 from.CopyTo(to);
             }
-            File.WriteAllText(Path.Combine(folder, "bridge.js"), $"window.SHIMA = {{ port: {AgentBridge.Port}, token: \"{AgentBridge.Token()}\" }};\n");
+            File.WriteAllText(Path.Combine(folder, "bridge.js"), $"window.SHIMA = {{ port: {AgentBridge.Port}, token: \"{AgentBridge.DeckToken()}\" }};\n");
             return true;
         }
         catch (Exception e) { Log.Write("stream dock: " + e.Message); return false; }

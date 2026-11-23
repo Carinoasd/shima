@@ -8,7 +8,7 @@ const FONT = '"Yu Gothic UI","Microsoft JhengHei UI","Segoe UI",sans-serif';
 const url = (path, extra = '') => `http://localhost:${SHIMA.port}/deck/${path}?t=${SHIMA.token}${extra}`;
 const shown = new Map();          // context → { kind, settings, strip, last }
 let socket, now = null, lines = [], key = '\0', at = 0, cover = null, coverFor = '';
-let notice = { kind: '', title: '', text: '' }, noticeSince = 0, timer = '', alive = false;
+let notice = { kind: '', title: '', text: '' }, noticeSince = 0, timer = '', alive = false, stale = false;
 let dials = { volume: -1, volumeText: '', muted: false, zone: '', shift: 0 }, heard = -1, loud = 0, touched = {};
 const BANDS = 64;
 let spectrum = null, eq = new Array(BANDS).fill(0), caps = new Array(BANDS).fill(0), bass = 0, hop = 0, hopAt = 0, lastFrame = 0;
@@ -22,10 +22,11 @@ function connect(port, uuid, event) {
 window.connectElgatoStreamDeckSocket = window.connectSocket = window.connectSDSocket = window.connectMiraBoxSDSocket = connect;
 
 const log = text => fetch(url('log', '&m=' + encodeURIComponent(text))).catch(() => {});
-const press = action => fetch(url('press', '&do=' + action)).catch(() => {});
+// 會改變狀態的請求用 POST。不帶內容、不加任何標頭：這樣瀏覽器不會先發一個 OPTIONS 去問能不能送
+const press = action => fetch(url('press', '&do=' + action), { method: 'POST' }).catch(() => {});
 const now_notice = () => notice;
 
-const send = (path, extra) => fetch(url(path, extra)).catch(() => {});
+const send = (path, extra) => fetch(url(path, extra), { method: 'POST' }).catch(() => {});
 let logged = 0;
 
 /** 點在長條的哪裡（0–1）；Stream Dock 沒給位置就是 null。 */
@@ -67,7 +68,7 @@ function on(m) {
     case 'willDisappear': shown.delete(m.context); break;
     case 'didReceiveSettings': {
       const item = shown.get(m.context);
-      if (item) { item.settings = p.settings || {}; item.last = ''; }
+      if (item) { item.settings = p.settings || {}; item.last = ''; item.state = undefined; }
       break;
     }
     case 'keyUp': case 'touchTap':
@@ -87,6 +88,9 @@ function on(m) {
 async function poll() {
   try {
     const r = await fetch(url('now', '&bands=' + BANDS + '&have=' + encodeURIComponent(key)));
+    // Shima 更新後金鑰換了，而 Stream Dock 還拿著啟動時讀到的舊金鑰：要重開 Stream Dock 才會讀到新的
+    stale = r.status === 403;
+    if (stale) throw new Error('stale');
     const j = await r.json();
     if (j.lines) lines = j.lines;
     if (j.key !== key && !j.lines) lines = [];
@@ -106,10 +110,16 @@ async function poll() {
         const image = new Image();
         image.crossOrigin = 'anonymous';
         image.onload = () => { if (coverFor === track) { cover = image; popAt = performance.now(); } };
+        image.onerror = () => { if (coverFor === track) setTimeout(() => { if (coverFor === track) coverFor = ''; }, 2000); };   // 沒抓到：兩秒後讓下一輪再試
         image.src = url('cover', '&k=' + encodeURIComponent(track));
       }
     }
-  } catch { now = null; alive = false; notice = { kind: '', title: '', text: '' }; timer = ''; }
+  } catch {
+    // Shima 關了或連不上：上一首歌的封面、歌詞、音量都不該留在按鍵上
+    now = null; alive = false; notice = { kind: '', title: '', text: '' }; timer = '';
+    cover = null; coverFor = ''; key = '\0'; lines = []; spectrum = null; heard = -1;
+    dials = { volume: -1, volumeText: '', muted: false, zone: '', shift: 0 };
+  }
 }
 
 const position = () => now ? now.position + (now.playing ? (performance.now() - at) / 1000 : 0) : 0;
@@ -287,7 +297,7 @@ function drawStrip(item) {
 
   if (!now) {                                       // 沒有歌：時鐘
     const d = new Date(), two = n => String(n).padStart(2, '0');
-    text(alive ? `${two(d.getHours())}:${two(d.getMinutes())}` : 'Shima', 34, 20, 600, timer ? h * 0.36 : h * 0.46, alive ? '#fff' : 'rgba(255,255,255,.4)');
+    text(alive ? `${two(d.getHours())}:${two(d.getMinutes())}` : stale ? 'Restart Stream Dock' : 'Shima', stale ? 22 : 34, 14, 600, timer ? h * 0.36 : h * 0.46, alive ? '#fff' : 'rgba(255,255,255,.4)');
     if (timer) text(timer, 15, 11, 400, h * 0.76, 'rgba(255,255,255,.7)');
     return c.toDataURL('image/jpeg', 0.92);
   }
@@ -559,6 +569,15 @@ function drawDial(item) {
 }
 
 const DIALS = new Set(['volume', 'seek', 'shift', 'zone']);
+const tileSpan = () => [...shown.values()].filter(i => i.kind === 'tile' && i.at).map(i => i.at.column + ',' + i.at.row).sort().join(' ');
+const STILL = {
+  cover: () => `${coverFor}|${!!cover}|${now ? now.playing : ''}|${now && !cover ? now.title : ''}`,
+  tile: () => `${coverFor}|${!!cover}|${now ? now.playing : ''}|${tileSpan()}`,
+  allow: () => notice.kind === 'ask',
+  deny: () => notice.kind === 'ask',
+  ask: () => `${notice.kind === 'voice'}|${!!notice.listening}`,
+  lyrics: item => item.strip ? undefined : `${singing()?.text ?? ''}|${now ? now.title : ''}`,
+};
 const DRAWN = new Set(['lyrics', 'cover', 'tile', 'ask', 'allow', 'deny', ...DIALS]);
 
 function render() {
@@ -566,6 +585,13 @@ function render() {
   step();
   for (const [context, item] of shown) {
     if (!DRAWN.has(item.kind)) continue;
+    // 不會自己動的按鍵（封面、大封面、允許／拒絕、麥克風）：畫出來的樣子只跟幾個狀態有關，
+    // 狀態沒變就不用每 0.1 秒重畫一張、再整張編成 JPEG 去比對
+    const still = STILL[item.kind]?.(item);
+    if (still !== undefined) {
+      if (still === item.state) continue;
+      item.state = still;
+    }
     const image = item.strip ? drawStrip(item) : DIALS.has(item.kind) ? drawDial(item) : drawKey(item);
     if (image === item.last) continue;
     item.last = image;

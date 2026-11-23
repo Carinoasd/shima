@@ -90,18 +90,33 @@ public sealed class LyricsView : FrameworkElement
     private void Follow(bool jump)
     {
         int now = Current;
-        // 沒在看的時候直接跳到位置，打開時就已經在對的地方
-        if (!Active) jump = true;
+        // 沒在看的時候直接跳到位置，打開時就已經在對的地方；位置沒變就什麼都不做，
+        // 不然島收著的時候每 0.1 秒都在重畫一塊看不到的東西
+        if (!Active)
+        {
+            if (now == _index) return;
+            jump = true;
+        }
         if (now == _index && !jump) return;
         _index = now;
         int at = Math.Max(0, now);
         double target = TopOf(at, now) + HeightOf(at, now) / 2 - Math.Max(1, ActualHeight) * Anchor;
         if (jump) _scroll.Jump(target); else _scroll.Target = target;
-        InvalidateVisual();
+        if (Active) InvalidateVisual();
     }
 
     /// <summary>面板收起來、或不在音樂分頁時不用畫。</summary>
-    public bool Active { get; set; }
+    public bool Active
+    {
+        get => _active;
+        set
+        {
+            if (_active == value) return;
+            _active = value;
+            if (value) InvalidateVisual();   // 沒在看的期間位置一直有在跟，只是沒畫；現在看得到了，畫一次
+        }
+    }
+    private bool _active;
 
     private bool Moving => Active && IsVisible && _sheet != null && (!_scroll.Settled || Clock?.Invoke().Playing == true);
 

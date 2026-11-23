@@ -195,6 +195,7 @@ public sealed class QueueView : UserControl
             return;
         }
         _search.Clear();
+        _debounce.Stop();   // 清空搜尋框會啟動延遲搜尋，等一下又重畫一次；這裡已經要顯示佇列了
         ShowQueue();
         _scroll.ScrollToTop();
     }

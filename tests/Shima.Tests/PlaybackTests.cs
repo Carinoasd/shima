@@ -450,4 +450,65 @@ public class UpdaterTests
     [InlineData("")]
     [InlineData(null)]
     public void 一樣_比較舊_或看不懂的都不算(string? tag) => Assert.Null(Shima.Updater.Newer(tag, new Version(0, 5, 0, 0)));
+
+    [Theory]
+    [InlineData("https://github.com/Carinoasd/shima/releases/download/v0.6.1/Shima.exe", true)]
+    [InlineData("http://github.com/Carinoasd/shima/releases/download/v0.6.1/Shima.exe", false)]
+    [InlineData("https://github.com/Carinoasd/shima/archive/main.zip", false)]
+    [InlineData("https://github.com/Someone/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://github.com.evil.example/Carinoasd/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://user@github.com/Carinoasd/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://github.com:8443/Carinoasd/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://github.com/Carinoasd/shima/releases/download/../../../evil/x.exe", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void 只認這個專案發佈頁的下載連結(string? url, bool ok) => Assert.Equal(ok, Shima.Updater.ValidUrl(url));
+
+    [Fact]
+    public void 雜湊的格式()
+    {
+        var hex = new string('a', 64);
+        Assert.Equal(hex, Shima.Updater.Sha256Of("sha256:" + hex.ToUpperInvariant()));
+        Assert.Null(Shima.Updater.Sha256Of("sha1:" + hex));
+        Assert.Null(Shima.Updater.Sha256Of("sha256:abc"));
+        Assert.Null(Shima.Updater.Sha256Of(null));
+    }
+
+    private static JsonObject Latest(string tag, string? digest, string url = "https://github.com/Carinoasd/shima/releases/download/v9.0.0/Shima.exe") => new()
+    {
+        ["tag_name"] = tag,
+        ["assets"] = new JsonArray(new JsonObject { ["name"] = "Shima.exe", ["browser_download_url"] = url, ["size"] = 88000000, ["digest"] = digest }),
+    };
+
+    [Fact]
+    public void 沒有雜湊或網址不對的新版不裝()
+    {
+        var sha = "sha256:" + new string('b', 64);
+        var now = new Version(0, 6, 0, 0);
+        Assert.Equal(88000000, Shima.Updater.Pick(Latest("v9.0.0", sha), now)!.Size);
+        Assert.Null(Shima.Updater.Pick(Latest("v9.0.0", null), now));
+        Assert.Null(Shima.Updater.Pick(Latest("v9.0.0", sha, "https://example.com/Shima.exe"), now));
+        Assert.Null(Shima.Updater.Pick(Latest("v0.6.0", sha), now));
+    }
+
+    [Fact]
+    public void 下載的檔案要跟發佈的大小與雜湊都一樣()
+    {
+        var folder = System.IO.Path.Combine(AppContext.BaseDirectory, "update-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(folder);
+        try
+        {
+            var path = System.IO.Path.Combine(folder, "Shima.exe.new");
+            var bytes = new byte[6 * 1024 * 1024];
+            bytes[0] = (byte)'M'; bytes[1] = (byte)'Z'; bytes[100] = 7;
+            System.IO.File.WriteAllBytes(path, bytes);
+            var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+            Assert.True(Shima.Updater.Matches(path, bytes.Length, sha));
+            Assert.False(Shima.Updater.Matches(path, bytes.Length + 1, sha));                       // 大小不對（下載斷掉）
+            Assert.False(Shima.Updater.Matches(path, bytes.Length, new string('0', 64)));           // 內容不對
+            bytes[100] = 8; System.IO.File.WriteAllBytes(path, bytes);
+            Assert.False(Shima.Updater.Matches(path, bytes.Length, sha));                           // 被改過一個位元組
+        }
+        finally { System.IO.Directory.Delete(folder, true); }
+    }
 }

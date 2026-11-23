@@ -35,44 +35,104 @@ public static class Updater
         return new Version(version.Major, version.Minor, Math.Max(0, version.Build)) > now ? version : null;
     }
 
-    /// <summary>有新版就回傳版本與 Shima.exe 的下載網址；沒有、或查不到，就是 null。</summary>
-    public static async Task<(Version Version, string Url)?> CheckAsync()
+    /// <summary>一個可以裝的新版：下載網址，以及 GitHub 記錄的檔案大小與 SHA-256。</summary>
+    public sealed record Release(Version Version, string Url, long Size, string Sha256);
+
+    /// <summary>只認這個專案發佈頁的下載連結：https、github.com、/Carinoasd/shima/releases/download/ 底下。</summary>
+    public static bool ValidUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.IsDefaultPort && uri.UserInfo.Length == 0 &&
+        uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
+        uri.AbsolutePath.StartsWith("/Carinoasd/shima/releases/download/", StringComparison.Ordinal) && !uri.AbsolutePath.Contains("..");
+
+    /// <summary>GitHub 給的是「sha256:十六進位」；取出後面那 64 個字，格式不對就是 null。</summary>
+    public static string? Sha256Of(string? digest)
+    {
+        const string prefix = "sha256:";
+        if (digest == null || !digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var hex = digest[prefix.Length..].Trim().ToLowerInvariant();
+        return hex.Length == 64 && hex.All(Uri.IsHexDigit) ? hex : null;
+    }
+
+    /// <summary>從 releases/latest 的回應挑出可以裝的新版；沒有新版、或資料不齊（沒有雜湊就不裝），就是 null。</summary>
+    public static Release? Pick(JsonObject release, Version current)
+    {
+        if (Newer(release["tag_name"]?.ToString(), current) is not { } version) return null;
+        var asset = (release["assets"] as JsonArray)?.FirstOrDefault(a => a?["name"]?.ToString() == "Shima.exe");
+        var url = asset?["browser_download_url"]?.ToString();
+        var sha = Sha256Of(asset?["digest"]?.ToString());
+        long size = asset?["size"] is JsonValue v ? v.TryGetValue<long>(out var n) ? n : v.TryGetValue<int>(out var small) ? small : v.TryGetValue<double>(out var real) ? (long)real : 0 : 0;
+        return ValidUrl(url) && sha != null && size > 0 ? new Release(version, url!, size, sha) : null;
+    }
+
+    public static async Task<Release?> CheckAsync()
     {
         try
         {
-            if (JsonNode.Parse(await Http.GetStringAsync(Latest)) is not JsonObject release) return null;
-            if (Newer(release["tag_name"]?.ToString(), Current) is not { } version) return null;
-            var url = (release["assets"] as JsonArray)?.FirstOrDefault(a => a?["name"]?.ToString() == "Shima.exe")?["browser_download_url"]?.ToString();
-            return url is { Length: > 0 } && url.StartsWith("https://github.com/Carinoasd/shima/") ? (version, url) : null;
+            return JsonNode.Parse(await Http.GetStringAsync(Latest)) is JsonObject release ? Pick(release, Current) : null;
         }
         catch (Exception e) { Log.Write("update: " + e.Message); return null; }
     }
 
+    private static int _applying;
+
     /// <summary>
-    /// 下載新版放到自己旁邊，把正在執行的自己改名成 .old（Windows 允許改名、不允許覆寫），新的放回原位。
-    /// 成功後呼叫端重新啟動就是新版；.old 在下次啟動時由 Cleanup 刪掉。
+    /// 下載新版放到自己旁邊，確認大小與 SHA-256 都跟 GitHub 記錄的一樣，才把正在執行的自己改名成 .old
+    /// （Windows 允許改名、不允許覆寫），新的放回原位。成功後呼叫端重新啟動就是新版；.old 在下次啟動時由 Cleanup 刪掉。
     /// </summary>
-    public static async Task<bool> ApplyAsync(string url)
+    public static async Task<bool> ApplyAsync(Release release)
     {
-        if (!CanApply || Environment.ProcessPath is not { } exe) return false;
+        if (!CanApply || Environment.ProcessPath is not { } exe || !ValidUrl(release.Url)) return false;
+        if (Interlocked.Exchange(ref _applying, 1) == 1) return false;   // 已經有一次在下載了
         string fresh = exe + ".new", old = exe + ".old";
         try
         {
-            using (var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+            using (var response = await Http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead))
             {
                 response.EnsureSuccessStatusCode();
                 await using var to = File.Create(fresh);
                 await response.Content.CopyToAsync(to);
             }
-            if (!LooksLikeProgram(fresh)) { File.Delete(fresh); Log.Write("update: 下載到的不是執行檔"); return false; }
-            if (File.Exists(old)) File.Delete(old);
-            File.Move(exe, old);
-            try { File.Move(fresh, exe); }
-            catch { File.Move(old, exe); throw; }   // 放不回去就把原本的還原
+            if (!Matches(fresh, release.Size, release.Sha256)) { TryDelete(fresh); Log.Write("update: 下載到的檔案跟發佈的不一樣（大小或雜湊不符），不安裝"); return false; }
+
+            await RetryAsync(() => { if (File.Exists(old)) File.Delete(old); });
+            await RetryAsync(() => File.Move(exe, old));
+            try { await RetryAsync(() => File.Move(fresh, exe)); }
+            catch
+            {
+                // 放不回去（多半是防毒軟體正在掃剛下載的檔案）：一定要把原本的還原，不然執行檔就不見了
+                await RetryAsync(() => File.Move(old, exe), attempts: 20);
+                throw;
+            }
             return true;
         }
-        catch (Exception e) { Log.Write("update: " + e.Message); try { File.Delete(fresh); } catch { } return false; }
+        catch (Exception e) { Log.Write("update: " + e.Message); TryDelete(fresh); return false; }
+        finally { Interlocked.Exchange(ref _applying, 0); }
     }
+
+    /// <summary>檔案是不是發佈的那一個：大小一樣、SHA-256 一樣，而且是 Windows 執行檔。</summary>
+    public static bool Matches(string path, long size, string sha256)
+    {
+        try
+        {
+            if (new FileInfo(path).Length != size || !LooksLikeProgram(path)) return false;
+            using var file = File.OpenRead(path);
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(file));
+            return hash.Equals(sha256, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>檔案剛寫完常被防毒軟體或索引服務短暫鎖住：隔一下再試。</summary>
+    private static async Task RetryAsync(Action move, int attempts = 8)
+    {
+        for (int i = 1; ; i++)
+        {
+            try { move(); return; }
+            catch (Exception e) when (i < attempts && e is IOException or UnauthorizedAccessException) { await Task.Delay(250 * i); }
+        }
+    }
+
+    private static void TryDelete(string path) { try { File.Delete(path); } catch { } }
 
     /// <summary>Windows 執行檔以「MZ」開頭；Shima 的單一執行檔有幾十 MB，太小的一定是下載壞了。</summary>
     public static bool LooksLikeProgram(string path)

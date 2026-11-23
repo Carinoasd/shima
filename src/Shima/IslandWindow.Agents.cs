@@ -100,7 +100,7 @@ public partial class IslandWindow
         AskTool.Text = ask.Tool;
         AskDetails.Text = ask.Details;
         AskAlways.Visibility = ask.RememberText != null ? Visibility.Visible : Visibility.Collapsed;
-        AskAlways.Content = ask.RememberText != null ? L.F("以後都允許 {0}", ask.RememberText) : "";
+        AskAlways.Content = ask.RememberText ?? "";
         _tab = Tab.Ask;
         _expanded = true;
         Buddy.Cheer();
@@ -286,12 +286,19 @@ public partial class IslandWindow
         AskBox.IsEnabled = false;
         AskBox.Text = question;
         Say("…");
-        // 在背景問：工具可能要上網（查天氣），不能卡住畫面
-        var asker = _asker;
-        var answer = await Task.Run(() => asker.AskAsync(question));
-        AskBox.Text = "";
-        AskBox.IsEnabled = true;
-        Say(answer);
+        try
+        {
+            // 在背景問：工具可能要上網（查天氣），不能卡住畫面
+            var asker = _asker;
+            Say(await Task.Run(() => asker.AskAsync(question)));
+        }
+        catch (Exception x) { Log.Write("ask: " + x.Message); Say(x.Message); }
+        finally
+        {
+            // 不管成功失敗都要把輸入框還回去，不然之後就再也問不了
+            AskBox.Text = "";
+            AskBox.IsEnabled = true;
+        }
     }
 
     /// <summary>AI 分頁下方那塊文字；面板的高度跟著它長。</summary>

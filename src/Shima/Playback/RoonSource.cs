@@ -160,12 +160,9 @@ public sealed class RoonSource : IMediaSource
 
             case "register" when msg.Name == "Registered":
                 var fresh = msg.Body?["token"]?.ToString() ?? "";
-                var tokens = AppSettings.Current.RoonTokens;
-                if (fresh.Length > 0 && _coreId.Length > 0 && (!tokens.TryGetValue(_coreId, out var old) || old != fresh))
-                {
-                    tokens[_coreId] = fresh;
-                    AppSettings.Current.Save();
-                }
+                var core = _coreId;
+                if (fresh.Length > 0 && core.Length > 0)
+                    AppSettings.Change(s => { if (!s.RoonTokens.TryGetValue(core, out var old) || old != fresh) s.RoonTokens[core] = fresh; });
                 Log.Write("roon: 已連上 " + msg.Body?["display_name"]);
                 _registered = true;
                 bool browse = Provides(msg.Body, RoonBrowse.Service);
@@ -176,6 +173,7 @@ public sealed class RoonSource : IMediaSource
 
             case "zones" when msg.Body is JsonObject body:
                 bool newCover;
+                string? remember = null;
                 lock (_lock)
                 {
                     if (msg.Name == "Subscribed") _zones.Clear();
@@ -190,12 +188,10 @@ public sealed class RoonSource : IMediaSource
                     var shownZone = Pick(_zones.Values, _zoneId, AppSettings.Current.RoonZone, _pinned);
                     newCover = Show(shownZone);
                     // 記住最後在播的區域：全部暫停或重開 Shima 之後，按播放要控制的是它
-                    if (shownZone?["state"]?.ToString() == "playing" && AppSettings.Current.RoonZone != _zoneId)
-                    {
-                        AppSettings.Current.RoonZone = _zoneId;
-                        AppSettings.Current.Save();
-                    }
+                    if (shownZone?["state"]?.ToString() == "playing" && AppSettings.Current.RoonZone != _zoneId) remember = _zoneId;
                 }
+                // 存檔要寫磁碟，不能拿著鎖做（畫面那邊讀現在的歌會被卡住），也不在這條執行緒做
+                if (remember != null) AppSettings.Change(s => s.RoonZone = remember);
                 Changed?.Invoke();
                 if (newCover) _ = LoadCoverAsync();
                 await SyncQueueAsync();
@@ -243,12 +239,23 @@ public sealed class RoonSource : IMediaSource
         (registered?["provided_services"] as JsonArray ?? []).Any(s => s?.ToString() == service);
 
     /// <summary>顯示的區域換了，就把佇列訂閱搬過去。</summary>
+    private readonly SemaphoreSlim _queueSync = new(1, 1);
+
     private async Task SyncQueueAsync()
+    {
+        // 畫面與接收訊息的執行緒都會叫到這裡；一次只讓一個做，取消舊訂閱與訂新的才不會交錯著送出去
+        await _queueSync.WaitAsync();
+        try { await SyncQueueLockedAsync(); }
+        finally { _queueSync.Release(); }
+    }
+
+    private async Task SyncQueueLockedAsync()
     {
         string zone; int oldKey, key = -1; string id = "";
         lock (_lock)
         {
             if (_zoneId == _queueZone) return;
+            if (_ws == null) return;   // 還沒連上：不要先記成「已經訂了」，等連上後那一次再訂
             zone = _zoneId; oldKey = _queueKey;
             _queueZone = zone; _queue.Clear(); _queueRequest = ""; _queueKey = -1;
             if (zone.Length > 0)
@@ -323,7 +330,8 @@ public sealed class RoonSource : IMediaSource
         else if (reported != _lastReported)
         {
             bool step = playing && reported == _lastReported + 1;
-            if (Math.Abs(reported - expected.TotalSeconds) > 1.5 || step && !_stepped)
+            // 暫停時位置不會自己走，回報的數字變了就是有人拖了進度，差一秒也要跟
+            if (!playing || Math.Abs(reported - expected.TotalSeconds) > 1.5 || step && !_stepped)
             {
                 _position = TimeSpan.FromSeconds(reported);
                 _at = now;
@@ -502,6 +510,12 @@ public sealed class RoonSource : IMediaSource
     public async Task<RoonBrowseResult?> PlayAsync(RoonBrowseItem item)
     {
         await _browsing.WaitAsync();
+        try { return await PlayLockedAsync(item); }
+        finally { _browsing.Release(); }   // 每一條路都要放掉，包含中途就播成功直接回傳的那一條
+    }
+
+    private async Task<RoonBrowseResult?> PlayLockedAsync(RoonBrowseItem item)
+    {
         int opened = 0;
         try
         {
@@ -526,7 +540,6 @@ public sealed class RoonSource : IMediaSource
             }
         }
         catch (Exception e) { Log.Write("roon 瀏覽: " + e.Message); }
-        finally { _browsing.Release(); }
         return null;
     }
 
@@ -654,11 +667,16 @@ public sealed class RoonSource : IMediaSource
 
     private async Task SendAsync(byte[] data)
     {
-        ClientWebSocket? ws;
-        lock (_lock) ws = _ws;
-        if (ws == null) return;
         await _sending.WaitAsync();
-        try { await ws.SendAsync(data, WebSocketMessageType.Binary, true, CancellationToken.None); }
+        try
+        {
+            // 排到了才看連線：等的時候可能已經斷線、那條連線也被釋放了
+            ClientWebSocket? ws;
+            lock (_lock) ws = _ws;
+            if (ws is not { State: WebSocketState.Open }) return;
+            await ws.SendAsync(data, WebSocketMessageType.Binary, true, CancellationToken.None);
+        }
+        catch (Exception e) when (e is ObjectDisposedException or WebSocketException or InvalidOperationException) { /* 剛好斷線：重連後會重新訂閱 */ }
         finally { _sending.Release(); }
     }
 }

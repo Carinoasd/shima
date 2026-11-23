@@ -96,63 +96,118 @@ public sealed class AgentBridge
 
     public static string TokenFile => Path.Combine(AppSettings.Folder, "bridge.token");
 
-    public static string Token()
+    /// <summary>
+    /// Stream Dock 外掛用的是另一把金鑰。它得寫進外掛的資料夾、還會出現在網址上，比 hook 那把容易外流；
+    /// 分開之後，拿到它的人只碰得到 /deck/ 底下的東西，沒辦法假裝成 Claude Code 的 hook。
+    /// </summary>
+    public static string DeckTokenFile => Path.Combine(AppSettings.Folder, "deck.token");
+
+    public static string Token() => TokenIn(TokenFile);
+    public static string DeckToken() => TokenIn(DeckTokenFile);
+
+    private static string TokenIn(string file)
     {
         try
         {
-            if (File.Exists(TokenFile) && File.ReadAllText(TokenFile).Trim() is { Length: >= 32 } existing) return existing;
-            Directory.CreateDirectory(AppSettings.Folder);
+            if (File.Exists(file) && File.ReadAllText(file).Trim() is { Length: >= 32 } existing) return existing;
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
             var fresh = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
-            File.WriteAllText(TokenFile, fresh);
+            File.WriteAllText(file, fresh);
             return fresh;
         }
         catch (Exception e) { Log.Write("bridge token: " + e.Message); return ""; }
     }
 
+    public enum Door { Refuse, Hook, Deck }
+
+    /// <summary>
+    /// 一個請求可以走哪一扇門。兩把金鑰各管各的：
+    /// hook 只收 POST、金鑰放在標頭、不能帶 Origin（瀏覽器裡的網頁一定會帶）；
+    /// /deck/ 的金鑰放在網址上（外掛是內嵌瀏覽器裡的網頁，加不了自訂標頭），會改變狀態的 press、turn 只收 POST，
+    /// 免得一張 &lt;img&gt; 或一個連結就能替人按下去。
+    /// </summary>
+    public static Door Gate(string method, string path, string? header, string? query, bool hasOrigin, string hookToken, string deckToken)
+    {
+        static bool Same(string? given, string wanted) =>
+            wanted.Length > 0 && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(given ?? ""), Encoding.UTF8.GetBytes(wanted));
+
+        if (path.StartsWith("/deck/", StringComparison.Ordinal))
+        {
+            if (!Same(query, deckToken)) return Door.Refuse;
+            bool acts = path is "/deck/press" or "/deck/turn";
+            return method == (acts ? "POST" : "GET") ? Door.Deck : Door.Refuse;
+        }
+        return method == "POST" && !hasOrigin && Same(header, hookToken) ? Door.Hook : Door.Refuse;
+    }
+
+    public const int MaxBody = 512 * 1024;
+
+    /// <summary>
+    /// 讀請求的內容，最多 limit 個位元組；超過就是 null。
+    /// 不能只看 Content-Length：分塊傳輸（chunked）沒有這個標頭，照樣可以一直送。
+    /// </summary>
+    public static async Task<string?> ReadLimitedAsync(Stream body, int limit)
+    {
+        using var kept = new MemoryStream();
+        var buffer = new byte[8192];
+        int read;
+        while ((read = await body.ReadAsync(buffer)) > 0)
+        {
+            if (kept.Length + read > limit) return null;
+            kept.Write(buffer, 0, read);
+        }
+        return Encoding.UTF8.GetString(kept.GetBuffer(), 0, (int)kept.Length);
+    }
+
     public void Start()
     {
         if (_listener != null) return;
-        var token = Token();
+        string token = Token(), deckToken = DeckToken();
         if (token.Length == 0) return;
         try
         {
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{Port}/");
             _listener.Start();
-            _ = Task.Run(() => LoopAsync(_listener, token));
+            _ = Task.Run(() => LoopAsync(_listener, token, deckToken));
             _pruner = new Timer(_ => Prune(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
         catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; }
     }
 
-    private async Task LoopAsync(HttpListener listener, string token)
+    /// <summary>程式結束時關掉：不再收請求，也停掉清理用的計時器。</summary>
+    public void Stop()
+    {
+        var listener = _listener;
+        _listener = null;
+        try { listener?.Close(); } catch { }
+        _pruner?.Dispose();
+        _pruner = null;
+    }
+
+    private async Task LoopAsync(HttpListener listener, string token, string deckToken)
     {
         while (listener.IsListening)
         {
             HttpListenerContext context;
             try { context = await listener.GetContextAsync(); }
             catch { return; }
-            _ = Task.Run(() => HandleAsync(context, token));
+            _ = Task.Run(() => HandleAsync(context, token, deckToken));
         }
     }
 
-    private async Task HandleAsync(HttpListenerContext context, string token)
+    private async Task HandleAsync(HttpListenerContext context, string token, string deckToken)
     {
         var response = context.Response;
         try
         {
             var request = context.Request;
-            if (request.Url?.AbsolutePath.StartsWith("/deck/") == true) { await DeckAsync(request, response, token); return; }
-            // 只接受 hook：網頁（帶 Origin）、token 不對、內容太大的一律拒絕
-            if (request.HttpMethod != "POST" || request.Headers["Origin"] != null || request.ContentLength64 > 512 * 1024 ||
-                !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(request.Headers["X-Shima-Token"] ?? ""), Encoding.UTF8.GetBytes(token)))
-            {
-                response.StatusCode = 403;
-                return;
-            }
+            var door = Gate(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
+                request.Headers["Origin"] != null, token, deckToken);
+            if (door == Door.Refuse || request.ContentLength64 > MaxBody) { response.StatusCode = 403; return; }
+            if (door == Door.Deck) { await DeckAsync(request, response); return; }
 
-            string text;
-            using (var reader = new StreamReader(request.InputStream, Encoding.UTF8)) text = await reader.ReadToEndAsync();
+            if (await ReadLimitedAsync(request.InputStream, MaxBody) is not { } text) { response.StatusCode = 413; return; }
             if (JsonNode.Parse(text) is not JsonObject json) { response.StatusCode = 400; return; }
             if (request.Url?.AbsolutePath == "/permission")
             {
@@ -179,14 +234,9 @@ public sealed class AgentBridge
     /// Stream Dock 外掛的請求。外掛是 Stream Dock 內嵌瀏覽器裡的網頁，所以帶 Origin、也沒辦法加自訂標頭；
     /// token 改放在網址上（外掛安裝時寫進它自己的資料夾），沒有 token 的網頁一樣進不來。
     /// </summary>
-    private async Task DeckAsync(HttpListenerRequest request, HttpListenerResponse response, string token)
+    private async Task DeckAsync(HttpListenerRequest request, HttpListenerResponse response)
     {
-        var query = request.QueryString;
-        if (!CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(query["t"] ?? ""), Encoding.UTF8.GetBytes(token)))
-        {
-            response.StatusCode = 403;
-            return;
-        }
+        var query = request.QueryString;   // 金鑰與方法已經在 Gate 檢查過
         response.AddHeader("Access-Control-Allow-Origin", "*");
         response.AddHeader("Cache-Control", "no-store");
         var deck = Deck;
@@ -265,7 +315,10 @@ public sealed class AgentBridge
         Touch(json);
         if (Asked == null) return null;
         Asked.Invoke(ask);
-        var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience));
+        // 人按了之後就把計時器取消，不然每問一次就留一個活九分多鐘的計時器
+        using var giveUp = new CancellationTokenSource();
+        var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience, giveUp.Token));
+        giveUp.Cancel();
         var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
         ask.Decision.TrySetResult(null);
         if (behavior == PermissionRequest.Always)

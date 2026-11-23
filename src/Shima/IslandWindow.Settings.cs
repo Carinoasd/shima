@@ -37,7 +37,7 @@ public partial class IslandWindow
                 if (_updating) return;
                 _updating = true;
                 Toast(L.T("正在下載新版…"), 120, false);
-                if (await Updater.ApplyAsync(found.Url)) { ((App)Application.Current).Restart(); Close(); }
+                if (await Updater.ApplyAsync(found)) { ((App)Application.Current).Restart(); Close(); }
                 else { _updating = false; Toast(L.T("更新失敗"), 6, false); }
             });
             _trayMenu.Items.Insert(0, _updateItem);

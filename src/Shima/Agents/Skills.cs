@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -137,6 +138,11 @@ public static class Skills
     private static void Launch(string target)
     {
         if (target == Opener.Browser) target = DefaultBrowser() ?? throw new InvalidOperationException("找不到預設瀏覽器");
+        // 只有檔名的話，Windows 會先在「目前的資料夾」找：Shima 若是從下載資料夾啟動，裡面一個同名的 notepad.exe 就會被執行。
+        // 所以白名單裡的執行檔一律換成它該在的完整路徑，找不到就當作沒安裝。
+        if (target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && !Path.IsPathRooted(target))
+            target = Opener.Locate(target, Environment.SystemDirectory, Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)) ?? throw new FileNotFoundException(target);
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(target) { UseShellExecute = true })?.Dispose();
     }
 
@@ -357,6 +363,38 @@ public static class Opener
         new("Microsoft Store", "ms-windows-store:", ["microsoft store", "store", "微軟商店", "市集"]),
     ];
 
+    /// <summary>
+    /// 白名單裡的執行檔該在哪裡：系統程式在 System32 或 Windows 資料夾，終端機與 Roon 在使用者的 LocalAppData 底下。
+    /// 只在這幾個固定的位置找，不看目前的資料夾也不看 PATH；都沒有就是 null。
+    /// </summary>
+    public static string? Locate(string exe, string system, string windows, string local)
+    {
+        string[] places = exe.ToLowerInvariant() switch
+        {
+            "explorer.exe" => [windows],
+            "wt.exe" => [Path.Combine(local, "Microsoft", "WindowsApps")],
+            "roon.exe" => [Path.Combine(local, "Roon", "Application")],
+            _ => [system],
+        };
+        return places.Select(p => Path.Combine(p, exe)).FirstOrDefault(File.Exists);
+    }
+
+    /// <summary>
+    /// 本機或區域網路的位址。AI 讀得到剪貼簿與歌詞，裡面如果藏著「幫我開 http://localhost:…」這種話，
+    /// 不該真的用使用者已經登入的瀏覽器去開本機的服務或路由器的管理頁。
+    /// </summary>
+    public static bool Local(Uri uri)
+    {
+        var host = uri.Host.TrimEnd('.').ToLowerInvariant();
+        if (uri.IsLoopback || host == "localhost" || host.EndsWith(".localhost") || host.EndsWith(".local") || host.EndsWith(".internal") || !host.Contains('.') && !host.Contains(':')) return true;
+        if (!System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip)) return false;
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (System.Net.IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6UniqueLocal) return true;
+        var b = ip.GetAddressBytes();
+        if (b.Length != 4) return ip.Equals(System.Net.IPAddress.IPv6Any);
+        return b[0] is 0 or 10 or 127 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127;
+    }
+
     /// <summary>代表「預設瀏覽器」：開的時候才從登錄檔查是哪一個。</summary>
     public const string Browser = "default-browser";
 
@@ -413,6 +451,7 @@ public static class Opener
 
         if (!Uri.TryCreate(candidate, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.Host.Length == 0 || uri.UserInfo.Length > 0 || uri.IsUnc || uri.IsFile)
             return new(OpenKind.Refused, "", "網址格式不對");
+        if (Local(uri)) return new(OpenKind.Refused, "", "不開這台電腦或區域網路裡的網址");
         return new(OpenKind.Url, uri.AbsoluteUri, "");
     }
 }
