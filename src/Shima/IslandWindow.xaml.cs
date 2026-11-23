@@ -269,6 +269,7 @@ public partial class IslandWindow : Window
             if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
+        SleepTick();
         UpdateTimer();
         UpdateTexts();
     }
