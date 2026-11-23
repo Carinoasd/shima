@@ -55,11 +55,12 @@ public static class RecapCard
     }
 
     /// <summary>畫卡片；沒有資料回 null。cover 是目前播放的封面，當模糊的背景並取強調色。</summary>
-    public static BitmapSource? Render(StatsSummary summary, StatsPeriod period, DateTime now, ImageSource? cover)
+    /// <param name="light">標題、長條與名次的顏色；不給就取自封面（島上設定的強調色由呼叫的人傳進來）。</param>
+    public static BitmapSource? Render(StatsSummary summary, StatsPeriod period, DateTime now, ImageSource? cover, Color? light = null)
     {
         var culture = Loc.Culture;
         if (Content(summary, period, now, culture) is not { } content) return null;
-        var accent = Accent.From(cover);
+        var accent = light ?? Accent.From(cover);
         var bars = Stats.Bars(summary.Daily, period);
 
         var visual = new DrawingVisual();

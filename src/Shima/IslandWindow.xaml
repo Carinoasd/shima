@@ -217,6 +217,16 @@
             <Border x:Name="PillCover" Width="22" Height="22" CornerRadius="6" Margin="0,0,9,0" Background="#2A2A2A"
                     VerticalAlignment="Center" Visibility="Collapsed"/>
             <s:KaraokeLine x:Name="PillLine" Grid.Column="1" Size="12.5" Height="24" VerticalAlignment="Center"/>
+            <!-- 進度線：只畫在底邊直的那一段（左右各縮進一個圓角半徑 18，扣掉膠囊本身的邊距 7／8）。
+                 用縮放而不是改寬度：前進時不必重新排版，膠囊變寬變窄時自己跟著 -->
+            <Border x:Name="PillTrack" Grid.ColumnSpan="3" Height="2" VerticalAlignment="Bottom" Margin="11,0,10,1" CornerRadius="1"
+                    Background="#1AFFFFFF" IsHitTestVisible="False" Visibility="Collapsed">
+              <Border x:Name="PillProgressFill" CornerRadius="1" Background="White" RenderTransformOrigin="0,0.5">
+                <Border.RenderTransform>
+                  <ScaleTransform x:Name="PillProgressScale" ScaleX="0"/>
+                </Border.RenderTransform>
+              </Border>
+            </Border>
           </Grid>
 
           <!-- 展開 -->

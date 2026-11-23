@@ -54,6 +54,7 @@ public partial class IslandWindow : Window
         InitializeComponent();
         FontFamily = Loc.Font;
         Loc.Translate(this);
+        ApplyLyricsLines();
 
         Place();
 
@@ -220,10 +221,7 @@ public partial class IslandWindow : Window
         if (!ReferenceEquals(track?.Cover, _coverShown))
         {
             _coverShown = track?.Cover;
-            var accent = ThemeAccent(_coverShown);
-            PillLine.Light = LyricsList.Light = Meter.Color = Spectrum.Color = accent;
-            if (_desk != null) _desk.Light = accent;
-            BarFill.Background = new SolidColorBrush(accent);
+            ApplyAccent();
             BackdropImage.Background = Accent.Blurred(_coverShown) is { } blur ? new ImageBrush(blur) { Stretch = Stretch.UniformToFill } : null;
         }
 
@@ -272,6 +270,7 @@ public partial class IslandWindow : Window
             if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
+        if (_ticks % 5 == 0) UpdatePillProgress();
         SleepTick();
         UpdateTimer();
         UpdateTexts();
@@ -658,7 +657,7 @@ public partial class IslandWindow : Window
             };
             if (line.Length > 0 && extra != null && i < extra.Count) second = extra[i];
         }
-        return LyricCard.Render(track, line, second);
+        return LyricCard.Render(track, line, second, ThemeAccent(track.Cover));
     }
 
     private void LyricsReset_Click(object sender, RoutedEventArgs e)
