@@ -5,6 +5,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Shima.Lyrics;
 
@@ -24,7 +25,7 @@ public interface ILyricsProvider
 /// 自己的 .lrc 檔：%APPDATA%\Shima\lyrics 以及設定裡 LyricsFolders 的資料夾（含子資料夾，例如音樂庫）。
 /// 檔名是「歌名」「藝人 - 歌名」或「01 歌名」都認得。
 /// </summary>
-public sealed class LocalProvider : ILyricsProvider
+public sealed partial class LocalProvider : ILyricsProvider
 {
     public string Name => "local";
     private Dictionary<string, string>? _index;
@@ -40,8 +41,8 @@ public sealed class LocalProvider : ILyricsProvider
             if (!index.TryGetValue(key, out var path)) continue;
             try
             {
-                var lines = Lrc.Parse(File.ReadAllText(path));
-                if (lines.Count > 0) return new LyricsHit(new LyricSheet(lines, true), true, Name);
+                var sheet = Lrc.ParseSheet(File.ReadAllText(path));
+                if (sheet.Lines.Count > 0) return new LyricsHit(sheet, true, Name);
             }
             catch (Exception e) { Log.Write("歌詞檔讀取失敗: " + e.Message); }
         }
@@ -66,6 +67,57 @@ public sealed class LocalProvider : ILyricsProvider
         var trimmed = key.TrimStart("0123456789".ToCharArray());
         if (trimmed.Length > 0 && trimmed.Length < key.Length) yield return trimmed;
     }
+
+    /// <summary>
+    /// 存歌詞用的檔名：「藝人 - 歌名.lrc」（沒有藝人就是「歌名.lrc」），<see cref="Keys"/> 一定認得。
+    /// Windows 不允許的字元換成底線（比對時本來就不看標點）；認不出這首歌（歌名全是符號）就是 null。
+    /// </summary>
+    public static string? FileName(SongQuery q)
+    {
+        if (!Keys(q).Any()) return null;
+        var artist = Titles.MainArtist(q.Artist);
+        var name = Safe(artist.Length > 0 ? $"{artist} - {q.Title}" : q.Title);
+        // 太長的話只用歌名（Windows 的路徑有長度上限）
+        if (name.Length > 150) name = Safe(q.Title);
+        if (name.Length > 150) name = name[..150].TrimEnd(' ', '.');
+        if (name.Length == 0 || !KeysOf(name + ".lrc").Intersect(Keys(q)).Any()) return null;
+        // CON、NUL、COM1 這些是裝置名稱，不能當檔名
+        if (Reserved().IsMatch(name)) name = "_" + name;
+        return name + ".lrc";
+    }
+
+    private static string Safe(string name)
+    {
+        var bad = Path.GetInvalidFileNameChars().Concat(['<', '>', ':', '"', '/', '\\', '|', '?', '*']).ToHashSet();
+        var safe = new string(name.Select(c => bad.Contains(c) || char.IsControl(c) ? '_' : c).ToArray());
+        return safe.Trim().TrimEnd('.', ' ');
+    }
+
+    /// <summary>
+    /// 寫進 folder：已經有同名的檔案就先備份成 .bak（只留一份）再覆寫。檔名帶路徑、會跑出資料夾的一律不寫。回傳寫好的完整路徑。
+    /// </summary>
+    public static string Save(string folder, string fileName, string lrc)
+    {
+        var root = Path.GetFullPath(folder);
+        var path = Path.GetFullPath(Path.Combine(root, fileName));
+        if (Path.GetFileName(fileName) != fileName || !string.Equals(Path.GetDirectoryName(path), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("檔名不合法: " + fileName);
+        Directory.CreateDirectory(root);
+        if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
+        // 先寫暫存檔再換上去：寫到一半當掉也不會留下半個檔案；加 BOM，其他播放器才認得是 UTF-8
+        File.WriteAllText(path + ".tmp", lrc, new System.Text.UTF8Encoding(true));
+        File.Move(path + ".tmp", path, overwrite: true);
+        return path;
+    }
+
+    /// <summary>資料夾裡剛多了檔案：下次查的時候重新掃一次。</summary>
+    public void Reindex()
+    {
+        lock (this) _index = null;
+    }
+
+    [GeneratedRegex(@"^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex Reserved();
 
     private Dictionary<string, string> Index()
     {

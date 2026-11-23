@@ -167,11 +167,12 @@
         <ContextMenu>
           <MenuItem x:Name="CharacterMenu" Header="角色"/>
           <MenuItem x:Name="SecondLineMenu" Header="歌詞第二行"/>
-          <MenuItem Header="這首歌的歌詞">
+          <MenuItem Header="這首歌的歌詞" SubmenuOpened="LyricsMenu_SubmenuOpened">
             <MenuItem Header="換一份" Click="LyricsOther_Click"/>
             <MenuItem Header="提早 0.1 秒" Click="LyricsEarlier_Click"/>
             <MenuItem Header="延後 0.1 秒" Click="LyricsLater_Click"/>
             <MenuItem Header="還原" Click="LyricsReset_Click"/>
+            <MenuItem x:Name="LyricsSaveItem" Header="存成 .lrc" Click="LyricsSave_Click"/>
           </MenuItem>
           <MenuItem Header="複製歌詞卡片" Click="LyricCard_Click"/>
           <MenuItem Header="收藏這句歌詞" Click="Favorite_Click"/>
