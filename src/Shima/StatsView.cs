@@ -32,8 +32,36 @@ public sealed class StatsView : FrameworkElement
     private StatsSummary? _summary;
     private List<(DateTime Start, TimeSpan Time)> _bars = [];
     private bool _byYear;
+    private HeatGrid? _heat;
+    private bool _showHours;                       // 月與全部：下面的圖是每日長條還是一天當中幾點
+    private string? _tip;                          // 滑鼠下面那一格的說明，畫在控制項裡
+    private Point _tipAt;
     private readonly Rect[] _tabs = new Rect[4];
+    private readonly Rect[] _modes = new Rect[2];
     private Rect _share;
+
+    private const double ToggleH = 16, HeatGap = 1.5, TipPad = 6;
+    private static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+    private static readonly Brush[] HeatBrushes =
+    [
+        Faint,
+        Frozen(Color.FromArgb(0x48, 0xFF, 0xFF, 0xFF)), Frozen(Color.FromArgb(0x78, 0xFF, 0xFF, 0xFF)),
+        Frozen(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF)), Frozen(Color.FromArgb(0xF0, 0xFF, 0xFF, 0xFF)),
+    ];
+    private static readonly Brush HeatFuture = Frozen(Color.FromArgb(0x0C, 0xFF, 0xFF, 0xFF)),
+                                  TipBack = Frozen(Color.FromArgb(0xEE, 0x1E, 0x1E, 0x22));
+    private static readonly Pen TodayPen = FrozenPen(Frozen(Color.FromRgb(0xD9, 0x77, 0x57)), 1.25), TipPen = FrozenPen(Frozen(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)), 1);
+
+    /// <summary>月與全部期間下面的圖：true 是一天當中幾點在聽。</summary>
+    public bool ShowHours
+    {
+        get => _showHours;
+        set { _showHours = value; InvalidateVisual(); }
+    }
+
+    private bool Toggleable => _period is StatsPeriod.Month or StatsPeriod.All;
+    private bool Hours => Toggleable && _showHours;
+    private bool Heat => _period == StatsPeriod.Year;
 
     /// <summary>按下分享鈕：呼叫端用 Summary、Period、Now 做回顧卡片。</summary>
     public event Action? ShareRequested;
@@ -57,6 +85,7 @@ public sealed class StatsView : FrameworkElement
         {
             if (_period == value) return;
             _period = value;
+            _tip = null;
             Recompute();
             PeriodChanged?.Invoke(value);
         }
@@ -78,6 +107,7 @@ public sealed class StatsView : FrameworkElement
         _summary = Stats.Compute(_listens, _period, _now, Loc.Culture.DateTimeFormat.FirstDayOfWeek);
         _bars = Stats.Fill(Stats.Bars(_summary.Daily, _period), _period);
         _byYear = _period == StatsPeriod.All && Stats.ByYear(_summary.Daily);
+        _heat = _period == StatsPeriod.Year ? Stats.Heat(_summary.Daily, _summary.From.Year, Loc.Culture.DateTimeFormat.FirstDayOfWeek, _now) : null;
         InvalidateVisual();
     }
 
@@ -122,7 +152,7 @@ public sealed class StatsView : FrameworkElement
             x += t.Width + 18;
         }
         // 最右邊是分享鈕，連續天數在它左邊
-        var share = Text("\uE72D", 13, Dim, new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"));
+        var share = Text("\uE72D", 13, Dim, Icons);
         dc.DrawText(share, new Point(width - share.Width, (TabsH - share.Height) / 2));
         _share = new Rect(width - share.Width - 8, 0, share.Width + 8, TabsH);
         if (s.Streak > 0)
@@ -157,30 +187,104 @@ public sealed class StatsView : FrameworkElement
             }
         }
 
-        // 長條圖
-        if (_bars.Count == 0) return;
-        double slot = width / _bars.Count;
-        double bar = Math.Clamp(slot * 0.62, 1, 18);
-        double max = Math.Max(1, _bars.Max(b => b.Time.TotalSeconds));
-        int current = _bars.FindLastIndex(b => b.Start <= _now.Date);
+        // 下面的圖：年是熱力圖，月與全部右上角有切換，可以改看一天當中幾點在聽
         double bottom = ChartY + ChartH;
-        for (int i = 0; i < _bars.Count; i++)
+        if (_heat != null) DrawHeat(dc, width, (t, size, brush, family) => Text(t, size, brush, family));
+        else
         {
-            double cx = i * slot + slot / 2;
-            double h = _bars[i].Time.TotalSeconds / max * ChartH;
-            var brush = i == current ? Brushes.White : BarBrush;
-            if (h < 2) { dc.DrawRectangle(Faint, null, new Rect(cx - bar / 2, bottom - 2, bar, 2)); continue; }
-            double radius = Math.Min(2, bar / 2);
-            dc.DrawRoundedRectangle(brush, null, new Rect(cx - bar / 2, bottom - h, bar, h), radius, radius);
+            double top = ChartY;
+            if (Toggleable)
+            {
+                double ix = width;
+                for (int i = 1; i >= 0; i--)
+                {
+                    var icon = Text(i == 0 ? "\uE787" : "\uE121", 12, (i == 1) == _showHours ? Brushes.White : Dim, Icons);
+                    ix -= icon.Width;
+                    dc.DrawText(icon, new Point(ix, ChartY - 2 + (ToggleH - icon.Height) / 2));
+                    _modes[i] = new Rect(ix - 5, ChartY - 2, icon.Width + 10, ToggleH);
+                    ix -= 10;
+                }
+                top = ChartY + ToggleH;
+            }
+            else Array.Clear(_modes);
+            double chartH = bottom - top;
+
+            if (Hours)
+            {
+                var hours = s.Hours;
+                double slot = width / 24, bar = Math.Clamp(slot * 0.62, 1, 18);
+                double peak = hours.Max(h => h.TotalSeconds), hmax = Math.Max(1, peak);
+                int top1 = Array.FindIndex(hours, h => h.TotalSeconds == peak);
+                for (int h = 0; h < 24; h++) Bar(dc, h * slot + slot / 2, bar, hours[h].TotalSeconds / hmax * chartH, bottom, h == top1 && peak > 0 ? Brushes.White : BarBrush);
+                foreach (int h in new[] { 0, 6, 12, 18 })
+                {
+                    var t = Text(h.ToString(CultureInfo.InvariantCulture), 10.5, Dim);
+                    double cx = h * slot + slot / 2;
+                    dc.DrawText(t, new Point(Math.Clamp(cx - t.Width / 2, 0, width - t.Width), bottom + 4));
+                }
+            }
+            else if (_bars.Count > 0)
+            {
+                double slot = width / _bars.Count;
+                double bar = Math.Clamp(slot * 0.62, 1, 18);
+                double max = Math.Max(1, _bars.Max(b => b.Time.TotalSeconds));
+                int current = _bars.FindLastIndex(b => b.Start <= _now.Date);
+                for (int i = 0; i < _bars.Count; i++)
+                    Bar(dc, i * slot + slot / 2, bar, _bars[i].Time.TotalSeconds / max * chartH, bottom, i == current ? Brushes.White : BarBrush);
+
+                for (int i = 0; i < _bars.Count; i++)
+                {
+                    var label = BarLabel(i);
+                    if (label == null) continue;
+                    var t = Text(label, 10.5, i == current ? Brushes.White : Dim);
+                    double cx = i * slot + slot / 2;
+                    dc.DrawText(t, new Point(Math.Clamp(cx - t.Width / 2, 0, width - t.Width), bottom + 4));
+                }
+            }
         }
 
-        for (int i = 0; i < _bars.Count; i++)
+        // 滑鼠下面那一格的日期與時間，跟著滑鼠、不超出邊界
+        if (_tip != null)
         {
-            var label = BarLabel(i);
-            if (label == null) continue;
-            var t = Text(label, 10.5, i == current ? Brushes.White : Dim);
-            double cx = i * slot + slot / 2;
-            dc.DrawText(t, new Point(Math.Clamp(cx - t.Width / 2, 0, width - t.Width), bottom + 4));
+            var tip = Text(_tip, 11.5, Brushes.White);
+            double w = tip.Width + TipPad * 2, h = tip.Height + TipPad;
+            double tx = Math.Clamp(_tipAt.X + 12, 0, Math.Max(0, width - w));
+            double ty = Math.Clamp(_tipAt.Y - h - 8 >= 0 ? _tipAt.Y - h - 8 : _tipAt.Y + 18, 0, Math.Max(0, ActualHeight - h));
+            dc.DrawRoundedRectangle(TipBack, TipPen, new Rect(tx, ty, w, h), 5, 5);
+            dc.DrawText(tip, new Point(tx + TipPad, ty + TipPad / 2));
+        }
+    }
+
+    private static void Bar(DrawingContext dc, double cx, double bar, double h, double bottom, Brush brush)
+    {
+        if (h < 2) { dc.DrawRectangle(Faint, null, new Rect(cx - bar / 2, bottom - 2, bar, 2)); return; }
+        double radius = Math.Min(2, bar / 2);
+        dc.DrawRoundedRectangle(brush, null, new Rect(cx - bar / 2, bottom - h, bar, h), radius, radius);
+    }
+
+    /// <summary>熱力圖的格子大小與位置：寬度平分給所有的週，高度平分給七列，月份數字在上面。</summary>
+    private (double W, double H, double Top) HeatLayout(double width)
+    {
+        int weeks = _heat?.Weeks ?? 53;
+        double top = ChartY + 16, area = ChartY + ChartH + LabelH - top;
+        return ((width - (weeks - 1) * HeatGap) / weeks, (area - 6 * HeatGap) / 7, top);
+    }
+
+    private void DrawHeat(DrawingContext dc, double width, Func<string, double, Brush, FontFamily?, FormattedText> text)
+    {
+        var heat = _heat!;
+        var (cw, ch, top) = HeatLayout(width);
+        for (int w = 0; w < heat.Weeks; w++)
+            for (int r = 0; r < 7; r++)
+            {
+                if (heat.Cells[w, r] is not { } cell) continue;
+                var rect = new Rect(w * (cw + HeatGap), top + r * (ch + HeatGap), cw, ch);
+                dc.DrawRoundedRectangle(cell.Future ? HeatFuture : HeatBrushes[cell.Level], cell.Day == _now.Date ? TodayPen : null, rect, 1.5, 1.5);
+            }
+        foreach (var (month, week) in heat.MonthWeeks)
+        {
+            var t = text(month.ToString(CultureInfo.InvariantCulture), 10.5, Dim, null);
+            dc.DrawText(t, new Point(Math.Min(week * (cw + HeatGap), width - t.Width), ChartY + 1));
         }
     }
 
@@ -207,34 +311,76 @@ public sealed class StatsView : FrameworkElement
         if (_share.Contains(p)) { ShareRequested?.Invoke(); e.Handled = true; return; }
         for (int i = 0; i < _tabs.Length; i++)
             if (_tabs[i].Contains(p)) { Period = Periods[i]; e.Handled = true; return; }
+        if (Toggleable)
+            for (int i = 0; i < _modes.Length; i++)
+                if (_modes[i].Contains(p))
+                {
+                    _showHours = i == 1;
+                    _tip = Tip(p);
+                    InvalidateVisual();
+                    e.Handled = true;
+                    return;
+                }
         base.OnMouseLeftButtonUp(e);
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var p = e.GetPosition(this);
-        Cursor = _share.Contains(p) || _tabs.Any(t => t.Contains(p)) ? Cursors.Hand : null;
-        var tip = _share.Contains(p) ? L.T("分享聆聽回顧") : BarTip(p);
-        if (ToolTip as string != tip) ToolTip = tip;
+        Cursor = _share.Contains(p) || _tabs.Any(t => t.Contains(p)) || (Toggleable && _modes.Any(m => m.Contains(p))) ? Cursors.Hand : null;
+        SetTip(Tip(p), p);
         base.OnMouseMove(e);
     }
 
-    /// <summary>滑到長條上：那一天（或那個月、那一年）與聽的時間。</summary>
-    private string? BarTip(Point p)
+    protected override void OnMouseLeave(MouseEventArgs e)
     {
-        if (_bars.Count == 0 || p.Y < ChartY || p.Y > ChartY + ChartH + LabelH || ActualWidth <= 0) return null;
+        SetTip(null, _tipAt);
+        base.OnMouseLeave(e);
+    }
+
+    private void SetTip(string? tip, Point p)
+    {
+        if (tip == _tip && (tip == null || p == _tipAt)) return;
+        _tip = tip;
+        _tipAt = p;
+        InvalidateVisual();
+    }
+
+    private string? Tip(Point p)
+    {
+        if (_share.Contains(p)) return L.T("分享聆聽回顧");
+        if (_summary == null || ActualWidth <= 0) return null;
+        var culture = Loc.Culture;
+        double bottom = ChartY + ChartH;
+
+        if (_heat != null)
+        {
+            var (cw, ch, top) = HeatLayout(ActualWidth);
+            int w = (int)Math.Floor(p.X / (cw + HeatGap)), r = (int)Math.Floor((p.Y - top) / (ch + HeatGap));
+            if (w < 0 || w >= _heat.Weeks || r < 0 || r > 6 || _heat.Cells[w, r] is not { } cell || cell.Future) return null;
+            return cell.Day.ToString(culture.DateTimeFormat.MonthDayPattern, culture) + "  " + Long(cell.Time);
+        }
+
+        double chartTop = Toggleable ? ChartY + ToggleH : ChartY;
+        if (p.Y < chartTop || p.Y > bottom + LabelH) return null;
+        if (Hours)
+        {
+            int h = Math.Clamp((int)(p.X / (ActualWidth / 24)), 0, 23);
+            return h.ToString("00", CultureInfo.InvariantCulture) + ":00  " + Long(_summary.Hours[h]);
+        }
+        if (_bars.Count == 0) return null;
         int i = Math.Clamp((int)(p.X / (ActualWidth / _bars.Count)), 0, _bars.Count - 1);
         var (start, time) = _bars[i];
-        var culture = Loc.Culture;
+        if (start > _now.Date) return null;
         string when = _period switch
         {
             StatsPeriod.Week or StatsPeriod.Month => start.ToString(culture.DateTimeFormat.MonthDayPattern, culture),
-            StatsPeriod.Year => start.ToString(culture.DateTimeFormat.YearMonthPattern, culture),
             _ when _byYear => start.Year.ToString(CultureInfo.InvariantCulture),
             _ => start.ToString(culture.DateTimeFormat.YearMonthPattern, culture),
         };
         return when + "  " + Long(time);
     }
 
+    private static Pen FrozenPen(Brush brush, double thickness) { var p = new Pen(brush, thickness); p.Freeze(); return p; }
     private static Brush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 }

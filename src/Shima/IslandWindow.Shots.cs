@@ -72,6 +72,18 @@ public partial class IslandWindow
             UpdateTexts();
             await Save(folder, "8-library");
 
+            // 聆聽統計：年的熱力圖、月的一天當中幾點在聽
+            if (_stats != null)
+            {
+                _stats.Period = Listening.StatsPeriod.Year;
+                Snap(); UpdateTexts(); await Save(folder, "c-stats-year");
+                _stats.Period = Listening.StatsPeriod.Month;
+                _stats.ShowHours = true;
+                Snap(); UpdateTexts(); await Save(folder, "c-stats-hours");
+                _stats.ShowHours = false;
+                _stats.Period = Listening.StatsPeriod.Week;
+            }
+
             // 聆聽回顧卡片：本月的
             if (_stats != null)
             {
