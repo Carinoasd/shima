@@ -18,12 +18,20 @@ public sealed class RoonSource : IMediaSource
 {
     public const string AppId = "Roon";
     private const string Transport = "com.roonlabs.transport:2";
+    private const int QueueSize = 100;
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
     private readonly object _lock = new();
     private readonly SemaphoreSlim _sending = new(1, 1);
     private readonly Dictionary<string, JsonObject> _zones = [];
     private readonly Dictionary<string, string> _pending = [];
+    private readonly Dictionary<string, TaskCompletionSource<MooMessage>> _calls = [];
+    private readonly List<RoonQueueItem> _queue = [];
+    private readonly SemaphoreSlim _browsing = new(1, 1);
+    private readonly Dictionary<string, Task<BitmapImage?>> _thumbs = [];
+    private string _queueZone = "", _queueRequest = "", _hierarchy = "search";
+    private int _queueKey = -1, _nextQueueKey = 1;
+    private bool _browseAvailable;
     private ClientWebSocket? _ws;
     private int _requestId, _httpPort;
     private bool _started;
@@ -38,6 +46,8 @@ public sealed class RoonSource : IMediaSource
     private BitmapImage? _cover;
 
     public event Action? Changed;
+    /// <summary>播放佇列變了（換歌、加歌、換區域）。從背景執行緒發出。</summary>
+    public event Action? QueueChanged;
 
     public Track? Current
     {
@@ -79,9 +89,19 @@ public sealed class RoonSource : IMediaSource
                 logged = true;
             }
 
-            bool had;
-            lock (_lock) { had = _zoneId.Length > 0; _ws = null; _zones.Clear(); Show(null); }
+            bool had, hadQueue;
+            List<TaskCompletionSource<MooMessage>> calls;
+            lock (_lock)
+            {
+                had = _zoneId.Length > 0; _ws = null; _zones.Clear(); Show(null);
+                hadQueue = _queue.Count > 0;
+                _queue.Clear(); _queueZone = _queueRequest = ""; _queueKey = -1;
+                _browseAvailable = false;
+                calls = [.. _calls.Values]; _calls.Clear();
+            }
+            foreach (var c in calls) c.TrySetException(new IOException("Roon Core 斷線"));
             if (had) Changed?.Invoke();
+            if (hadQueue) QueueChanged?.Invoke();
             await Task.Delay(5000);
         }
     }
@@ -113,30 +133,23 @@ public sealed class RoonSource : IMediaSource
         }
 
         string? kind;
+        TaskCompletionSource<MooMessage>? call;
         lock (_lock)
         {
             _pending.TryGetValue(msg.RequestId, out kind);
+            if (_calls.TryGetValue(msg.RequestId, out call)) _calls.Remove(msg.RequestId);
             if (msg.Verb == "COMPLETE") _pending.Remove(msg.RequestId);
         }
+        call?.TrySetResult(msg);
 
         switch (kind)
         {
             case "info":
                 _coreId = msg.Body?["core_id"]?.ToString() ?? "";
-                var reg = new JsonObject
-                {
-                    ["extension_id"] = AppSettings.Current.RoonExtensionId,
-                    ["display_name"] = "Shima",
-                    ["display_version"] = typeof(RoonSource).Assembly.GetName().Version?.ToString(3) ?? "0.1.0",
-                    ["publisher"] = "Carinoasd",
-                    ["email"] = "",
-                    ["website"] = "",
-                    ["required_services"] = new JsonArray(Transport),
-                    ["optional_services"] = new JsonArray(),
-                    ["provided_services"] = new JsonArray("com.roonlabs.ping:1"),
-                };
-                if (AppSettings.Current.RoonTokens.TryGetValue(_coreId, out var token)) reg["token"] = token;
-                else Log.Write("roon: 等待在 Roon「設定 → 擴充功能」啟用 Shima");
+                bool known = AppSettings.Current.RoonTokens.TryGetValue(_coreId, out var token);
+                var reg = Registration(AppSettings.Current.RoonExtensionId,
+                    typeof(RoonSource).Assembly.GetName().Version?.ToString(3) ?? "0.1.0", known ? token : null);
+                if (!known) Log.Write("roon: 等待在 Roon「設定 → 擴充功能」啟用 Shima");
                 await RequestAsync("com.roonlabs.registry:1/register", "register", reg);
                 break;
 
@@ -149,6 +162,9 @@ public sealed class RoonSource : IMediaSource
                     AppSettings.Current.Save();
                 }
                 Log.Write("roon: 已連上 " + msg.Body?["display_name"]);
+                bool browse = Provides(msg.Body, RoonBrowse.Service);
+                lock (_lock) _browseAvailable = browse;
+                if (!browse) Log.Write("roon: Core 沒有提供瀏覽服務，搜尋不能用");
                 await RequestAsync(Transport + "/subscribe_zones", "zones", new JsonObject { ["subscription_key"] = 0 });
                 break;
 
@@ -176,8 +192,66 @@ public sealed class RoonSource : IMediaSource
                 }
                 Changed?.Invoke();
                 if (newCover) _ = LoadCoverAsync();
+                await SyncQueueAsync();
+                break;
+
+            case "queue":
+                bool queueChanged;
+                lock (_lock) queueChanged = msg.RequestId == _queueRequest && RoonQueue.Apply(_queue, msg.Name, msg.Body);
+                if (queueChanged) QueueChanged?.Invoke();
                 break;
         }
+    }
+
+    /// <summary>
+    /// 註冊擴充功能的內容。瀏覽服務放在 optional_services：舊版只要求 transport，
+    /// 這樣 Core 不給瀏覽也照樣能連，只是搜尋不能用。
+    /// </summary>
+    public static JsonObject Registration(string extensionId, string version, string? token)
+    {
+        var reg = new JsonObject
+        {
+            ["extension_id"] = extensionId,
+            ["display_name"] = "Shima",
+            ["display_version"] = version,
+            ["publisher"] = "Carinoasd",
+            ["email"] = "",
+            ["website"] = "",
+            ["required_services"] = new JsonArray(Transport),
+            ["optional_services"] = new JsonArray(RoonBrowse.Service),
+            ["provided_services"] = new JsonArray("com.roonlabs.ping:1"),
+        };
+        if (token != null) reg["token"] = token;
+        return reg;
+    }
+
+    /// <summary>Registered 的回應裡 provided_services 有沒有這個服務（Core 實際給我們用的服務）。</summary>
+    public static bool Provides(JsonNode? registered, string service) =>
+        (registered?["provided_services"] as JsonArray ?? []).Any(s => s?.ToString() == service);
+
+    /// <summary>顯示的區域換了，就把佇列訂閱搬過去。</summary>
+    private async Task SyncQueueAsync()
+    {
+        string zone; int oldKey, key = -1; string id = "";
+        lock (_lock)
+        {
+            if (_zoneId == _queueZone) return;
+            zone = _zoneId; oldKey = _queueKey;
+            _queueZone = zone; _queue.Clear(); _queueRequest = ""; _queueKey = -1;
+            if (zone.Length > 0)
+            {
+                key = _queueKey = _nextQueueKey++;
+                id = _queueRequest = (_requestId++).ToString();
+                _pending[id] = "queue";
+            }
+        }
+        QueueChanged?.Invoke();
+        try
+        {
+            if (oldKey >= 0) await RequestAsync(Transport + "/unsubscribe_queue", "command", RoonQueue.Unsubscribe(oldKey));
+            if (zone.Length > 0) await SendAsync(Moo.Build("REQUEST", Transport + "/subscribe_queue", id, RoonQueue.Subscribe(zone, QueueSize, key)));
+        }
+        catch (Exception e) { Log.Write("roon 佇列: " + e.Message); }
     }
 
     /// <summary>
@@ -287,6 +361,7 @@ public sealed class RoonSource : IMediaSource
         }
         Changed?.Invoke();
         if (cover) _ = LoadCoverAsync();
+        _ = SyncQueueAsync();
         return name;
     }
 
@@ -339,6 +414,205 @@ public sealed class RoonSource : IMediaSource
         _ = RequestAsync(Transport + "/mute", "command", new JsonObject { ["output_id"] = output, ["how"] = muted ? "mute" : "unmute" });
         return muted;
     }
+
+    // ───── 佇列與播放設定 ─────
+
+    /// <summary>目前區域的播放佇列，第 0 首是正在播的那首。</summary>
+    public IReadOnlyList<RoonQueueItem> Queue { get { lock (_lock) return [.. _queue]; } }
+
+    /// <summary>目前區域的隨機、循環、自動電台；沒有區域就是 null。設定變了會發 Changed。</summary>
+    public RoonZoneSettings? Settings { get { lock (_lock) return _zones.TryGetValue(_zoneId, out var z) ? RoonQueue.Settings(z) : null; } }
+
+    /// <summary>從佇列裡的這一首開始播。</summary>
+    public void PlayFromHere(long queueItemId)
+    {
+        string zone;
+        lock (_lock) zone = _zoneId;
+        if (zone.Length > 0) _ = Safe(RequestAsync(Transport + "/play_from_here", "command", RoonQueue.PlayFromHere(zone, queueItemId)));
+    }
+
+    public void ToggleShuffle() => ChangeSettings(s => RoonQueue.ChangeSettings("", shuffle: !s.Shuffle));
+    /// <summary>循環：關 → 整份 → 單曲 → 關（交給 Roon 輪替）。</summary>
+    public void CycleLoop() => ChangeSettings(_ => RoonQueue.ChangeSettings("", loop: "next"));
+    public void ToggleAutoRadio() => ChangeSettings(s => RoonQueue.ChangeSettings("", autoRadio: !s.AutoRadio));
+
+    private void ChangeSettings(Func<RoonZoneSettings, JsonObject> make)
+    {
+        string zone; JsonObject body;
+        lock (_lock)
+        {
+            if (!_zones.TryGetValue(_zoneId, out var z) || RoonQueue.Settings(z) is not { } s) return;
+            zone = _zoneId;
+            body = make(s);
+        }
+        body["zone_or_output_id"] = zone;
+        _ = Safe(RequestAsync(Transport + "/change_settings", "command", body));
+    }
+
+    private static async Task Safe(Task t) { try { await t; } catch { /* Core 斷線了 */ } }
+
+    // ───── 瀏覽與搜尋 ─────
+
+    /// <summary>Core 有沒有給我們瀏覽服務。沒有的話搜尋、瀏覽都會回 null。</summary>
+    public bool BrowseAvailable { get { lock (_lock) return _browseAvailable; } }
+
+    /// <summary>搜尋。回傳最上層的結果（通常是「藝人、專輯、曲目…」幾組，要再往下走）。</summary>
+    public Task<RoonBrowsePage?> SearchAsync(string query) => BrowseAsync("search", zone => RoonBrowse.Search(query, zone));
+
+    /// <summary>從最上層開始一般瀏覽（音樂庫、播放清單、電台…）。</summary>
+    public Task<RoonBrowsePage?> HomeAsync() => BrowseAsync("browse", zone => RoonBrowse.Home(zone));
+
+    /// <summary>
+    /// 點了一項：Page 不是 null 就是下一層；是 null 表示這一項是動作，已經執行了
+    /// （Result.Message 有字就該顯示，Result.IsError 表示失敗）。
+    /// 有 input_prompt 的項目（例如瀏覽裡的「搜尋」）把使用者輸入的字放在 input。
+    /// </summary>
+    public async Task<(RoonBrowseResult Result, RoonBrowsePage? Page)> OpenAsync(RoonBrowseItem item, string? input = null)
+    {
+        await _browsing.WaitAsync();
+        try { return await OpenLockedAsync(item, input); }
+        finally { _browsing.Release(); }
+    }
+
+    /// <summary>回上一層。</summary>
+    public Task<RoonBrowsePage?> BackAsync()
+    {
+        string hierarchy;
+        lock (_lock) hierarchy = _hierarchy;
+        return BrowseAsync(hierarchy, zone => RoonBrowse.Back(1, zone, hierarchy));
+    }
+
+    /// <summary>
+    /// 直接播放某個結果：一路往下走到動作清單，執行第一個動作（Roon 的預設動作，通常是「立即播放」）。
+    /// 回傳執行的結果；走不到可以播的動作就是 null。
+    /// </summary>
+    public async Task<RoonBrowseResult?> PlayAsync(RoonBrowseItem item)
+    {
+        await _browsing.WaitAsync();
+        int opened = 0;
+        try
+        {
+            for (int depth = 0; depth < 6 && !item.IsHeader; depth++)
+            {
+                var (result, page) = await OpenLockedAsync(item, null);
+                if (page == null) return result;   // 動作執行了，Roon 會自己退回去
+                opened++;
+                if (RoonBrowse.NextStep(page) is not { } next) break;
+                item = next;
+            }
+        }
+        catch (Exception e) { Log.Write("roon 瀏覽: " + e.Message); }
+        try
+        {
+            // 沒播成：把剛剛往下走的層數退回去，Core 那邊的位置才會跟畫面上的清單一致（pop_levels 要給剛好的數字）
+            if (opened > 0)
+            {
+                string zone, hierarchy;
+                lock (_lock) { zone = _zoneId; hierarchy = _hierarchy; }
+                await BrowseCallAsync(RoonBrowse.Back(opened, zone, hierarchy));
+            }
+        }
+        catch (Exception e) { Log.Write("roon 瀏覽: " + e.Message); }
+        finally { _browsing.Release(); }
+        return null;
+    }
+
+    private async Task<RoonBrowsePage?> BrowseAsync(string hierarchy, Func<string, JsonObject> make)
+    {
+        await _browsing.WaitAsync();
+        try
+        {
+            string zone;
+            lock (_lock) { if (!_browseAvailable) return null; zone = _zoneId; _hierarchy = hierarchy; }
+            var result = await BrowseCallAsync(make(zone));
+            return result.Action == "list" ? await LoadAsync(hierarchy) : null;
+        }
+        catch (Exception e) { Log.Write("roon 瀏覽: " + e.Message); return null; }
+        finally { _browsing.Release(); }
+    }
+
+    private async Task<(RoonBrowseResult Result, RoonBrowsePage? Page)> OpenLockedAsync(RoonBrowseItem item, string? input)
+    {
+        string zone, hierarchy;
+        lock (_lock)
+        {
+            if (!_browseAvailable) return (new RoonBrowseResult("message", "", true, null), null);
+            zone = _zoneId; hierarchy = _hierarchy;
+        }
+        var result = await BrowseCallAsync(RoonBrowse.Open(item.ItemKey, zone, hierarchy, input));
+        return result.Action == "list" ? (result, await LoadAsync(hierarchy)) : (result, null);
+    }
+
+    private async Task<RoonBrowseResult> BrowseCallAsync(JsonObject body)
+    {
+        var msg = await CallAsync(RoonBrowse.Service + "/browse", body);
+        if (msg.Name != "Success") return new RoonBrowseResult("message", msg.Body?["message"]?.ToString() ?? msg.Name, true, null);
+        return RoonBrowse.Result(msg.Body);
+    }
+
+    private async Task<RoonBrowsePage?> LoadAsync(string hierarchy)
+    {
+        var msg = await CallAsync(RoonBrowse.Service + "/load", RoonBrowse.Load(hierarchy));
+        return msg.Name == "Success" ? RoonBrowse.Page(msg.Body) : null;
+    }
+
+    /// <summary>送出請求並等 Core 回 COMPLETE。斷線或逾時會丟例外。</summary>
+    private async Task<MooMessage> CallAsync(string name, JsonNode body)
+    {
+        string id;
+        var done = new TaskCompletionSource<MooMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_lock)
+        {
+            if (_ws == null) throw new IOException("Roon Core 沒有連上");
+            id = (_requestId++).ToString();
+            _calls[id] = done;
+        }
+        try
+        {
+            await SendAsync(Moo.Build("REQUEST", name, id, body));
+            return await done.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally { lock (_lock) _calls.Remove(id); }
+    }
+
+    /// <summary>
+    /// 佇列或瀏覽結果的小封面（同一個 image_key 只抓一次）。抓不到就是 null。
+    /// </summary>
+    public Task<BitmapImage?> ThumbnailAsync(string imageKey, int size = 96)
+    {
+        if (imageKey.Length == 0) return Task.FromResult<BitmapImage?>(null);
+        lock (_lock)
+        {
+            var cacheKey = $"{imageKey}@{size}";
+            if (_thumbs.TryGetValue(cacheKey, out var cached)) return cached;
+            if (_thumbs.Count > 300) _thumbs.Clear();
+            string url = ImageUrl(_host, _httpPort, imageKey, size);
+            return _thumbs[cacheKey] = FetchAsync(url, size);
+        }
+
+        async Task<BitmapImage?> FetchAsync(string url, int size)
+        {
+            BitmapImage? image = null;
+            try
+            {
+                var bytes = await Http.GetByteArrayAsync(url);
+                image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.DecodePixelWidth = size;
+                image.StreamSource = new MemoryStream(bytes);
+                image.EndInit();
+                image.Freeze();
+            }
+            catch (Exception e) { Log.Write("roon 縮圖: " + e.Message); image = null; }
+            // 抓不到的不要記住，下次再試
+            if (image == null) lock (_lock) _thumbs.Remove($"{imageKey}@{size}");
+            return image;
+        }
+    }
+
+    public static string ImageUrl(string host, int port, string imageKey, int size) =>
+        $"http://{host}:{port}/api/image/{Uri.EscapeDataString(imageKey)}?scale=fit&width={size}&height={size}&format=image/jpeg";
 
     public void PlayPause() => Command("control", new JsonObject { ["control"] = "playpause" });
     public void Play() => Command("control", new JsonObject { ["control"] = "play" });

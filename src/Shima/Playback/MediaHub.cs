@@ -16,6 +16,9 @@ public sealed class MediaHub
 
     public event Action? Changed;
 
+    /// <summary>Roon 來源本身：佇列、搜尋、隨機／循環這些只有 Roon 有的功能（給 QueueView 用）。</summary>
+    public RoonSource Roon => _roon;
+
     public static bool IsRoon(string appId) => appId.Contains("roon", StringComparison.OrdinalIgnoreCase);
 
     public async Task StartAsync()
