@@ -21,7 +21,7 @@ public partial class IslandWindow
     private void InitAgents()
     {
         _bridge.Asked += ask => Dispatcher.BeginInvoke(() => Enqueue(ask));
-        _bridge.Finished += (project, _) => Dispatcher.BeginInvoke(() => Toast(project.Length > 0 ? L.F("Claude Code 完成了 · {0}", project) : L.T("Claude Code 完成了")));
+        _bridge.AgentFinished += (agent, project, _) => Dispatcher.BeginInvoke(() => Toast(Finished(agent, project)));
         _bridge.Progressed += (project, done, total, current) => Dispatcher.BeginInvoke(() =>
         {
             _planLine = total == 0 ? "" : $"{done}/{total}{(current.Length > 0 ? " · " + current : "")}";
@@ -96,7 +96,8 @@ public partial class IslandWindow
 
         if (_asking == null) { _beforeAsk = _tab == Tab.Ask ? Tab.Music : _tab; _expandedBeforeAsk = _expanded; }
         var ask = _asking = _asks.Dequeue();
-        AskTitle.Text = ask.Project.Length > 0 ? $"Claude Code · {ask.Project}" : "Claude Code";
+        var name = AgentKinds.Name(ask.Agent);
+        AskTitle.Text = ask.Project.Length > 0 ? $"{name} · {ask.Project}" : name;
         AskTool.Text = ask.Tool;
         AskDetails.Text = ask.Details;
         AskAlways.Visibility = ask.RememberText != null ? Visibility.Visible : Visibility.Collapsed;
@@ -125,11 +126,11 @@ public partial class IslandWindow
 
     private void RefreshAi()
     {
-        // 查 hook 的狀態要啟動 wsl.exe，放到背景做；畫面先用上次的結果，查完再更新
+        // 查 hook 的狀態要啟動 wsl.exe，放到背景做；畫面先用上次的結果，查完再更新。每個 agent 共用同一次查詢
         ShowHookState();
-        _ = Task.Run(AgentHooks.State).ContinueWith(done =>
+        _ = Task.Run(() => AgentInstaller.Scan()).ContinueWith(done =>
         {
-            if (done.IsCompletedSuccessfully) Dispatcher.BeginInvoke(() => { _hooks = done.Result; ShowHookState(); });
+            if (done.IsCompletedSuccessfully) Dispatcher.BeginInvoke(() => ShowAgents(done.Result));
         });
         RefreshUsage();
         PlanText.Text = _planLine;
@@ -145,6 +146,7 @@ public partial class IslandWindow
         if (!UrlBox.IsKeyboardFocusWithin) UrlBox.Text = s.AiCustomUrl;
         if (!ApiKeyBox.IsKeyboardFocusWithin) ApiKeyBox.Password = s.HasKey(service.Id) ? s.ApiKey(service.Id) : "";
         _loadingKey = false;
+        RefreshRules();
         if (_tab == Tab.Ai && _expanded) Morph();
     }
 
@@ -236,12 +238,7 @@ public partial class IslandWindow
         AgentButton.IsEnabled = false;
         try
         {
-            var before = await Task.Run(AgentHooks.State);
-            bool installed = before.Installed && !before.Outdated;
-            var problem = await Task.Run(() => installed ? AgentHooks.Remove() : AgentHooks.Install());
-            if (problem != null) Say(problem);
-            _hooks = await Task.Run(AgentHooks.State);
-            ShowHookState();
+            await ToggleAgent(AgentKind.Claude);
         }
         finally { AgentButton.IsEnabled = true; }
     }

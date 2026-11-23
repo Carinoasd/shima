@@ -20,10 +20,10 @@ public enum AgentState
     Done,
 }
 
-/// <summary>一個 Claude Code 工作階段此刻的樣子。不可變，可以放心交給 UI 執行緒。</summary>
+/// <summary>一個 Claude Code（或別的 agent）工作階段此刻的樣子。不可變，可以放心交給 UI 執行緒。</summary>
 public sealed record AgentSession(
     string Id, string Project, string Cwd, string TranscriptPath, AgentState State,
-    int Done, int Total, string Current, DateTime LastActive);
+    int Done, int Total, string Current, DateTime LastActive, AgentKind Agent = AgentKind.Claude);
 
 /// <summary>
 /// 依 session_id 分開記每個 Claude Code 工作階段：狀態、待辦進度、最後活動時間。
@@ -37,6 +37,7 @@ public sealed class AgentSessions
     private sealed class Entry
     {
         public required string Id;
+        public AgentKind Agent;
         public string Cwd = "", Transcript = "";
         public AgentState State = AgentState.Working;
         public AgentPlan Plan = new();
@@ -72,8 +73,9 @@ public sealed class AgentSessions
     /// <summary>
     /// 一則 hook（任何事件都可以丟進來）。回傳 true 表示清單或某個工作階段的狀態、進度有變。
     /// planChanged：這則讓那個工作階段的待辦清單變了（給 Progressed 用）。
+    /// 別的 agent 的 hook 要先用 AgentKinds.Normalize 換成 Claude Code 的事件名稱。
     /// </summary>
-    public bool Apply(JsonObject hook, out bool planChanged)
+    public bool Apply(JsonObject hook, out bool planChanged, AgentKind agent = AgentKind.Claude)
     {
         planChanged = false;
         var name = hook["hook_event_name"]?.ToString() ?? "";
@@ -90,7 +92,7 @@ public sealed class AgentSessions
         }
 
         bool created = !_entries.TryGetValue(key, out var e);
-        if (e == null) e = _entries[key] = new Entry { Id = key };
+        if (e == null) e = _entries[key] = new Entry { Id = key, Agent = agent };
         var before = View(e);
         e.LastActive = _clock();
         e.Order = ++_order;
@@ -162,5 +164,5 @@ public sealed class AgentSessions
     }
 
     private static AgentSession View(Entry e) =>
-        new(e.Id, ProjectOf(e.Cwd), e.Cwd, e.Transcript, e.State, e.Plan.Done, e.Plan.Steps.Count, e.Plan.Current, e.LastActive);
+        new(e.Id, ProjectOf(e.Cwd), e.Cwd, e.Transcript, e.State, e.Plan.Done, e.Plan.Steps.Count, e.Plan.Current, e.LastActive, e.Agent);
 }

@@ -325,12 +325,21 @@
                 <PasswordBox x:Name="ApiKeyBox" Grid.Column="1" Style="{StaticResource Field}" PasswordChanged="ApiKey_Changed" ToolTip="API 金鑰"/>
               </Grid>
               <Grid Height="36" Margin="0,12,0,0">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,90,0">
-                  <TextBlock Text="Claude Code" FontSize="13"/>
-                  <TextBlock x:Name="PlanText" FontSize="12" Foreground="#90FFFFFF" Margin="10,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="230"/>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <DockPanel VerticalAlignment="Center" Margin="6,0,10,0">
+                  <TextBlock DockPanel.Dock="Left" Text="Claude Code" FontSize="13"/>
+                  <TextBlock x:Name="PlanText" FontSize="12" Foreground="#90FFFFFF" Margin="10,1,0,0" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <Button x:Name="RulesButton" Style="{StaticResource Pill}" Height="26" Padding="10,0" Margin="0,0,8,0" ToolTip="以後都允許" Visibility="Collapsed" Click="Rules_Click"/>
+                  <Button x:Name="AgentButton" Style="{StaticResource Pill}" Content="連接" Click="Agent_Click"/>
                 </StackPanel>
-                <Button x:Name="AgentButton" Style="{StaticResource Pill}" HorizontalAlignment="Right" Content="連接" Click="Agent_Click"/>
               </Grid>
+              <StackPanel x:Name="RulesBox" Visibility="Collapsed" Margin="0,6,0,0"/>
+              <StackPanel x:Name="OtherAgentsBox"/>
             </StackPanel>
 
             <!-- 工具：番茄鐘、暫存架、待辦 -->

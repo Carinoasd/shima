@@ -225,7 +225,8 @@ public partial class IslandWindow
         {
             var sessions = _bridge.Sessions;
             _sessions.Sessions = sessions;
-            foreach (var session in sessions) if (session.TranscriptPath.Length > 0) _usage.Watch(session.TranscriptPath);
+            // 用量只算 Claude Code 的：別的 agent 的對話紀錄格式不一樣，它們的 hook 也沒有給可靠的 token 數
+            foreach (var session in sessions) if (session.Agent == AgentKind.Claude && session.TranscriptPath.Length > 0) _usage.Watch(session.TranscriptPath);
             if (_tab == Tab.Ai && _expanded) { RefreshUsage(); Morph(); }
         });
         _bridge.AutoAllowed += (ask, rule) => Dispatcher.BeginInvoke(() => Toast(L.F("已自動允許 {0}", rule.Label), 3, false));
