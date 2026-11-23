@@ -55,3 +55,15 @@ public class StatsFillTests
         Assert.Equal(7, Stats.Fill(Days(new DateTime(2026, 11, 22), 7), StatsPeriod.Week).Count);   // 已經滿了
     }
 }
+
+public class MonthWeeksTests
+{
+    [Theory]
+    [InlineData(2026, 11, DayOfWeek.Sunday, 5)]   // 1 號是星期日，30 天
+    [InlineData(2026, 2, DayOfWeek.Sunday, 4)]    // 1 號是星期日，28 天：剛好四列
+    [InlineData(2026, 8, DayOfWeek.Sunday, 6)]    // 1 號是星期六，31 天
+    [InlineData(2026, 2, DayOfWeek.Monday, 5)]    // 一週從星期一開始：前面空六格
+    [InlineData(2024, 2, DayOfWeek.Thursday, 5)]  // 閏年的二月
+    public void 這個月佔幾週(int year, int month, DayOfWeek firstDay, int weeks) =>
+        Assert.Equal(weeks, MonthView.Weeks(new DateTime(year, month, 15), firstDay));
+}

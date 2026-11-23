@@ -14,9 +14,24 @@ public sealed class MonthView : FrameworkElement
     private const double Row = 26, Head = 22;
     private static readonly Brush Dim = Frozen(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)), Clay = Frozen(Color.FromRgb(0xD9, 0x77, 0x57));
 
-    public DateTime Today { get; set; } = DateTime.Today;
+    private DateTime _today = DateTime.Today;
 
-    public MonthView() => Height = Head + Row * 6;
+    /// <summary>今天。高度跟著這個月佔幾週走：大部分的月份只要五列，不用永遠留著第六列的空白。</summary>
+    public DateTime Today
+    {
+        get => _today;
+        set { _today = value; Height = Head + Row * Weeks(value, Loc.Culture.DateTimeFormat.FirstDayOfWeek); }
+    }
+
+    public MonthView() => Today = DateTime.Today;
+
+    /// <summary>這個月要畫幾列（四到六）。</summary>
+    public static int Weeks(DateTime month, DayOfWeek firstDay)
+    {
+        var first = new DateTime(month.Year, month.Month, 1);
+        int lead = ((int)first.DayOfWeek - (int)firstDay + 7) % 7;
+        return (lead + DateTime.DaysInMonth(month.Year, month.Month) + 6) / 7;
+    }
 
     /// <summary>這個月要畫的 42 格：每格是幾號，以及是不是這個月的。一週從 firstDay 開始。</summary>
     public static (int Day, bool InMonth)[] Cells(DateTime month, DayOfWeek firstDay)
