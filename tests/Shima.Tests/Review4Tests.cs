@@ -49,10 +49,15 @@ public class Review4Tests
     public void 語音助手排遠的提醒_等待時間用天()
     {
         var now = new DateTime(2026, 11, 24, 10, 0, 0);
-        using var alarms = new Alarms(Path.Combine(Path.GetTempPath(), "shima-r4-" + Guid.NewGuid().ToString("N") + ".json"));
-        var far = Skills.Alarm(new JsonObject { ["action"] = "add", ["at"] = "2027-01-22 12:00", ["text"] = "遠的" }, alarms, now);
-        Assert.Contains("59 天 2 小時後", far);
-        var near = Skills.Alarm(new JsonObject { ["action"] = "add", ["at"] = "2026-11-24 12:30", ["text"] = "近的" }, alarms, now);
-        Assert.Contains("2 小時 30 分後", near);
+        var file = Path.Combine(Path.GetTempPath(), "shima-r4-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            using var alarms = new Alarms(file);
+            var far = Skills.Alarm(new JsonObject { ["action"] = "add", ["at"] = "2027-01-22 12:00", ["text"] = "遠的" }, alarms, now);
+            Assert.Contains("59 天 2 小時後", far);
+            var near = Skills.Alarm(new JsonObject { ["action"] = "add", ["at"] = "2026-11-24 12:30", ["text"] = "近的" }, alarms, now);
+            Assert.Contains("2 小時 30 分後", near);
+        }
+        finally { try { File.Delete(file); File.Delete(file + ".tmp"); } catch { } }   // 不要每跑一次測試就在暫存資料夾留一個檔
     }
 }
