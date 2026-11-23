@@ -12,7 +12,7 @@ using Shima.Playback;
 
 namespace Shima;
 
-// 主題、膠囊上的手勢、設定頁下半部、第一次啟動的引導。
+// 主題、膠囊上的手勢、設定頁的列、第一次啟動的引導。
 public partial class IslandWindow
 {
     private static readonly Color Clay = Color.FromRgb(0xD9, 0x77, 0x57);
@@ -93,7 +93,7 @@ public partial class IslandWindow
         catch (Exception x) { Log.Write("解釋歌詞: " + x.Message); }
     }
 
-    // ---------------------------------------------------------------- 設定頁下半部
+    // ---------------------------------------------------------------- 設定頁的列（各子分頁在 IslandWindow.SettingsPage.cs 組起來）
 
     private Border Heading(string text) => new()
     {
@@ -157,39 +157,6 @@ public partial class IslandWindow
 
     private static string Percent(double value) => ((int)Math.Round(value * 100)).ToString(CultureInfo.InvariantCulture);
 
-    /// <summary>原本只能改 settings.json 的選項。每次打開設定頁重建，才會是現在的值。</summary>
-    private void BuildMoreSettings()
-    {
-        var s = AppSettings.Current;
-        var rows = MoreSettings.Children;
-        rows.Clear();
-
-        rows.Add(Heading("外觀"));
-        rows.Add(Choice("底色", [("1", "不透明"), ("0.85", "85%"), ("0.7", "70%"), ("0.55", "55%")],
-            () => s.Opacity >= 0.95 ? "1" : s.Opacity >= 0.8 ? "0.85" : s.Opacity >= 0.65 ? "0.7" : "0.55",
-            v => { s.Opacity = double.Parse(v, CultureInfo.InvariantCulture); ApplyTheme(); }));
-        rows.Add(Choice("顏色", [("cover", "跟著封面"), ("white", "白"), ("clay", "橘")], () => s.AccentMode, v => { s.AccentMode = v; ApplyTheme(); }));
-        rows.Add(CharacterImageRow());
-
-        rows.Add(Heading("歌詞"));
-        rows.Add(Toggle("桌面歌詞", s.DesktopLyrics, v => { s.DesktopLyrics = v; ApplyDesktopLyrics(); }));
-        rows.Add(Toggle("全螢幕時換歌提示", s.FullscreenToast, v => s.FullscreenToast = v));
-
-        rows.Add(Heading("聆聽"));
-        rows.Add(Toggle("記下聽了什麼", s.History, v => s.History = v));
-        rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => s.ListenBrainzToken = v));
-        rows.Add(Toggle("Discord 顯示封面", s.DiscordCover, v => s.DiscordCover = v));
-        rows.Add(Toggle("Roon 搜尋", s.RoonSearch, v => { s.RoonSearch = v; Toast(L.T("重新啟動 Shima，再到 Roon「設定 → 擴充功能」啟用一次"), 10, false); }));
-        rows.Add(Entry("Roon", s.RoonHost, 150, v => { if (v != s.RoonHost) { s.RoonHost = v; Toast(L.T("重新啟動後生效"), 4, false); } }));
-
-        rows.Add(Heading("語音"));
-        rows.Add(Choice("辨識模型", [("tiny", "tiny"), ("base", "base"), ("small", "small"), ("medium", "medium")], () => s.WhisperModel, v => s.WhisperModel = v));
-        rows.Add(Toggle("聽的時候暫停音樂", s.PauseWhileListening, v => s.PauseWhileListening = v));
-        rows.Add(Toggle("一直對話到再按一次", s.VoiceContinuous, v => s.VoiceContinuous = v));
-        rows.Add(Toggle("說「Shima」就開始聽", s.WakeWord, v => { s.WakeWord = v; ApplyWakeWord(); }));
-
-    }
-
     /// <summary>自己的圖當角色：選一張 GIF 或 PNG。</summary>
     private DockPanel CharacterImageRow()
     {
@@ -247,7 +214,7 @@ public partial class IslandWindow
         }
         Line("", L.T("用 Roon 的話，到 Roon「設定 → 擴充功能」啟用 Shima"));
         Line("", L.T("在島上按右鍵：換角色、校正歌詞、桌面歌詞"));
-        Line("", ToggleHotkey.Length > 0 ? L.F("{0} 展開，Ctrl+Alt+V 問 AI", ToggleHotkey) : L.T("滑鼠移到島上就會展開"));
+        Line("", ToggleHotkey.Length > 0 ? L.F("{0} 展開，{1} 問 AI", ToggleHotkey, AskHotkey.Length > 0 ? AskHotkey : "—") : L.T("滑鼠移到島上就會展開"));
         var ok = new Button { Style = (Style)FindResource("Pill"), Height = 28, Padding = new Thickness(18, 0, 18, 0), HorizontalAlignment = HorizontalAlignment.Right, Content = L.T("知道了") };
         ok.Click += (_, _) =>
         {

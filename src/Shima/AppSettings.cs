@@ -67,6 +67,11 @@ public sealed class AppSettings
     public bool SystemStatus { get; set; } = true;
     /// <summary>啟動後與每天一次，到 GitHub 看有沒有新版。</summary>
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>全域快捷鍵（如 "Ctrl+Alt+Space"）；空字串：用預設（展開有備援順序）。</summary>
+    public string HotkeyToggle { get; set; } = "";
+    public string HotkeyAsk { get; set; } = "";
+    /// <summary>勿擾模式的結束時間；null 或已過就是沒開。</summary>
+    public DateTime? DoNotDisturbUntil { get; set; }
 
     /// <summary>歌詞下面多一行：translation（中文翻譯）、romaji（羅馬拼音）或 none。</summary>
     public string LyricsSecondLine { get; set; } = "translation";
@@ -126,6 +131,14 @@ public sealed class AppSettings
     public bool History { get; set; } = true;
     /// <summary>ListenBrainz 的 user token；留空就不回報。</summary>
     public string ListenBrainzToken { get; set; } = "";
+    /// <summary>Last.fm：使用者自己申請的 API key（不算機密）。</summary>
+    public string LastFmApiKey { get; set; } = "";
+    /// <summary>Last.fm 的 shared secret，DPAPI 加密後的 base64；用 <see cref="LastFmSecretText"/> 讀、<see cref="SetLastFmSecret"/> 寫。</summary>
+    public string LastFmSecret { get; set; } = "";
+    /// <summary>授權後換到的 session key，同上加密；空的就是沒連接。</summary>
+    public string LastFmSession { get; set; } = "";
+    /// <summary>連接的 Last.fm 使用者名稱，只用來顯示。</summary>
+    public string LastFmUser { get; set; } = "";
     /// <summary>喚醒詞：說「Shima」就開始聽。預設關閉（麥克風會一直開著）。</summary>
     public bool WakeWord { get; set; }
     /// <summary>第一次啟動的引導看過了沒。</summary>
@@ -154,6 +167,20 @@ public sealed class AppSettings
         if (key.Length == 0) AiKeys.Remove(service);
         else AiKeys[service] = Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key), null, DataProtectionScope.CurrentUser));
         Save();
+    }
+
+    public string LastFmSecretText() => Reveal(LastFmSecret);
+    public string LastFmSessionText() => Reveal(LastFmSession);
+    public void SetLastFmSecret(string secret) { LastFmSecret = Conceal(secret); Save(); }
+    public void SetLastFmSession(string session, string user) { LastFmSession = Conceal(session); LastFmUser = session.Length > 0 ? user : ""; Save(); }
+
+    private static string Conceal(string text) =>
+        text.Length == 0 ? "" : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(text), null, DataProtectionScope.CurrentUser));
+
+    private static string Reveal(string stored)
+    {
+        try { return stored.Length == 0 ? "" : Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored), null, DataProtectionScope.CurrentUser)); }
+        catch (Exception e) { Log.Write("lastfm 金鑰解密: " + e.Message); return ""; }
     }
 
     public static string Folder => Path.Combine(

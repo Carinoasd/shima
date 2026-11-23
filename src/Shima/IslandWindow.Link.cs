@@ -35,24 +35,46 @@ public partial class IslandWindow
     private readonly ListeningLog _listening = new();
     private readonly LyricFavorites _favorites = new();
     private Scrobbler? _scrobbler;
+    private LastFm? _lastFm;
     private StatsView? _stats;
     private FavoritesView? _favoritesView;
     private bool _libraryShowsFavorites;
 
     private void InitListening()
     {
-        _listening.Listened += listen => { if (Scrobbling() is { } s) _ = s.Submit(listen); };
-        _listening.Started += track => { if (Scrobbling() is { } s) _ = s.NowPlaying(track); };
-        Closed += (_, _) => { _listening.Flush(); _scrobbler?.Dispose(); };
+        _listening.Listened += listen => { foreach (var s in Scrobbling()) _ = s.Submit(listen); };
+        _listening.Started += track => { foreach (var s in Scrobbling()) _ = s.NowPlaying(track); };
+        Closed += (_, _) => { _lastFmConnecting?.Cancel(); _listening.Flush(); _scrobbler?.Dispose(); _lastFm?.Dispose(); };
     }
 
-    /// <summary>有填 ListenBrainz 的 token 才回報；token 改了就換一個。</summary>
-    private Scrobbler? Scrobbling()
+    /// <summary>現在要回報的目的地：ListenBrainz 有填 token、Last.fm 有連接的才算；設定改了就換成新的。</summary>
+    private List<IListenSink> Scrobbling()
     {
-        string token = AppSettings.Current.ListenBrainzToken;
-        if (token.Length == 0) return null;
-        if (_scrobbler == null) _scrobbler = new Scrobbler(token); else if (_scrobbler.Token != token) _scrobbler.Token = token;
-        return _scrobbler;
+        var sinks = new List<IListenSink>();
+        var s = AppSettings.Current;
+        if (s.ListenBrainzToken.Length > 0)
+        {
+            if (_scrobbler == null) _scrobbler = new Scrobbler(s.ListenBrainzToken); else if (_scrobbler.Token != s.ListenBrainzToken) _scrobbler.Token = s.ListenBrainzToken;
+            sinks.Add(_scrobbler);
+        }
+        if (s.LastFmSession.Length > 0 && s.LastFmApiKey.Length > 0)
+        {
+            if (_lastFm == null)
+            {
+                _lastFm = new LastFm();
+                _lastFm.SessionRejected += rejected => Dispatcher.BeginInvoke(() =>
+                {
+                    // 被拒的是舊的那一把、使用者已經重新連接了：不要把新的清掉
+                    if (s.LastFmSessionText() != rejected) return;
+                    s.SetLastFmSession("", "");
+                    RefreshLastFmButton();
+                    Toast(L.T("Last.fm 授權失效，請重新連接"), 6, false);
+                });
+            }
+            _lastFm.Use(s.LastFmApiKey, s.LastFmSecretText(), s.LastFmSessionText());
+            if (_lastFm.Enabled) sinks.Add(_lastFm);
+        }
+        return sinks;
     }
 
     private void ObserveListening()
@@ -208,7 +230,8 @@ public partial class IslandWindow
         {
             var sessions = _bridge.Sessions;
             _sessions.Sessions = sessions;
-            foreach (var session in sessions) if (session.TranscriptPath.Length > 0) _usage.Watch(session.TranscriptPath);
+            // 用量只算 Claude Code 的：別的 agent 的對話紀錄格式不一樣，它們的 hook 也沒有給可靠的 token 數
+            foreach (var session in sessions) if (session.Agent == AgentKind.Claude && session.TranscriptPath.Length > 0) _usage.Watch(session.TranscriptPath);
             if (_tab == Tab.Ai && _expanded) { RefreshUsage(); Morph(); }
         });
         _bridge.AutoAllowed += (ask, rule) => Dispatcher.BeginInvoke(() => Toast(L.F("已自動允許 {0}", rule.Label), 3, false));
@@ -249,6 +272,9 @@ public partial class IslandWindow
             if (!_expanded) SetExpanded(false);
         });
         Skills.Alarms = alarms;
+        _alarms = alarms;
+        alarms.Changed += () => Dispatcher.BeginInvoke(RefreshAlarms);
+        RefreshAlarms();
         alarms.Start();
         Closed += (_, _) => alarms.Dispose();
     }

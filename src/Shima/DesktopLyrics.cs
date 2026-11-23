@@ -58,7 +58,8 @@ public static class DesktopLyricsLayout
 
     /// <summary>
     /// 現在要顯示什麼：有時間軸的歌詞就是正在唱的那句，第二行是翻譯（沒有就是下一句）；
-    /// 沒有歌詞、前奏、間奏的空白行顯示歌名與藝人。
+    /// 前奏、間奏的空白行顯示歌名與藝人。沒有同步歌詞就什麼都不顯示（Main 是空的）：
+    /// 這一條是給歌詞用的，看影片、聽沒有歌詞的歌時把標題貼在畫面下方只會擋到東西。
     /// </summary>
     public static DesktopLine Pick(LyricSheet? sheet, IReadOnlyList<string>? second, TimeSpan position, string title, string artist)
     {
@@ -72,10 +73,15 @@ public static class DesktopLyricsLayout
                 string sub = second != null && i < second.Count && second[i].Length > 0 ? second[i] : i + 1 < s.Lines.Count ? s.Lines[i + 1].Text : "";
                 return new DesktopLine(i, line.Text, sub, true, line.Time, Singing.Length(line.Text, line.Time, next));
             }
+            return Title(title, artist);
         }
-        return title.Length > 0 ? new DesktopLine(-1, title, artist, false, TimeSpan.Zero, TimeSpan.Zero)
-                                : new DesktopLine(-1, artist, "", false, TimeSpan.Zero, TimeSpan.Zero);
+        return new DesktopLine(-1, "", "", false, TimeSpan.Zero, TimeSpan.Zero);
     }
+
+    /// <summary>歌名與藝人當成一句（沒有歌名就只有藝人）。</summary>
+    public static DesktopLine Title(string title, string artist) =>
+        title.Length > 0 ? new DesktopLine(-1, title, artist, false, TimeSpan.Zero, TimeSpan.Zero)
+                         : new DesktopLine(-1, artist, "", false, TimeSpan.Zero, TimeSpan.Zero);
 }
 
 /// <summary>
@@ -126,6 +132,7 @@ public sealed class DesktopLyrics : Window
             if (value) EndDrag();
             ApplyStyle();
             _stage.InvalidateVisual();
+            Wake();   // 沒有歌詞時：解鎖要顯示歌名當占位，鎖回去要藏起來
         }
     }
 
@@ -238,6 +245,10 @@ public sealed class DesktopLyrics : Window
             _stage.BeginAnimation(OpacityProperty, new DoubleAnimation(playing ? 1 : 0.4, TimeSpan.FromMilliseconds(300)));
         }
         var line = DesktopLyricsLayout.Pick(_sheet, _second, position, _title, _artist);
+        // 沒有歌詞時整條不顯示；解鎖著（正在擺位置、調大小）還是顯示歌名，不然沒有東西可以拖
+        if (line.Main.Length == 0 && !_locked) line = DesktopLyricsLayout.Title(_title, _artist);
+        var visibility = line.Main.Length > 0 ? Visibility.Visible : Visibility.Hidden;
+        if (_stage.Visibility != visibility) _stage.Visibility = visibility;
         _stage.Set(line);
         // 只有光在掃、或換句的動畫還沒跑完，才需要每一格都重畫；只顯示歌名時（沒有同步歌詞、前奏間奏）靠 0.25 秒一次的檢查就夠了
         bool sweeping = playing && line.Sweep && position < line.Start + line.Length + TimeSpan.FromMilliseconds(300);

@@ -28,6 +28,11 @@ public sealed class VoiceAssistant
 
     /// <summary>目前的狀態或剛才說的話，給畫面顯示。</summary>
     public event Action<string>? Said;
+    /// <summary>
+    /// 回答還在產生：這一輪目前為止的文字（在背景執行緒，來得很密，要自己節流）。
+    /// 只給畫面顯示；唸出來的仍然是 Said 那份完整的回答。
+    /// </summary>
+    public event Action<string>? Partial;
     public event Action? Stopped;
     /// <summary>要使用者去改一項 Windows 設定：那一頁的網址（ms-settings:…）。</summary>
     public event Action<string>? NeedsSetting;
@@ -120,7 +125,7 @@ public sealed class VoiceAssistant
 
                 Said?.Invoke(heard);
                 var clock = System.Diagnostics.Stopwatch.StartNew();
-                var reply = await _brain.ThinkAsync(heard, _stop.Token);
+                var reply = await _brain.ThinkAsync(heard, _stop.Token, Streaming);
                 Log.Write($"voice: 講 {ears.Last.Spoken:0.0}s，辨識 {ears.Last.Took:0.00}s，AI 回答 {clock.Elapsed.TotalSeconds:0.0}s");
                 if (_stop.IsCancellationRequested) break;
                 Said?.Invoke(reply);
@@ -189,7 +194,7 @@ public sealed class VoiceAssistant
                 }
 
                 Said?.Invoke(heard.Text);
-                var reply = await _brain.ThinkAsync(heard.Text, _stop.Token);
+                var reply = await _brain.ThinkAsync(heard.Text, _stop.Token, Streaming);
                 if (_stop.IsCancellationRequested) break;
                 Said?.Invoke(reply);
                 await SpeakAsync(reply);
@@ -230,10 +235,13 @@ public sealed class VoiceAssistant
             ?? SpeechRecognizer.SystemSpeechLanguage;
     }
 
-    /// <summary>打字問一句（不聽也不唸）。API 的錯誤轉成給人看的一句話。</summary>
-    public async Task<string> AskAsync(string question)
+    /// <summary>有人要看串流的片段才用串流。</summary>
+    private Action<string>? Streaming => Partial == null ? null : text => Partial?.Invoke(text);
+
+    /// <summary>打字問一句（不聽也不唸）。API 的錯誤轉成給人看的一句話。progress：回答邊產生邊收到目前為止的全文。</summary>
+    public async Task<string> AskAsync(string question, Action<string>? progress = null)
     {
-        try { return await _brain.ThinkAsync(question, Token); }
+        try { return await _brain.ThinkAsync(question, Token, progress); }
         catch (Exception e) { Log.Write("ask: " + e.Message); return _brain.Explain(e); }
     }
 

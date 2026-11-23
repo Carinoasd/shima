@@ -169,6 +169,7 @@
           <MenuItem Header="解釋這句歌詞" Click="ExplainLine_Click"/>
           <MenuItem x:Name="DesktopLyricsItem" Header="桌面歌詞" IsCheckable="True" Click="DesktopLyrics_Click"/>
           <MenuItem x:Name="DesktopLockItem" Header="鎖定桌面歌詞" IsCheckable="True" Click="DesktopLock_Click"/>
+          <MenuItem x:Name="AudioMenu" Header="播放裝置"/>
           <MenuItem Header="開啟歌詞資料夾" Click="LyricsFolder_Click"/>
           <MenuItem Header="回到螢幕正中間" Click="ResetPlace_Click"/>
           <MenuItem Header="結束" Click="Quit_Click"/>
@@ -274,6 +275,7 @@
                 <Button Style="{StaticResource Key}" Content="&#xE893;" Click="Next_Click"/>
                 <Button x:Name="FavoriteButton" Style="{StaticResource Key}" FontSize="13" Content="&#xEB51;" ToolTip="收藏這句歌詞" Click="Favorite_Click"/>
                 <Button x:Name="QueueButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE8FD;" ToolTip="接下來播放" Click="Queue_Click"/>
+                <Button x:Name="AudioButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE767;" ToolTip="播放裝置" Visibility="Collapsed" Click="Audio_Click"/>
               </StackPanel>
 
               <Grid x:Name="QueueHost" Grid.Row="5" Margin="0,10,0,0" Height="300" Visibility="Collapsed"/>
@@ -323,12 +325,21 @@
                 <PasswordBox x:Name="ApiKeyBox" Grid.Column="1" Style="{StaticResource Field}" PasswordChanged="ApiKey_Changed" ToolTip="API 金鑰"/>
               </Grid>
               <Grid Height="36" Margin="0,12,0,0">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,90,0">
-                  <TextBlock Text="Claude Code" FontSize="13"/>
-                  <TextBlock x:Name="PlanText" FontSize="12" Foreground="#90FFFFFF" Margin="10,1,0,0" TextTrimming="CharacterEllipsis" MaxWidth="230"/>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <DockPanel VerticalAlignment="Center" Margin="6,0,10,0">
+                  <TextBlock DockPanel.Dock="Left" Text="Claude Code" FontSize="13"/>
+                  <TextBlock x:Name="PlanText" FontSize="12" Foreground="#90FFFFFF" Margin="10,1,0,0" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                  <Button x:Name="RulesButton" Style="{StaticResource Pill}" Height="26" Padding="10,0" Margin="0,0,8,0" ToolTip="以後都允許" Visibility="Collapsed" Click="Rules_Click"/>
+                  <Button x:Name="AgentButton" Style="{StaticResource Pill}" Content="連接" Click="Agent_Click"/>
                 </StackPanel>
-                <Button x:Name="AgentButton" Style="{StaticResource Pill}" HorizontalAlignment="Right" Content="連接" Click="Agent_Click"/>
               </Grid>
+              <StackPanel x:Name="RulesBox" Visibility="Collapsed" Margin="0,6,0,0"/>
+              <StackPanel x:Name="OtherAgentsBox"/>
             </StackPanel>
 
             <!-- 工具：番茄鐘、暫存架、待辦 -->
@@ -342,54 +353,40 @@
               </Grid>
               <Border CornerRadius="12" Background="#14FFFFFF" Margin="0,10,0,0" Padding="8,8,2,2" MinHeight="44">
                 <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition Width="Auto"/>
+                  </Grid.ColumnDefinitions>
                   <TextBlock x:Name="ShelfHint" Text="&#xE8E5;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Foreground="#50FFFFFF"
-                             HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="把檔案拖到島上暫放"/>
+                             HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,6,6" ToolTip="把檔案、文字或圖片拖到島上暫放"/>
                   <WrapPanel x:Name="ShelfBox"/>
+                  <Button Grid.Column="1" Style="{StaticResource Key}" Width="28" Height="28" FontSize="13" VerticalAlignment="Top" Margin="0,-4,0,0" Content="&#xE77F;" ToolTip="貼上剪貼簿的內容" Click="ShelfPaste_Click"/>
                 </Grid>
               </Border>
+              <StackPanel x:Name="AlarmBox" Margin="0,10,0,0" Visibility="Collapsed"/>
               <StackPanel x:Name="TodoBox" Margin="0,10,0,0"/>
-              <TextBox x:Name="TodoInput" Style="{StaticResource Input}" Height="30" Margin="0,6,0,0" KeyDown="TodoInput_KeyDown" ToolTip="新增待辦，按 Enter"/>
+              <Grid Margin="0,6,0,0">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition/>
+                  <ColumnDefinition Width="6"/>
+                  <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="TodoInput" Style="{StaticResource Input}" Height="30" KeyDown="TodoInput_KeyDown" TextChanged="ToolInput_TextChanged" ToolTip="新增待辦，按 Enter"/>
+                <TextBlock x:Name="TodoGlyph" Text="&#xE8FD;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="#50FFFFFF" IsHitTestVisible="False" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                <TextBox x:Name="AlarmInput" Grid.Column="2" Style="{StaticResource Input}" Height="30" KeyDown="AlarmInput_KeyDown" TextChanged="ToolInput_TextChanged" ToolTip="新增提醒，如 15:30 開會、20m 喝水，按 Enter"/>
+                <TextBlock x:Name="AlarmGlyph" Grid.Column="2" Text="&#xE916;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Foreground="#50FFFFFF" IsHitTestVisible="False" VerticalAlignment="Center" Margin="12,0,0,0"/>
+              </Grid>
               <TextBlock x:Name="MonthTitle" FontSize="13" FontWeight="SemiBold" Margin="6,14,0,2"/>
               <s:MonthView x:Name="Month"/>
             </StackPanel>
 
-            <!-- 設定 -->
-            <ScrollViewer x:Name="SettingsPage" Grid.Row="2" Visibility="Collapsed" MaxHeight="540" VerticalScrollBarVisibility="Hidden" Focusable="False">
-            <StackPanel>
-              <DockPanel Height="32" Margin="2,0,0,2">
-                <Button x:Name="LanguageButton" DockPanel.Dock="Right" Style="{StaticResource Pill}" Height="26" Padding="12,0" Click="Language_Click"/>
-                <TextBlock Text="語言" FontSize="13" VerticalAlignment="Center"/>
-              </DockPanel>
-              <CheckBox x:Name="StartupSwitch" Style="{StaticResource Switch}" Content="開機時啟動" Click="Switch_Click"/>
-              <CheckBox x:Name="FullscreenSwitch" Style="{StaticResource Switch}" Content="全螢幕時隱藏" Click="Switch_Click"/>
-              <CheckBox x:Name="AudioSwitch" Style="{StaticResource Switch}" Content="跟著聲音動" Click="Switch_Click"/>
-              <CheckBox x:Name="NotifySwitch" Style="{StaticResource Switch}" Content="顯示訊息通知" Click="Notify_Click"/>
-              <CheckBox x:Name="DeckSwitch" Style="{StaticResource Switch}" Content="Stream Dock" Click="Deck_Click"/>
-              <CheckBox x:Name="SystemSwitch" Style="{StaticResource Switch}" Content="顯示音量、電量、網路的變化" Click="Switch_Click"/>
-              <CheckBox x:Name="UpdateSwitch" Style="{StaticResource Switch}" Content="檢查新版" Click="Switch_Click"/>
-              <CheckBox x:Name="DictationSwitch" Style="{StaticResource Switch}" Content="語音辨識用 Windows 的聽寫" Click="Switch_Click"/>
-              <DockPanel Height="32">
-                <TextBlock DockPanel.Dock="Right" Text="分鐘" FontSize="12" Foreground="#90FFFFFF" VerticalAlignment="Center" Margin="5,0,0,0"/>
-                <TextBox x:Name="WaterBox" DockPanel.Dock="Right" Style="{StaticResource Input}" Height="26" Width="52" Margin="8,0,0,0" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown" ToolTip="每隔幾分鐘"/>
-                <CheckBox x:Name="WaterSwitch" Style="{StaticResource Switch}" Content="喝水提醒" Click="Switch_Click"/>
-              </DockPanel>
-              <StackPanel x:Name="MoreSettings"/>
-              <TextBlock Text="歌詞來源" FontSize="12" Foreground="#90FFFFFF" Margin="2,10,0,6"/>
-              <WrapPanel x:Name="SourcesBox"/>
-              <DockPanel Margin="2,12,0,6">
-                <Button DockPanel.Dock="Right" Style="{StaticResource Pill}" Height="24" Padding="10,0" Content="加入" Click="AddFolder_Click"/>
-                <TextBlock Text="歌詞資料夾" FontSize="12" Foreground="#90FFFFFF" VerticalAlignment="Center"/>
-              </DockPanel>
-              <StackPanel x:Name="FoldersBox"/>
-              <TextBlock Text="Discord Application ID" FontSize="12" Foreground="#90FFFFFF" Margin="2,8,0,6"/>
-              <TextBox x:Name="DiscordBox" Style="{StaticResource Input}" Height="30" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
-              <TextBlock Text="番茄鐘：專注／休息（分鐘）" FontSize="12" Foreground="#90FFFFFF" Margin="2,12,0,6"/>
-              <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="FocusBox" Style="{StaticResource Input}" Height="30" Width="64" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
-                <TextBox x:Name="BreakBox" Style="{StaticResource Input}" Height="30" Width="64" Margin="8,0,0,0" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
-              </StackPanel>
+            <!-- 設定：上面一排切換四個子分頁，每一頁的列都由程式產生（IslandWindow.SettingsPage.cs） -->
+            <StackPanel x:Name="SettingsPage" Grid.Row="2" Visibility="Collapsed">
+              <StackPanel x:Name="SettingsSections" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+              <ScrollViewer x:Name="SettingsScroll" MaxHeight="540" VerticalScrollBarVisibility="Hidden" Focusable="False" ScrollChanged="SettingsScroll_ScrollChanged">
+                <Grid x:Name="SettingsRows"/>
+              </ScrollViewer>
             </StackPanel>
-            </ScrollViewer>
 
             <!-- Claude Code 在問可不可以 -->
             <StackPanel x:Name="AskPage" Grid.Row="2" Margin="0,4,0,0" Visibility="Collapsed">

@@ -266,7 +266,7 @@ public partial class IslandWindow : Window
             bool wanted = AppSettings.Current.AudioReactive && _track?.Playing == true;
             bool listen = wanted && !_hiddenForFullscreen;
             bool capture = listen || wanted && _bridge.DeckWatching;
-            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop();
+            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateTimer();
@@ -282,7 +282,7 @@ public partial class IslandWindow : Window
         Agents.DeckNotice notice;
         string timer = TimerLine() ?? "";
         if (_asking is { } ask && !ask.Decision.Task.IsCompleted)
-            notice = new("ask", ask.Project.Length > 0 ? $"Claude Code · {ask.Project}" : "Claude Code", $"{ask.Tool}  {ask.Details}", timer, _planLine, false);
+            notice = new("ask", ask.Project.Length > 0 ? $"{Agents.AgentKinds.Name(ask.Agent)} · {ask.Project}" : Agents.AgentKinds.Name(ask.Agent), $"{ask.Tool}  {ask.Details}", timer, _planLine, false);
         else if (_voice != null)
             notice = new("voice", "", _voiceLine, timer, _planLine, _micOpen);
         else if (_toast.Length > 0 && DateTime.Now < _toastUntil)
@@ -456,6 +456,9 @@ public partial class IslandWindow : Window
 
         double width = _tab == Tab.Chat ? 528 : 440;
         Panel.Width = width - 32;
+        // 先把排著隊的版面算完。深處的內容剛換過（設定的子分頁、清單多一列）時，中間幾層還留著舊的高度，
+        // 直接量會拿到上一次的結果，島就停在舊的大小，要等下一次變形才對回來
+        Panel.UpdateLayout();
         Panel.Measure(new Size(width, double.PositiveInfinity));
         return new Size(width, Math.Ceiling(Panel.DesiredSize.Height));
     }
@@ -728,32 +731,73 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 全域快速鍵
 
     private const int HotkeyToggle = 1, HotkeyAsk = 2, WM_HOTKEY = 0x0312;
-    /// <summary>實際註冊到的展開快速鍵。</summary>
+    private const uint NoRepeat = 0x4000;
+    /// <summary>實際註冊到的快速鍵（沒註冊成功是空字串）。</summary>
     public string ToggleHotkey { get; private set; } = "";
+    public string AskHotkey { get; private set; } = "";
+    /// <summary>錄製新快速鍵時先拆掉自己的，免得按下去就觸發。</summary>
+    private bool _recordingHotkey;
 
-    /// <summary>Ctrl+Alt+Space：展開／收起。Ctrl+Alt+V：問語音助手一句。被別的程式佔用就記在紀錄檔。</summary>
+    /// <summary>預設 Ctrl+Alt+Space 展開／收起、Ctrl+Alt+V 問語音助手一句，都可以在設定改。被別的程式佔用就記在紀錄檔。</summary>
     private void InitHotkeys()
     {
-        const uint control = 2, alt = 1, noRepeat = 0x4000;
-        // 展開的快速鍵被別的程式佔走就換下一組
-        const uint shift = 4;
-        (uint Modifiers, uint Key, string Name)[] toggles = [(control | alt, 0x20, "Ctrl+Alt+Space"), (control | alt, 0x49, "Ctrl+Alt+I"), (control | shift, 0x20, "Ctrl+Shift+Space")];
-        ToggleHotkey = toggles.FirstOrDefault(t => RegisterHotKey(_hwnd, HotkeyToggle, t.Modifiers | noRepeat, t.Key)).Name ?? "";
-        if (ToggleHotkey != toggles[0].Name)
-        {
-            Log.Write($"快速鍵 Ctrl+Alt+Space 被別的程式佔用，改用 {(ToggleHotkey.Length > 0 ? ToggleHotkey : "（都被佔用）")}");
-            if (ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
-        }
-        if (!RegisterHotKey(_hwnd, HotkeyAsk, control | alt | noRepeat, 0x56)) Log.Write("快速鍵 Ctrl+Alt+V 被別的程式佔用");
+        RegisterHotkeys(notify: true);
         HwndSource.FromHwnd(_hwnd)?.AddHook((IntPtr h, int message, IntPtr w, IntPtr l, ref bool handled) =>
         {
             if (message != WM_HOTKEY) return IntPtr.Zero;
             handled = true;
+            if (_recordingHotkey) return IntPtr.Zero;
             if (w.ToInt32() == HotkeyToggle) { _close.Stop(); _open.Stop(); SetExpanded(!_expanded); }
             else if (w.ToInt32() == HotkeyAsk) AskOnce();
             return IntPtr.Zero;
         });
         Closed += (_, _) => { UnregisterHotKey(_hwnd, HotkeyToggle); UnregisterHotKey(_hwnd, HotkeyAsk); };
+    }
+
+    /// <summary>
+    /// 兩組一起註冊。自己指定的先註冊：展開用預設、問 AI 指定了 Ctrl+Alt+Space 時，
+    /// 先註冊展開的話它會把那一組拿走，指定的反而失效。
+    /// </summary>
+    /// <param name="notify">展開的快速鍵改用備援時要不要在島上提示（只有啟動時提示）。</param>
+    private void RegisterHotkeys(bool notify = false)
+    {
+        if (AppSettings.Current.HotkeyToggle.Length == 0 && AppSettings.Current.HotkeyAsk.Length > 0) { RegisterAsk(); RegisterToggle(notify); }
+        else { RegisterToggle(notify); RegisterAsk(); }
+    }
+
+    /// <summary>依設定註冊展開快速鍵；設定的那組註冊不成（或沒設定）就走預設備援順序。回傳 false 表示設定的那組被佔用。</summary>
+    /// <param name="notify">改用備援時在島上提示。錄製或取消時重新註冊不提示：每次都跳一次，還會蓋掉「被佔用」的訊息。</param>
+    private bool RegisterToggle(bool notify = false)
+    {
+        UnregisterHotKey(_hwnd, HotkeyToggle);
+        ToggleHotkey = "";
+        bool custom = Hotkeys.TryParse(AppSettings.Current.HotkeyToggle, out var m, out var k);
+        if (custom && RegisterHotKey(_hwnd, HotkeyToggle, m | NoRepeat, k))
+        {
+            ToggleHotkey = Hotkeys.Format(m, k)!;
+            return true;
+        }
+        const uint control = 2, alt = 1, shift = 4;
+        // 預設的展開快速鍵被別的程式佔走就換下一組
+        (uint Modifiers, uint Key, string Name)[] toggles = [(control | alt, 0x20, "Ctrl+Alt+Space"), (control | alt, 0x49, "Ctrl+Alt+I"), (control | shift, 0x20, "Ctrl+Shift+Space")];
+        ToggleHotkey = toggles.FirstOrDefault(t => RegisterHotKey(_hwnd, HotkeyToggle, t.Modifiers | NoRepeat, t.Key)).Name ?? "";
+        if (ToggleHotkey != toggles[0].Name)
+        {
+            Log.Write($"快速鍵 Ctrl+Alt+Space 被別的程式佔用，改用 {(ToggleHotkey.Length > 0 ? ToggleHotkey : "（都被佔用）")}");
+            if (notify && ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
+        }
+        return !custom;
+    }
+
+    private bool RegisterAsk()
+    {
+        UnregisterHotKey(_hwnd, HotkeyAsk);
+        AskHotkey = "";
+        bool custom = Hotkeys.TryParse(AppSettings.Current.HotkeyAsk, out var m, out var k);
+        if (custom && RegisterHotKey(_hwnd, HotkeyAsk, m | NoRepeat, k)) { AskHotkey = Hotkeys.Format(m, k)!; return true; }
+        if (RegisterHotKey(_hwnd, HotkeyAsk, 2 | 1 | NoRepeat, 0x56)) AskHotkey = "Ctrl+Alt+V";
+        else Log.Write("快速鍵 Ctrl+Alt+V 被別的程式佔用");
+        return !custom;
     }
 
     [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr h, int id, uint modifiers, uint key);

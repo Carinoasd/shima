@@ -29,19 +29,48 @@ public partial class IslandWindow
             if (_track is { } playing) File.Move(LyricCard.Save(MakeCard(playing), folder, "card"), Path.Combine(folder, "7-card.png"), true);
             await Zoom(folder, "0-mascot", Buddy, 12);
 
-            foreach (var (tab, name) in new[] { (Tab.Music, "2-music"), (Tab.Tools, "3-tools"), (Tab.Ai, "4-ai"), (Tab.Settings, "5-settings"), (Tab.Library, "8-library") })
+            foreach (var (tab, name) in new[] { (Tab.Music, "2-music"), (Tab.Tools, "3-tools"), (Tab.Ai, "4-ai") })
             {
                 _expanded = true;
-                (tab switch { Tab.Tools => TabTools, Tab.Ai => TabAi, Tab.Settings => TabSettings, Tab.Library => TabLibrary, _ => TabMusic }).IsChecked = true;
+                (tab switch { Tab.Tools => TabTools, Tab.Ai => TabAi, _ => TabMusic }).IsChecked = true;
                 _tab = tab;
                 if (tab == Tab.Ai) RefreshAi();
-                if (tab == Tab.Settings) { RefreshSettings(); DiscordBox.Text = ""; }   // 截圖不帶個人的 ID
                 if (tab == Tab.Tools) RefreshTools();
-                if (tab == Tab.Library) RefreshLibrary();
                 Snap();
                 UpdateTexts();
                 await Save(folder, name);
             }
+
+            // 設定頁：四個子分頁各一張
+            _expanded = true;
+            TabSettings.IsChecked = true;
+            _tab = Tab.Settings;
+            foreach (var (section, name) in new[]
+            {
+                (SettingsSection.General, "5-settings-general"), (SettingsSection.Look, "5-settings-look"),
+                (SettingsSection.Music, "5-settings-music"), (SettingsSection.Ai, "5-settings-ai"),
+            })
+            {
+                _settingsSection = section;
+                RefreshSettings();
+                // 截圖不帶個人的資料：Roon 位址、ListenBrainz token、Discord ID。只改畫面上的字，沒有存檔
+                foreach (var box in InputsIn<System.Windows.Controls.TextBox>(_settingsPages[SettingsSection.Music])) box.Text = "";
+                // 密碼框也清：圓點的數量看得出 secret 有多長
+                foreach (var box in InputsIn<System.Windows.Controls.PasswordBox>(_settingsPages[SettingsSection.Music])) box.Password = "";
+                SettingsScroll.ScrollToVerticalOffset(0);
+                Snap();
+                UpdateTexts();
+                await Save(folder, name);
+            }
+            _settingsSection = SettingsSection.General;
+
+            // 聆聽放最後：後面的引導卡片與收藏截圖都接著這一頁
+            TabLibrary.IsChecked = true;
+            _tab = Tab.Library;
+            RefreshLibrary();
+            Snap();
+            UpdateTexts();
+            await Save(folder, "8-library");
 
             WelcomeCard(); Snap(); await Save(folder, "a-welcome");
             WelcomeHost.Children.Clear(); WelcomeHost.Visibility = Visibility.Collapsed;
@@ -60,6 +89,15 @@ public partial class IslandWindow
         }
         catch (Exception e) { Log.Write("shots: " + e); }
         Close();
+    }
+
+    private static IEnumerable<T> InputsIn<T>(DependencyObject root) where T : DependencyObject
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            if (child is T box) yield return box;
+            foreach (var inner in InputsIn<T>(child)) yield return inner;
+        }
     }
 
     /// <summary>不跑動畫，直接變成目標的大小。</summary>
