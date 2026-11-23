@@ -173,6 +173,7 @@
             <MenuItem Header="延後 0.1 秒" Click="LyricsLater_Click"/>
             <MenuItem Header="還原" Click="LyricsReset_Click"/>
             <MenuItem x:Name="LyricsSaveItem" Header="存成 .lrc" Click="LyricsSave_Click"/>
+            <MenuItem x:Name="LyricsCopyItem" Header="複製全文" Click="LyricsCopy_Click"/>
           </MenuItem>
           <MenuItem Header="複製歌詞卡片" Click="LyricCard_Click"/>
           <MenuItem Header="收藏這句歌詞" Click="Favorite_Click"/>

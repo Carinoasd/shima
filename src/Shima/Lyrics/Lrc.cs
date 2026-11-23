@@ -146,6 +146,19 @@ public static partial class Lrc
     private static string Clock(long ms) =>
         $"{ms / 60000:00}:{ms / 1000 % 60:00}.{ms % 1000:000}";
 
+    /// <summary>整份歌詞的純文字：一行一句，有翻譯的那句下一行是翻譯；間奏的空行略過。</summary>
+    public static string PlainText(LyricSheet sheet)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < sheet.Lines.Count; i++)
+        {
+            if (sheet.Lines[i].Text.Length == 0) continue;
+            sb.Append(sheet.Lines[i].Text).Append('\n');
+            if (sheet.Translation is { } tr && i < tr.Count && tr[i].Length > 0) sb.Append(tr[i]).Append('\n');
+        }
+        return sb.ToString().TrimEnd('\n');
+    }
+
     /// <summary>
     /// 另一份有時間的文字（翻譯、羅馬拼音）對到歌詞的每一行：時間差在 0.4 秒內才算同一句。
     /// 一行都對不上就回 null。

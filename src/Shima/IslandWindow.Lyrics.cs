@@ -7,13 +7,14 @@ using Shima.Lyrics;
 
 namespace Shima;
 
-// 右鍵「這首歌的歌詞」：存成 .lrc。
+// 右鍵「這首歌的歌詞」：存成 .lrc、複製全文。
 public partial class IslandWindow
 {
     /// <summary>子選單打開時才決定哪幾項能按：要看當下這首歌有沒有同步歌詞。</summary>
     private void LyricsMenu_SubmenuOpened(object sender, RoutedEventArgs e)
     {
         LyricsSaveItem.IsEnabled = _sheet is { Synced: true };
+        LyricsCopyItem.IsEnabled = _sheet is { Lines.Count: > 0 };
     }
 
     /// <summary>
@@ -42,5 +43,14 @@ public partial class IslandWindow
             Morph();
         }
         catch (Exception x) { Log.Write("存歌詞: " + x.Message); Toast(L.T("無法儲存歌詞"), 3, false); }
+    }
+
+    /// <summary>整份歌詞（有翻譯的話每句下面一行翻譯）放進剪貼簿。</summary>
+    private void LyricsCopy_Click(object sender, RoutedEventArgs e)
+    {
+        if (_sheet is not { Lines.Count: > 0 } sheet || Lrc.PlainText(sheet) is not { Length: > 0 } text) { Toast(L.T("現在沒有歌詞"), 3, false); return; }
+        // Windows 的文字用 CRLF 換行，舊程式才不會貼成一整行；別的程式正開著剪貼簿時會丟例外
+        try { Clipboard.SetText(text.Replace("\n", "\r\n")); Toast(L.T("已複製"), 2); }
+        catch (Exception x) { Log.Write("複製歌詞: " + x.Message); }
     }
 }
