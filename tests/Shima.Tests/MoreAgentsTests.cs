@@ -276,9 +276,12 @@ public sealed class MoreAgentsInstallTests : IDisposable
     {
         // Antigravity 也用 ~/.gemini：只有它的子資料夾時，不該出現 Gemini CLI 那一列
         Directory.CreateDirectory(Path.Combine(Wsl, ".gemini", "antigravity"));
+        // 這兩個 Antigravity 也會建立，不能當成有裝 Gemini CLI
+        File.WriteAllText(Path.Combine(Wsl, ".gemini", "installation_id"), "x");
+        File.WriteAllText(Path.Combine(Wsl, ".gemini", "google_accounts.json"), "{}");
         Assert.Empty(AgentInstaller.Gemini.Targets(Home));
         Assert.False(AgentInstaller.Scan(Home).Single(s => s.Agent == AgentKind.Gemini).Detected);
-        File.WriteAllText(Path.Combine(Wsl, ".gemini", "installation_id"), "x");
+        File.WriteAllText(Path.Combine(Wsl, ".gemini", "oauth_creds.json"), "{}");
         Assert.Single(AgentInstaller.Gemini.Targets(Home));
     }
 
@@ -335,7 +338,7 @@ public sealed class MoreAgentsInstallTests : IDisposable
     public void 拿不到金鑰就什麼都不寫(string token)
     {
         Directory.CreateDirectory(Path.Combine(Windows, ".gemini"));
-        File.WriteAllText(Path.Combine(Windows, ".gemini", "installation_id"), "x");
+        File.WriteAllText(Path.Combine(Windows, ".gemini", "oauth_creds.json"), "{}");
         Assert.NotNull(AgentInstaller.Gemini.Install(AgentInstaller.Gemini.Targets(Home), token));
         Assert.False(File.Exists(Path.Combine(Windows, ".gemini", "settings.json")));
     }

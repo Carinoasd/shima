@@ -13,6 +13,10 @@ namespace Shima;
 /// <summary>%APPDATA%\Shima\settings.json</summary>
 public sealed class AppSettings
 {
+    // 要排在 Current 前面：static 欄位照寫的順序初始化，而第一次啟動（還沒有設定檔）時 Load() 就會存檔、用到這把鎖。
+    // 排在後面的話那時它還是 null，整個類別初始化失敗，全新安裝的人一啟動就當掉（0.6.1 到 0.7.0）。
+    private static readonly object Saving = new();
+
     public static AppSettings Current { get; } = Load();
 
     /// <summary>Roon Core 的位址；留空就不連 Roon。</summary>
@@ -183,8 +187,11 @@ public sealed class AppSettings
         catch (Exception e) { Log.Write("lastfm 金鑰解密: " + e.Message); return ""; }
     }
 
-    public static string Folder => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Shima");
+    /// <summary>設了這個環境變數就把設定與資料放在那個資料夾（測試用暫存資料夾，不碰平常的那一份）。</summary>
+    public const string FolderVariable = "SHIMA_DATA";
+
+    public static string Folder => Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } custom ? custom
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Shima");
     private static string FilePath => Path.Combine(Folder, "settings.json");
 
     private static AppSettings Load()
@@ -216,8 +223,6 @@ public sealed class AppSettings
         fresh.Save();
         return fresh;
     }
-
-    private static readonly object Saving = new();
 
     public void Save()
     {
