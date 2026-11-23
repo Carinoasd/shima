@@ -128,11 +128,26 @@ public partial class IslandWindow
         return row;
     }
 
-    /// <summary>一列：左邊文字，右邊一個輸入框，離開輸入框時存起來。</summary>
+    /// <summary>一列：左邊文字，右邊一個輸入框，按 Enter 或離開輸入框時存起來（Esc 還原）。</summary>
     private DockPanel Entry(string text, string value, double width, Action<string> changed)
     {
+        var saved = value;
         var box = new TextBox { Style = (Style)FindResource("Input"), Height = 26, Width = width, Text = value };
-        box.LostFocus += (_, _) => { changed(box.Text.Trim()); AppSettings.Current.Save(); };
+        void Commit()
+        {
+            var trimmed = box.Text.Trim();
+            if (trimmed != box.Text) box.Text = trimmed;
+            if (trimmed == saved) return;
+            saved = trimmed;
+            changed(trimmed);
+            AppSettings.Current.Save();
+        }
+        box.LostKeyboardFocus += (_, _) => Commit();
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { Commit(); Keyboard.ClearFocus(); e.Handled = true; }
+            else if (e.Key == Key.Escape) { box.Text = saved; Keyboard.ClearFocus(); e.Handled = true; }
+        };
         DockPanel.SetDock(box, Dock.Right);
         var row = new DockPanel { Height = 32, Margin = new Thickness(2, 0, 0, 2) };
         row.Children.Add(box);

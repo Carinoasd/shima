@@ -4,6 +4,7 @@
 
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Shima.Lyrics;
@@ -150,6 +151,7 @@ public partial class IslandWindow
     private void Switch_Click(object sender, RoutedEventArgs e)
     {
         if (_loadingSettings) return;
+        CommitSettingsText(WaterBox);
         var s = AppSettings.Current;
         Startup.Enabled = StartupSwitch.IsChecked == true;
         s.HideInFullscreen = FullscreenSwitch.IsChecked == true;
@@ -203,32 +205,86 @@ public partial class IslandWindow
         RefreshSettings();
     }
 
-    private void SettingsText_LostFocus(object sender, RoutedEventArgs e)
+    /// <summary>開關、按鈕與分頁都設成 Focusable=False，點它們時文字框不會失去焦點；這裡主動放開，讓設定輸入框立刻存檔。</summary>
+    private void Panel_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (Keyboard.FocusedElement is not TextBox) return;
+        if (!InsideTextInput(e.OriginalSource as DependencyObject)) Keyboard.ClearFocus();
+    }
+
+    private static bool InsideTextInput(DependencyObject? source)
+    {
+        for (var d = source; d != null; d = d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (d is TextBox or PasswordBox) return true;
+        return false;
+    }
+
+    private void SettingsText_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => CommitSettingsText(sender as TextBox);
+
+    private void SettingsText_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not TextBox box) return;
+        if (e.Key == Key.Enter) { CommitSettingsText(box); Keyboard.ClearFocus(); e.Handled = true; }
+        else if (e.Key == Key.Escape)
+        {
+            var s = AppSettings.Current;
+            box.Text = box == WaterBox ? s.WaterMinutes.ToString()
+                : box == FocusBox ? s.FocusMinutes.ToString()
+                : box == BreakBox ? s.BreakMinutes.ToString()
+                : s.DiscordClientId;
+            Keyboard.ClearFocus();
+            e.Handled = true;
+        }
+    }
+
+    private void CommitSettingsText(TextBox? box = null)
     {
         if (_loadingSettings) return;
         var s = AppSettings.Current;
-        var id = DiscordBox.Text.Trim();
-        if (id != s.DiscordClientId && (id.Length == 0 || DiscordPresence.ValidId(id)))
+        bool dirty = false;
+
+        if (box == null || box == DiscordBox)
         {
-            s.DiscordClientId = id;
-            _discord.Stop();
-            _discord = new DiscordPresence(id);
-            _discord.Start();
+            var id = DiscordBox.Text.Trim();
+            if (id != s.DiscordClientId && (id.Length == 0 || DiscordPresence.ValidId(id)))
+            {
+                s.DiscordClientId = id;
+                _discord.Stop();
+                _discord = new DiscordPresence(id);
+                _discord.Start();
+                dirty = true;
+            }
+            if (DiscordBox.Text != s.DiscordClientId) DiscordBox.Text = s.DiscordClientId;
         }
-        if (int.TryParse(FocusBox.Text, out int focus) && int.TryParse(BreakBox.Text, out int rest) &&
-            (focus != s.FocusMinutes || rest != s.BreakMinutes))
+
+        if (box == null || box == FocusBox || box == BreakBox)
         {
-            s.FocusMinutes = Math.Clamp(focus, 1, 180);
-            s.BreakMinutes = Math.Clamp(rest, 1, 60);
-            _pomodoro = new Pomodoro { Focus = TimeSpan.FromMinutes(s.FocusMinutes), Break = TimeSpan.FromMinutes(s.BreakMinutes) };
+            int focus = box == null || box == FocusBox ? AppSettings.ParseMinutes(FocusBox.Text, s.FocusMinutes, 1, 180) : s.FocusMinutes;
+            int rest = box == null || box == BreakBox ? AppSettings.ParseMinutes(BreakBox.Text, s.BreakMinutes, 1, 60) : s.BreakMinutes;
+            if (focus != s.FocusMinutes || rest != s.BreakMinutes)
+            {
+                s.FocusMinutes = focus;
+                s.BreakMinutes = rest;
+                _pomodoro = new Pomodoro { Focus = TimeSpan.FromMinutes(s.FocusMinutes), Break = TimeSpan.FromMinutes(s.BreakMinutes) };
+                dirty = true;
+            }
+            if ((box == null || box == FocusBox) && FocusBox.Text != s.FocusMinutes.ToString()) FocusBox.Text = s.FocusMinutes.ToString();
+            if ((box == null || box == BreakBox) && BreakBox.Text != s.BreakMinutes.ToString()) BreakBox.Text = s.BreakMinutes.ToString();
         }
-        if (int.TryParse(WaterBox.Text, out int water) && water != s.WaterMinutes)
+
+        if (box == null || box == WaterBox)
         {
-            s.WaterMinutes = Math.Clamp(water, 5, 480);
-            _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes);
+            int water = AppSettings.ParseMinutes(WaterBox.Text, s.WaterMinutes, 5, 480);
+            if (water != s.WaterMinutes)
+            {
+                s.WaterMinutes = water;
+                _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes);
+                dirty = true;
+            }
+            if (WaterBox.Text != s.WaterMinutes.ToString()) WaterBox.Text = s.WaterMinutes.ToString();
         }
-        s.Save();
-        RefreshSettings();
+
+        if (dirty) s.Save();
     }
 
     // ---------------------------------------------------------------- 喝水提醒、系統狀態
