@@ -483,6 +483,14 @@ public class AgentRulesSecurityTests
     [InlineData("**/[--0]env")]
     [InlineData("{a,{b,.git}}/config")]
     [InlineData("src/{a,b")]
+    [InlineData("{/etc,src}/*.conf")]          // 展開之後才是絕對路徑
+    [InlineData("{~,a}/secret")]
+    [InlineData("{C:,a}/Windows/win.ini")]
+    [InlineData("{a,{b,/etc}}/passwd")]
+    [InlineData("{..,a}/x")]
+    [InlineData("/etc/*.conf")]
+    [InlineData("~/x")]
+    [InlineData("C:/Windows/*.ini")]
     public void 會比對到隱藏檔或敏感名稱的樣式不放行(string pattern)
     {
         foreach (var (tool, key) in new[] { ("Glob", "pattern"), ("Grep", "glob") })

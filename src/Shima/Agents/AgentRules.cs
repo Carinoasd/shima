@@ -464,11 +464,12 @@ public sealed class AgentRules
     private static string? PatternProblem(string pattern)
     {
         if (pattern.Length == 0) return null;
-        if (pattern[0] is '/' or '\\' or '~' || (pattern.Length >= 2 && pattern[1] == ':')) return "樣式是絕對路徑";
         // { } 先展開成一個個實際的樣式再看：{.env,.git}/**、**/{.,a}env 展開後才看得出指到哪裡
         if (Braces(pattern) is not { } expanded) return "樣式的 { } 太複雜";
         foreach (var one in expanded)
         {
+            // 絕對路徑要看展開之後的每一個：{/etc,src}/*.conf、{~,a}/x、{C:,a}/Windows 展開前開頭都只是一個 {
+            if (one.Length > 0 && (one[0] is '/' or '\\' or '~' || (one.Length >= 2 && one[1] == ':'))) return "樣式是絕對路徑";
             var parts = one.Split('/', '\\');
             if (parts.Contains("..")) return "樣式往上跳出資料夾";
             if (Sensitive(parts)) return "樣式指到設定、hook 或金鑰";
