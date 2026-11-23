@@ -21,7 +21,20 @@ public sealed class Ears : IDisposable
     public const int Rate = 16000;
 
     private WhisperFactory? _factory;
+    /// <summary>_factory 是從哪個模型檔載入的：設定換了模型就知道要重載。</summary>
+    private string _loaded = "";
     private string _language = "", _prompt = "";
+    private volatile bool _disposed;
+
+    /// <summary>
+    /// 喚醒詞和語音助手共用同一個 Ears：喚醒詞停下來時不會等背景的辨識結束，語音助手就馬上開始準備。
+    /// 準備模型（下載、載入、換模型）和辨識都排隊進這把鎖，才不會兩邊同時寫同一個 .part 檔、
+    /// 或一邊在用 factory 辨識時另一邊把它換掉。錄音不在鎖裡，等麥克風的時候不擋人。
+    /// </summary>
+    private readonly SemaphoreSlim _lock = new(1, 1);
+
+    /// <summary>不同的 Ears（例如語音助手自己 new 的）也可能下載同一個模型檔：下載另外跨實例排隊。</summary>
+    private static readonly SemaphoreSlim Downloads = new(1, 1);
 
     /// <summary>錄完音、開始辨識的那一刻（讓畫面馬上有反應）。</summary>
     public event Action? Recognizing;
@@ -48,37 +61,70 @@ public sealed class Ears : IDisposable
         "tiny" => GgmlType.Tiny, "small" => GgmlType.Small, "medium" => GgmlType.Medium, _ => GgmlType.Base,
     };
 
-    private string ModelPath => Path.Combine(ModelFolder, $"ggml-{Size.ToString().ToLowerInvariant()}.bin");
+    private static string PathOf(GgmlType size) => Path.Combine(ModelFolder, $"ggml-{size.ToString().ToLowerInvariant()}.bin");
 
-    /// <summary>模型還沒有就下載。先寫到暫存檔，下載完整才改名，中斷了不會留下壞檔。</summary>
+    /// <summary>
+    /// 模型還沒有就下載。先寫到暫存檔，下載完整才改名，中斷了不會留下壞檔。
+    /// 每次都照現在的設定挑模型：設定從 base 換成 small，下一次準備就換掉已經載入的那個，不用重開程式。
+    /// 另一邊正在準備時會排隊等它做完，做完的結果直接拿來用（檔案已經在、模型已經載好就不會再做一次）。
+    /// </summary>
     public async Task PrepareAsync(string language, CancellationToken stop)
     {
-        if (!File.Exists(ModelPath))
+        await _lock.WaitAsync(stop).ConfigureAwait(false);
+        try
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            // 設定可能在下載途中被改：這一次從頭到尾用同一個模型
+            var size = Size;
+            var path = PathOf(size);
+            if (!File.Exists(path)) await DownloadAsync(size, path, stop).ConfigureAwait(false);
+
+            UseBundledLibrary();
+            if (_factory == null || _loaded != path)
+            {
+                // 辨識也在這把鎖裡，所以換掉的時候沒有人在用舊的
+                _factory?.Dispose();
+                _factory = null;
+                _loaded = "";
+                _factory = WhisperFactory.FromPath(path);
+                _loaded = path;
+            }
+            _language = Code(language);
+            // 提示它用繁體字寫（模型對中文預設偏簡體）
+            _prompt = language.StartsWith("zh", StringComparison.OrdinalIgnoreCase) && Loc.Lang != "zh-CN" ? "以下是繁體中文的句子。" : "";
+        }
+        finally
+        {
+            if (_disposed) ReleaseFactory();
+            _lock.Release();
+        }
+    }
+
+    private async Task DownloadAsync(GgmlType size, string path, CancellationToken stop)
+    {
+        await Downloads.WaitAsync(stop).ConfigureAwait(false);
+        try
+        {
+            if (File.Exists(path)) return;   // 排隊的時候別人已經下載好了
             Directory.CreateDirectory(ModelFolder);
-            var partial = ModelPath + ".part";
-            using (var source = await WhisperGgmlDownloader.Default.GetGgmlModelAsync(Size, QuantizationType.NoQuantization, stop))
+            var partial = path + ".part";
+            using (var source = await WhisperGgmlDownloader.Default.GetGgmlModelAsync(size, QuantizationType.NoQuantization, stop).ConfigureAwait(false))
             using (var file = File.Create(partial))
             {
                 var buffer = new byte[1 << 16];
                 long total = 0;
                 int read, shown = -1;
-                while ((read = await source.ReadAsync(buffer, stop)) > 0)
+                while ((read = await source.ReadAsync(buffer, stop).ConfigureAwait(false)) > 0)
                 {
-                    await file.WriteAsync(buffer.AsMemory(0, read), stop);
+                    await file.WriteAsync(buffer.AsMemory(0, read), stop).ConfigureAwait(false);
                     total += read;
                     int mb = (int)(total >> 20);
                     if (mb != shown && mb % 5 == 0) { shown = mb; Downloading?.Invoke(mb); }
                 }
             }
-            File.Move(partial, ModelPath, overwrite: true);
+            File.Move(partial, path, overwrite: true);
         }
-
-        UseBundledLibrary();
-        _factory ??= WhisperFactory.FromPath(ModelPath);
-        _language = Code(language);
-        // 提示它用繁體字寫（模型對中文預設偏簡體）
-        _prompt = language.StartsWith("zh", StringComparison.OrdinalIgnoreCase) && Loc.Lang != "zh-CN" ? "以下是繁體中文的句子。" : "";
+        finally { Downloads.Release(); }
     }
 
     /// <summary>
@@ -127,22 +173,37 @@ public sealed class Ears : IDisposable
 
     /// <summary>16 kHz 單聲道的取樣 → 文字。</summary>
     /// <param name="whole">true：照模型原本的方式看滿 30 秒（比較用）。</param>
+    /// <remarks>
+    /// 同一時間只辨識一段：同一個 factory 建出來的處理器共用模型，不保證能同時跑；
+    /// 也要擋住 <see cref="PrepareAsync"/> 在辨識途中換掉 factory。
+    /// </remarks>
     public async Task<string> TranscribeAsync(float[] samples, CancellationToken stop, bool whole = false)
     {
-        if (_factory == null) return "";
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        double seconds = samples.Length / (double)Rate;
-        var builder = _factory.CreateBuilder().WithLanguage(_language).WithNoContext()
-            .WithThreads(Math.Clamp(Environment.ProcessorCount / 2, 2, 8));
-        if (!whole) builder = builder.WithAudioContextSize(AudioContext(seconds));
-        if (_prompt.Length > 0) builder = builder.WithPrompt(_prompt);
-        using var processor = builder.Build();
+        await _lock.WaitAsync(stop).ConfigureAwait(false);
+        try
+        {
+            if (_factory == null || _disposed) return "";
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            double seconds = samples.Length / (double)Rate;
+            var language = _language;
+            var builder = _factory.CreateBuilder().WithLanguage(language).WithNoContext()
+                .WithThreads(Math.Clamp(Environment.ProcessorCount / 2, 2, 8));
+            if (!whole) builder = builder.WithAudioContextSize(AudioContext(seconds));
+            if (_prompt.Length > 0) builder = builder.WithPrompt(_prompt);
+            using var processor = builder.Build();
 
-        var text = new System.Text.StringBuilder();
-        await foreach (var segment in processor.ProcessAsync(samples, stop)) text.Append(segment.Text);
-        var result = Tidy(text.ToString());
-        Last = (seconds, clock.Elapsed.TotalSeconds);
-        return _language == "zh" && Loc.Lang != "zh-CN" ? Chinese.ToTraditional(result) : result;
+            var text = new System.Text.StringBuilder();
+            await foreach (var segment in processor.ProcessAsync(samples, stop).ConfigureAwait(false)) text.Append(segment.Text);
+            var result = Tidy(text.ToString());
+            Last = (seconds, clock.Elapsed.TotalSeconds);
+            return language == "zh" && Loc.Lang != "zh-CN" ? Chinese.ToTraditional(result) : result;
+        }
+        finally
+        {
+            // 辨識途中被 Dispose：那時拿不到鎖、沒辦法釋放，由這裡補做
+            if (_disposed) ReleaseFactory();
+            _lock.Release();
+        }
     }
 
     /// <summary>
@@ -165,30 +226,35 @@ public sealed class Ears : IDisposable
     {
         // NAudio 3.3 把這個類別標成過時，但它仍是從預設麥克風錄音最簡單的方式
 #pragma warning disable CS0618
-        using var capture = new WasapiCapture();
+        var capture = new WasapiCapture();
 #pragma warning restore CS0618
-        var format = capture.WaveFormat;
         var detector = new SpeechDetector();
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var resampler = new Downsampler(format.SampleRate, Rate);
-
-        capture.DataAvailable += (_, e) =>
-        {
-            var mono = Mono(e.Buffer, e.BytesRecorded, format);
-            float peak = 0;
-            foreach (var v in mono) peak = MathF.Max(peak, MathF.Abs(v));
-            Volatile.Write(ref _level, MathF.Min(1, MathF.Sqrt(peak) * 1.6f));
-            if (detector.Feed(resampler.Push(mono))) done.TrySetResult();
-        };
-        capture.RecordingStopped += (_, e) => { if (e.Exception != null) done.TrySetException(e.Exception); else done.TrySetResult(); };
-        capture.StartRecording();
         try
         {
+            var format = capture.WaveFormat;
+            var resampler = new Downsampler(format.SampleRate, Rate);
+            capture.DataAvailable += (_, e) =>
+            {
+                // 說完之後到麥克風真的關掉之間還會再進來幾批：不再餵，取出來的那一段才不會變
+                if (done.Task.IsCompleted) return;
+                var mono = Mono(e.Buffer, e.BytesRecorded, format);
+                float peak = 0;
+                foreach (var v in mono) peak = MathF.Max(peak, MathF.Abs(v));
+                Volatile.Write(ref _level, MathF.Min(1, MathF.Sqrt(peak) * 1.6f));
+                if (detector.Feed(resampler.Push(mono))) done.TrySetResult();
+            };
+            capture.RecordingStopped += (_, e) => { if (e.Exception != null) done.TrySetException(e.Exception); else done.TrySetResult(); };
+            // 沒有麥克風權限時會從這裡丟出來，也要走到下面把 capture 放掉
+            capture.StartRecording();
             using (stop.Register(() => done.TrySetCanceled())) await done.Task;
         }
         finally
         {
             try { capture.StopRecording(); } catch { }
+            // StopRecording 只是通知錄音執行緒停下；Dispose 會等那條執行緒結束，
+            // 之後就確定沒有 DataAvailable 還在 Feed（Feed 和 Speech 本身也有鎖，這裡是多一層保險）
+            try { capture.Dispose(); } catch { }
             Volatile.Write(ref _level, 0);
         }
         return detector.Speech();
@@ -246,9 +312,23 @@ public sealed class Ears : IDisposable
         return $"模型={AppSettings.Current.WhisperModel} 準備 {prepared.TotalSeconds:0.0}s｜唸「{sentence}」（{samples.Length / (double)Rate:0.0}s）｜看滿 30 秒：「{full}」{fullTook:0.00}s｜只看需要的：「{heard}」{ears.Last.Took:0.00}s";
     }
 
+    /// <summary>
+    /// 放掉模型。正在準備或辨識的話不等它（可能在 UI 執行緒上呼叫），
+    /// 標記起來由那一邊做完時釋放，免得在處理器還在用的時候把 factory 拆掉。
+    /// </summary>
     public void Dispose()
     {
+        _disposed = true;
+        if (!_lock.Wait(0)) return;
+        try { ReleaseFactory(); }
+        finally { _lock.Release(); }
+    }
+
+    private void ReleaseFactory()
+    {
         _factory?.Dispose();
+        _factory = null;
+        _loaded = "";
     }
 }
 
@@ -285,6 +365,8 @@ public sealed class SpeechDetector
 {
     private const int Frame = Ears.Rate * 30 / 1000;   // 30 毫秒一格
     private readonly List<float> _all = [];
+    /// <summary>Feed 在麥克風的錄音執行緒上跑，Speech 可能在另一條執行緒讀：兩邊不能同時碰 _all。</summary>
+    private readonly object _gate = new();
     private double _noise = 0.004;
     private int _loud, _quiet, _start = -1, _end, _first, _last;
 
@@ -296,10 +378,15 @@ public sealed class SpeechDetector
     public double Floor { get; init; } = 0.012;
 
     /// <summary>真正有聲音的長度：從第一格大聲到最後一格大聲（不含前後留的餘裕）。沒人說話是 0。</summary>
-    public TimeSpan Spoken => _start < 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, Math.Max(_end, _last) - _first) / (double)Ears.Rate);
+    public TimeSpan Spoken { get { lock (_gate) return _start < 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, Math.Max(_end, _last) - _first) / (double)Ears.Rate); } }
 
     /// <summary>餵一段取樣。回傳 true：說完了（或等太久都沒人說話）。</summary>
     public bool Feed(float[] samples)
+    {
+        lock (_gate) return Add(samples);
+    }
+
+    private bool Add(float[] samples)
     {
         int before = _all.Count / Frame;
         _all.AddRange(samples);
@@ -330,8 +417,11 @@ public sealed class SpeechDetector
     /// <summary>說話的那一段（後面多留 200 毫秒）；沒人說話是空的。</summary>
     public float[] Speech()
     {
-        if (_start < 0) return [];
-        int end = Math.Min(_all.Count, Math.Max(_end, _start) + Ears.Rate / 5);
-        return _all.GetRange(_start, end - _start).ToArray();
+        lock (_gate)
+        {
+            if (_start < 0) return [];
+            int end = Math.Min(_all.Count, Math.Max(_end, _start) + Ears.Rate / 5);
+            return _all.GetRange(_start, end - _start).ToArray();
+        }
     }
 }
