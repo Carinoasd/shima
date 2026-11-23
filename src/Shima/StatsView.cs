@@ -38,6 +38,9 @@ public sealed class StatsView : FrameworkElement
     private Point _tipAt;
     private readonly Rect[] _tabs = new Rect[4];
     private readonly Rect[] _modes = new Rect[2];
+    private readonly Rect[] _arrows = new Rect[2];     // 0 往前、1 往後
+    private int _back;                                 // 往前翻了幾段，0 是最新的這一段
+    private DateTime? _earliest;
     private Rect _share;
 
     private const double ToggleH = 16, HeatGap = 1.5, TipPad = 6;
@@ -67,6 +70,24 @@ public sealed class StatsView : FrameworkElement
     public event Action? ShareRequested;
 
     public StatsSummary? Summary => _summary;
+
+    /// <summary>往前翻了幾段（0 是這一週／這個月／今年）；超出能翻的範圍會夾回去。</summary>
+    public int Back
+    {
+        get => _back;
+        set
+        {
+            int back = Math.Max(0, value);
+            while (back > 0 && !Stats.CanGoBack(_period, _now, FirstDay, _earliest, back - 1)) back--;
+            if (_period == StatsPeriod.All) back = 0;
+            if (back == _back) return;
+            _back = back;
+            _tip = null;
+            Recompute();
+        }
+    }
+
+    private static DayOfWeek FirstDay => Loc.Culture.DateTimeFormat.FirstDayOfWeek;
     public DateTime Now => _now;
 
     /// <summary>切換期間之後觸發。</summary>
@@ -85,6 +106,7 @@ public sealed class StatsView : FrameworkElement
         {
             if (_period == value) return;
             _period = value;
+            _back = 0;
             _tip = null;
             Recompute();
             PeriodChanged?.Invoke(value);
@@ -96,6 +118,8 @@ public sealed class StatsView : FrameworkElement
     {
         _listens = listens;
         _now = now;
+        _earliest = listens.Count > 0 ? listens.Min(l => l.Start.DateTime) : null;
+        while (_back > 0 && !Stats.CanGoBack(_period, _now, FirstDay, _earliest, _back - 1)) _back--;
         Recompute();
     }
 
@@ -104,10 +128,10 @@ public sealed class StatsView : FrameworkElement
 
     private void Recompute()
     {
-        _summary = Stats.Compute(_listens, _period, _now, Loc.Culture.DateTimeFormat.FirstDayOfWeek);
+        _summary = Stats.Compute(_listens, _period, _now, _back, FirstDay);
         _bars = Stats.Fill(Stats.Bars(_summary.Daily, _period), _period);
         _byYear = _period == StatsPeriod.All && Stats.ByYear(_summary.Daily);
-        _heat = _period == StatsPeriod.Year ? Stats.Heat(_summary.Daily, _summary.From.Year, Loc.Culture.DateTimeFormat.FirstDayOfWeek, _now) : null;
+        _heat = _period == StatsPeriod.Year ? Stats.Heat(_summary.Daily, _summary.From.Year, FirstDay, _now) : null;
         InvalidateVisual();
     }
 
@@ -150,6 +174,29 @@ public sealed class StatsView : FrameworkElement
             dc.DrawText(t, new Point(x, (TabsH - t.Height) / 2));
             _tabs[i] = new Rect(x - 6, 0, t.Width + 12, TabsH);
             x += t.Width + 18;
+        }
+        // 翻看過去的期間：緊接在期間後面的左右箭頭，翻到過去時中間寫那一段
+        Array.Clear(_arrows);
+        double rightEdge = width - 22;
+        if (_period != StatsPeriod.All)
+        {
+            bool canBack = Stats.CanGoBack(_period, _now, FirstDay, _earliest, _back), canForward = Stats.CanGoForward(_period, _back);
+            double ax = x + 2;
+            var left = Text("\uE76B", 11, canBack ? Brushes.White : Faint, Icons);
+            dc.DrawText(left, new Point(ax, (TabsH - left.Height) / 2));
+            _arrows[0] = new Rect(ax - 5, 0, left.Width + 10, TabsH);
+            ax += left.Width + 10;
+            if (_back > 0)
+            {
+                var label = Text(Stats.Label(_period, _summary!.From, culture), 12, Dim, max: Math.Max(10, rightEdge - ax - 28));
+                dc.DrawText(label, new Point(ax, (TabsH - label.Height) / 2));
+                ax += label.Width + 10;
+            }
+            var right = Text("\uE76C", 11, canForward ? Brushes.White : Faint, Icons);
+            dc.DrawText(right, new Point(ax, (TabsH - right.Height) / 2));
+            _arrows[1] = new Rect(ax - 5, 0, right.Width + 10, TabsH);
+            if (!canBack) _arrows[0] = Rect.Empty;
+            if (!canForward) _arrows[1] = Rect.Empty;
         }
         // 最右邊是分享鈕，連續天數在它左邊
         var share = Text("\uE72D", 13, Dim, Icons);
@@ -228,7 +275,7 @@ public sealed class StatsView : FrameworkElement
                 double slot = width / _bars.Count;
                 double bar = Math.Clamp(slot * 0.62, 1, 18);
                 double max = Math.Max(1, _bars.Max(b => b.Time.TotalSeconds));
-                int current = _bars.FindLastIndex(b => b.Start <= _now.Date);
+                int current = s.To > _now.Date ? _bars.FindLastIndex(b => b.Start <= _now.Date) : -1;   // 過去的期間沒有「今天」
                 for (int i = 0; i < _bars.Count; i++)
                     Bar(dc, i * slot + slot / 2, bar, _bars[i].Time.TotalSeconds / max * chartH, bottom, i == current ? Brushes.White : BarBrush);
 
@@ -309,6 +356,8 @@ public sealed class StatsView : FrameworkElement
     {
         var p = e.GetPosition(this);
         if (_share.Contains(p)) { ShareRequested?.Invoke(); e.Handled = true; return; }
+        for (int i = 0; i < _arrows.Length; i++)
+            if (_arrows[i].Contains(p)) { Back += i == 0 ? 1 : -1; e.Handled = true; return; }
         for (int i = 0; i < _tabs.Length; i++)
             if (_tabs[i].Contains(p)) { Period = Periods[i]; e.Handled = true; return; }
         if (Toggleable)
@@ -327,9 +376,17 @@ public sealed class StatsView : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var p = e.GetPosition(this);
-        Cursor = _share.Contains(p) || _tabs.Any(t => t.Contains(p)) || (Toggleable && _modes.Any(m => m.Contains(p))) ? Cursors.Hand : null;
+        Cursor = _share.Contains(p) || _arrows.Any(a => a.Contains(p)) || _tabs.Any(t => t.Contains(p)) || (Toggleable && _modes.Any(m => m.Contains(p))) ? Cursors.Hand : null;
         SetTip(Tip(p), p);
         base.OnMouseMove(e);
+    }
+
+    /// <summary>滾輪往上是更早的期間，往下回到比較新的；全部沒有可翻的。</summary>
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
+    {
+        if (_period == StatsPeriod.All || e.Delta == 0) { base.OnMouseWheel(e); return; }
+        Back += e.Delta > 0 ? 1 : -1;
+        e.Handled = true;
     }
 
     protected override void OnMouseLeave(MouseEventArgs e)

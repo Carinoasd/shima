@@ -111,6 +111,29 @@ public class RecapCardTests
         });
     }
 
+    [Fact]
+    public void Render_draws_a_past_month_without_today_or_streak()
+    {
+        Sta(() =>
+        {
+            var (from, to) = Stats.Range(StatsPeriod.Month, Now, DayOfWeek.Monday, 1);
+            var daily = Stats.Daily([], from, to).Select(d => (d.Day, TimeSpan.FromMinutes(d.Day.Day * 37 % 90 + 10))).ToList();
+            var s = Summary(StatsPeriod.Month, streak: 0) with { From = from, To = to, Streak = 0, Daily = daily };
+            Assert.Equal("2026年10月", RecapCard.Content(s, StatsPeriod.Month, Now, Tw, x => x)!.Period);
+            Assert.Equal("", RecapCard.Content(s, StatsPeriod.Month, Now, Tw, x => x)!.Streak);
+            var card = RecapCard.Render(s, StatsPeriod.Month, Now, null);
+            Assert.NotNull(card);
+            if (Environment.GetEnvironmentVariable("SHIMA_RECAP_PNG") is { Length: > 0 } dir)
+            {
+                Directory.CreateDirectory(dir);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(card!));
+                using var file = File.Create(Path.Combine(dir, "recap-PrevMonth.png"));
+                encoder.Save(file);
+            }
+        });
+    }
+
     private static void Sta(Action body)
     {
         Exception? error = null;

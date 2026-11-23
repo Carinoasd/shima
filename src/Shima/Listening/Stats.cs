@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.Globalization;
+
 namespace Shima.Listening;
 
 public enum StatsPeriod { Week, Month, Year, All }
@@ -34,24 +36,70 @@ public sealed record StatsSummary(
 public static class Stats
 {
     /// <summary>期間的起點（含）與終點（不含）。全部：從最早一筆那天開始。</summary>
-    public static (DateTime From, DateTime To) Range(StatsPeriod period, DateTime now, DayOfWeek firstDay, DateTime? earliest = null)
+    public static (DateTime From, DateTime To) Range(StatsPeriod period, DateTime now, DayOfWeek firstDay, DateTime? earliest = null) =>
+        Range(period, now, firstDay, 0, earliest);
+
+    /// <summary>
+    /// 往前翻 back 段的期間（0 是這一段）。過去的期間是完整的：週七天、整個月、整年；
+    /// 只有 back 為 0 的這一段終點是今天（含）。全部沒有「上一段」，一律當作 0。
+    /// </summary>
+    public static (DateTime From, DateTime To) Range(StatsPeriod period, DateTime now, DayOfWeek firstDay, int back, DateTime? earliest = null)
     {
-        var today = now.Date;
-        var to = today.AddDays(1);
+        back = Math.Max(0, back);
+        if (period == StatsPeriod.All || back == 0)
+        {
+            var today = now.Date;
+            var to = today.AddDays(1);
+            return period switch
+            {
+                StatsPeriod.Week => (today.AddDays(-(((int)today.DayOfWeek - (int)firstDay + 7) % 7)), to),
+                StatsPeriod.Month => (new DateTime(today.Year, today.Month, 1), to),
+                StatsPeriod.Year => (new DateTime(today.Year, 1, 1), to),
+                _ => (earliest?.Date is { } first && first < today ? first : today, to),
+            };
+        }
+        var (from, _) = Range(period, now, firstDay, 0, earliest);
         return period switch
         {
-            StatsPeriod.Week => (today.AddDays(-(((int)today.DayOfWeek - (int)firstDay + 7) % 7)), to),
-            StatsPeriod.Month => (new DateTime(today.Year, today.Month, 1), to),
-            StatsPeriod.Year => (new DateTime(today.Year, 1, 1), to),
-            _ => (earliest?.Date is { } first && first < today ? first : today, to),
+            StatsPeriod.Week => (from.AddDays(-7 * back), from.AddDays(-7 * back + 7)),
+            StatsPeriod.Month => (from.AddMonths(-back), from.AddMonths(-back + 1)),
+            _ => (from.AddYears(-back), from.AddYears(-back + 1)),
         };
     }
 
-    public static StatsSummary Compute(IEnumerable<Listen> listens, StatsPeriod period, DateTime now, DayOfWeek firstDay, int top = 5)
+    /// <summary>還能不能再往前翻一段：上一段的最後一天不能比最早的紀錄還早。沒有紀錄或是「全部」就不行。</summary>
+    public static bool CanGoBack(StatsPeriod period, DateTime now, DayOfWeek firstDay, DateTime? earliest, int back) =>
+        period != StatsPeriod.All && earliest is { } first && Range(period, now, firstDay, Math.Max(0, back) + 1).To > first.Date;
+
+    /// <summary>能不能往後翻（回到比較新的一段）：只要不是最新的那一段。</summary>
+    public static bool CanGoForward(StatsPeriod period, int back) => period != StatsPeriod.All && back > 0;
+
+    /// <summary>目前看的那一段的標題：週「11月2日 – 8日」（跨年加年份）、月「2026年10月」、年「2025」。全部是空字串。</summary>
+    public static string Label(StatsPeriod period, DateTime from, CultureInfo culture)
+    {
+        var format = culture.DateTimeFormat;
+        switch (period)
+        {
+            case StatsPeriod.Week:
+                var last = from.AddDays(6);
+                if (from.Year != last.Year)
+                    return from.ToString(format.ShortDatePattern, culture) + " – " + last.ToString(format.ShortDatePattern, culture);
+                return from.ToString(format.MonthDayPattern, culture) + " – " + last.ToString(format.MonthDayPattern, culture);
+            case StatsPeriod.Month: return from.ToString(format.YearMonthPattern, culture);
+            case StatsPeriod.Year: return from.Year.ToString(CultureInfo.InvariantCulture);
+            default: return "";
+        }
+    }
+
+    public static StatsSummary Compute(IEnumerable<Listen> listens, StatsPeriod period, DateTime now, DayOfWeek firstDay, int top = 5) =>
+        Compute(listens, period, now, 0, firstDay, top);
+
+    /// <summary>往前翻 back 段的統計（back 放在 firstDay 前面，免得跟舊版的 top 參數混淆）。連續天數是到今天為止的數字，跟過去的期間無關，翻到過去時是 0。</summary>
+    public static StatsSummary Compute(IEnumerable<Listen> listens, StatsPeriod period, DateTime now, int back, DayOfWeek firstDay, int top = 5)
     {
         var all = listens.ToList();
         DateTime? earliest = all.Count > 0 ? all.Min(l => l.Start.DateTime) : null;
-        var (from, to) = Range(period, now, firstDay, earliest);
+        var (from, to) = Range(period, now, firstDay, back, earliest);
         var inRange = all.Where(l => l.Start.DateTime >= from && l.Start.DateTime < to).ToList();
 
         return new StatsSummary(
@@ -63,7 +111,7 @@ public static class Stats
             TopAlbums(inRange, top),
             Daily(inRange, from, to),
             Hours(inRange),
-            Streak(all, now));
+            back > 0 && period != StatsPeriod.All ? 0 : Streak(all, now));
     }
 
     public static TimeSpan Sum(IEnumerable<Listen> listens) => TimeSpan.FromSeconds(listens.Sum(l => Math.Max(0, l.Listened)));
