@@ -149,14 +149,25 @@ public partial class IslandWindow
     /// <summary>開關、按鈕與分頁都設成 Focusable=False，點它們時文字框不會失去焦點；這裡主動放開，讓設定輸入框立刻存檔。</summary>
     private void Panel_PreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (Keyboard.FocusedElement is not TextBox) return;
-        if (!InsideTextInput(e.OriginalSource as DependencyObject)) Keyboard.ClearFocus();
+        var source = e.OriginalSource as DependencyObject;
+        switch (Keyboard.FocusedElement)
+        {
+            // 密碼框也算：填完 Last.fm 的 Shared secret 直接按「連接」，要先存起來
+            case TextBox or PasswordBox:
+                if (!Within(source, d => d is TextBox or PasswordBox)) Keyboard.ClearFocus();
+                break;
+            // 正在錄快速鍵：點到那顆按鈕以外的地方就取消（按鈕失焦時會自己收尾）
+            case DependencyObject recorder when _recordingHotkey:
+                if (!Within(source, d => d == recorder)) Keyboard.ClearFocus();
+                break;
+        }
     }
 
-    private static bool InsideTextInput(DependencyObject? source)
+    /// <summary>從被點到的元素往上找，有沒有符合的。</summary>
+    private static bool Within(DependencyObject? source, Func<DependencyObject, bool> match)
     {
         for (var d = source; d != null; d = d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
-            if (d is TextBox or PasswordBox) return true;
+            if (match(d)) return true;
         return false;
     }
 

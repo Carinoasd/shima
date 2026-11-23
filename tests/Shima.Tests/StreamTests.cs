@@ -30,6 +30,19 @@ public class ChatStreamTests
         (JsonObject)JsonNode.Parse(message["tool_calls"]![i]!["function"]!["arguments"]!.ToString())!;
 
     [Fact]
+    public void 每一塊都帶的空字串欄位不收進訊息()
+    {
+        var stream = new ChatStream();
+        stream.Feed(Delta("""{"role":"assistant","content":"好","refusal":"","reasoning_content":""}"""));
+        stream.Feed(Delta("""{"content":"的","refusal":""}"""));
+        stream.Feed(Delta("{}", "stop"));
+        var message = stream.Message();
+        Assert.Equal("好的", message["content"]!.ToString());
+        Assert.False(message.ContainsKey("refusal"));
+        Assert.False(message.ContainsKey("reasoning_content"));
+    }
+
+    [Fact]
     public void 內容一段一段來_拼回全文_文字變多才回報()
     {
         var stream = new ChatStream();

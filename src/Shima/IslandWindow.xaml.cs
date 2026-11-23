@@ -266,7 +266,7 @@ public partial class IslandWindow : Window
             bool wanted = AppSettings.Current.AudioReactive && _track?.Playing == true;
             bool listen = wanted && !_hiddenForFullscreen;
             bool capture = listen || wanted && _bridge.DeckWatching;
-            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault();
+            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateTimer();
@@ -741,8 +741,7 @@ public partial class IslandWindow : Window
     /// <summary>預設 Ctrl+Alt+Space 展開／收起、Ctrl+Alt+V 問語音助手一句，都可以在設定改。被別的程式佔用就記在紀錄檔。</summary>
     private void InitHotkeys()
     {
-        RegisterToggle();
-        RegisterAsk();
+        RegisterHotkeys(notify: true);
         HwndSource.FromHwnd(_hwnd)?.AddHook((IntPtr h, int message, IntPtr w, IntPtr l, ref bool handled) =>
         {
             if (message != WM_HOTKEY) return IntPtr.Zero;
@@ -755,8 +754,20 @@ public partial class IslandWindow : Window
         Closed += (_, _) => { UnregisterHotKey(_hwnd, HotkeyToggle); UnregisterHotKey(_hwnd, HotkeyAsk); };
     }
 
+    /// <summary>
+    /// 兩組一起註冊。自己指定的先註冊：展開用預設、問 AI 指定了 Ctrl+Alt+Space 時，
+    /// 先註冊展開的話它會把那一組拿走，指定的反而失效。
+    /// </summary>
+    /// <param name="notify">展開的快速鍵改用備援時要不要在島上提示（只有啟動時提示）。</param>
+    private void RegisterHotkeys(bool notify = false)
+    {
+        if (AppSettings.Current.HotkeyToggle.Length == 0 && AppSettings.Current.HotkeyAsk.Length > 0) { RegisterAsk(); RegisterToggle(notify); }
+        else { RegisterToggle(notify); RegisterAsk(); }
+    }
+
     /// <summary>依設定註冊展開快速鍵；設定的那組註冊不成（或沒設定）就走預設備援順序。回傳 false 表示設定的那組被佔用。</summary>
-    private bool RegisterToggle()
+    /// <param name="notify">改用備援時在島上提示。錄製或取消時重新註冊不提示：每次都跳一次，還會蓋掉「被佔用」的訊息。</param>
+    private bool RegisterToggle(bool notify = false)
     {
         UnregisterHotKey(_hwnd, HotkeyToggle);
         ToggleHotkey = "";
@@ -773,7 +784,7 @@ public partial class IslandWindow : Window
         if (ToggleHotkey != toggles[0].Name)
         {
             Log.Write($"快速鍵 Ctrl+Alt+Space 被別的程式佔用，改用 {(ToggleHotkey.Length > 0 ? ToggleHotkey : "（都被佔用）")}");
-            if (ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
+            if (notify && ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
         }
         return !custom;
     }

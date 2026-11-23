@@ -114,6 +114,8 @@ public sealed class ChatStream
                 default:
                     if (value is JsonValue v && v.TryGetValue(out string? s))
                     {
+                        // 有的服務每一塊都帶 "refusal": ""、"reasoning_content": ""：空的不收，免得之後原樣送回去
+                        if (string.IsNullOrEmpty(s)) break;
                         if (!_extraText.TryGetValue(key, out var text)) _extraText[key] = text = new();
                         text.Append(s);
                     }

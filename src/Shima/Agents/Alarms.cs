@@ -183,9 +183,9 @@ public sealed class Alarms : IDisposable
         return new TimeSpan(hour, minute, 0);
     }
 
-    private static readonly Regex Duration = new(@"^(\d+(?:\.\d+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex Duration = new(@"^(\d+(?:\.\d+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex FullDate = new(@"^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?", RegexOptions.CultureInvariant);
-    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?\d{1,2}(?::\d{2}|[點点時时](?:半|\d{1,2}分?)?)?(?:\s*(?:am|pm))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?\d{1,2}(?::\d{2}|[點点時时](?:半|\d{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。

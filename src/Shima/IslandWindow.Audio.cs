@@ -11,7 +11,7 @@ namespace Shima;
 
 public partial class IslandWindow
 {
-    private int _audioCount;
+    private int _audioCount = -1;
     private int _switching;
 
     private void InitAudioOutputs()
@@ -24,7 +24,9 @@ public partial class IslandWindow
     /// <summary>只有一個（或沒有）裝置就沒得選，按鈕藏起來。</summary>
     private void UpdateAudioButton()
     {
-        int count = AudioOutputs.List().Count;
+        // SystemWatch 每兩秒本來就會數一次；它沒啟動時（截圖模式）自己數一次就好，不要每兩秒重新列舉
+        if (_system.Outputs < 0 && _audioCount >= 0) return;
+        int count = _system.Outputs >= 0 ? _system.Outputs : AudioOutputs.Count();
         if (count == _audioCount) return;
         _audioCount = count;
         AudioButton.Visibility = count > 1 ? Visibility.Visible : Visibility.Collapsed;

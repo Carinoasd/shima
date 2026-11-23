@@ -70,12 +70,31 @@ public sealed class LastFm : IListenSink, IDisposable
     private DateTime _lastLoggedAt = DateTime.MinValue;
     private int _nowPlayingTicket;
 
-    public string ApiKey { get; set; } = "";
-    public string Secret { get; set; } = "";
-    public string Session { get; set; } = "";
+    /// <summary>
+    /// 三個值綁在一起、整組換：背景的請求（排隊中的、等著重試的）每次送出前拿一份，
+    /// 不會簽章用新的 secret、sk 卻還是舊的。
+    /// </summary>
+    private sealed record Keys(string ApiKey, string Secret, string Session)
+    {
+        public bool HasApp => ApiKey.Length > 0 && Secret.Length > 0;
+    }
 
-    /// <summary>session key 被 Last.fm 拒絕（使用者在 Last.fm 撤銷了授權）。要請使用者重新連接。</summary>
-    public event Action? SessionRejected;
+    private readonly object _keyGate = new();
+    private Keys _keys = new("", "", "");
+    private Keys Now => Volatile.Read(ref _keys);
+
+    public string ApiKey { get => Now.ApiKey; set { lock (_keyGate) _keys = _keys with { ApiKey = value.Trim() }; } }
+    public string Secret { get => Now.Secret; set { lock (_keyGate) _keys = _keys with { Secret = value.Trim() }; } }
+    public string Session { get => Now.Session; set { lock (_keyGate) _keys = _keys with { Session = value.Trim() }; } }
+
+    /// <summary>三個一起換（設定改了、連接或中斷）。</summary>
+    public void Use(string apiKey, string secret, string session)
+    {
+        lock (_keyGate) _keys = new(apiKey.Trim(), secret.Trim(), session.Trim());
+    }
+
+    /// <summary>session key 被 Last.fm 拒絕（使用者在 Last.fm 撤銷了授權）。參數是被拒的那一把，要請使用者重新連接。</summary>
+    public event Action<string>? SessionRejected;
 
     /// <param name="handler">測試用：換掉真的網路。</param>
     /// <param name="spacing">兩個請求之間至少隔多久（預設一秒）。</param>
@@ -90,8 +109,7 @@ public sealed class LastFm : IListenSink, IDisposable
         _http.DefaultRequestHeaders.UserAgent.ParseAdd($"Shima/{ListenBrainzJson.Version} ( https://github.com/Carinoasd/shima )");
     }
 
-    private bool HasApp => ApiKey.Trim().Length > 0 && Secret.Trim().Length > 0;
-    public bool Enabled => HasApp && Session.Trim().Length > 0;
+    public bool Enabled => Now is { HasApp: true, Session.Length: > 0 };
 
     // ---------------------------------------------------------------- 回報
 
@@ -148,7 +166,8 @@ public sealed class LastFm : IListenSink, IDisposable
     /// </summary>
     public async Task<LastFmLogin?> Connect(Action<string> openBrowser, CancellationToken cancel, TimeSpan? poll = null, TimeSpan? timeout = null)
     {
-        if (!HasApp) return null;
+        var keys = Now;
+        if (!keys.HasApp) return null;
         var interval = poll ?? TimeSpan.FromSeconds(3);
         var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromMinutes(2));
         try
@@ -156,14 +175,15 @@ public sealed class LastFm : IListenSink, IDisposable
             var got = await Call([new("method", "auth.getToken")], false, () => true, cancel).ConfigureAwait(false);
             var token = got.Body?.Element("token")?.Value ?? "";
             if (!got.Ok || token.Length == 0) return null;
-            openBrowser(LastFmApi.AuthUrl(ApiKey.Trim(), token));
+            openBrowser(LastFmApi.AuthUrl(keys.ApiKey, token));
             do
             {
+                // 瀏覽器才剛開，使用者還沒按授權：先等一下再問，省掉一次必定是「還沒授權」的請求
+                await Task.Delay(interval, cancel).ConfigureAwait(false);
                 var reply = await Call([new("method", "auth.getSession"), new("token", token)], false, () => true, cancel).ConfigureAwait(false);
                 if (reply.Ok && reply.Body?.Element("session") is { } s && s.Element("key")?.Value is { Length: > 0 } key)
                     return new LastFmLogin(s.Element("name")?.Value ?? "", key);
-                if (reply.Code == 14 || reply.Retryable) await Task.Delay(interval, cancel).ConfigureAwait(false);   // 還沒授權或暫時連不上
-                else return null;
+                if (reply.Code != 14 && !reply.Retryable) return null;   // 14 是還沒授權，暫時連不上也再問
             } while (DateTime.UtcNow < deadline);
         }
         catch (OperationCanceledException) { }
@@ -186,17 +206,26 @@ public sealed class LastFm : IListenSink, IDisposable
                 if (wait > TimeSpan.Zero) await Task.Delay(wait, link.Token).ConfigureAwait(false);
                 if (!stillWanted()) return new LastFmReply(-2, "superseded", null);   // 排隊的時候又換歌了
 
-                var form = new List<KeyValuePair<string, string>>(parameters) { new("api_key", ApiKey.Trim()) };
-                if (withSession) form.Add(new("sk", Session.Trim()));
-                form.Add(new("api_sig", LastFmApi.Sign(form, Secret.Trim())));
+                var keys = Now;
+                // 排隊或等重試的時候中斷了：不要拿空的 session 去送
+                if (withSession && keys.Session.Length == 0) return new LastFmReply(-2, "disconnected", null);
+                var form = new List<KeyValuePair<string, string>>(parameters) { new("api_key", keys.ApiKey) };
+                if (withSession) form.Add(new("sk", keys.Session));
+                form.Add(new("api_sig", LastFmApi.Sign(form, keys.Secret)));
 
-                // 寫入的方法一律 POST、參數放在內文（FormUrlEncodedContent 以 UTF-8 編碼）
+                // 寫入的方法一定要 POST；驗證那兩個文件的範例是 GET，但 POST 一樣收（pylast 等函式庫全部用 POST），
+                // 所以統一放在內文（FormUrlEncodedContent 以 UTF-8 編碼），api_sig 也不會留在網址裡
                 using var request = new HttpRequestMessage(HttpMethod.Post, LastFmApi.Endpoint) { Content = new FormUrlEncodedContent(form) };
                 _lastSent = DateTime.UtcNow;
                 using var response = await _http.SendAsync(request, link.Token).ConfigureAwait(false);
                 var reply = Parse(await response.Content.ReadAsStringAsync(link.Token).ConfigureAwait(false), (int)response.StatusCode);
                 if (!reply.Ok) Report($"{method}: {reply.Code} {reply.Message}");
-                if (reply.Code == 9 && withSession) { Session = ""; SessionRejected?.Invoke(); }
+                if (reply.Code == 9 && withSession)
+                {
+                    // 只清被拒的那一把：這個請求送出去之後，使用者可能已經重新連接了
+                    lock (_keyGate) { if (_keys.Session == keys.Session) _keys = _keys with { Session = "" }; }
+                    SessionRejected?.Invoke(keys.Session);
+                }
                 return reply;
             }
             finally { _queue.Release(); }

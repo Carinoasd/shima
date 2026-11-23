@@ -10,52 +10,61 @@ namespace Shima;
 
 public partial class IslandWindow
 {
+    /// <summary>兩列各自更新按鈕文字的方法：改了一組，另一組實際註冊到的也可能跟著變（備援順序），兩列一起更新。</summary>
+    private readonly List<Action> _hotkeyShows = [];
+
     /// <summary>設定的「一般」子分頁：兩列快捷鍵。</summary>
     private IEnumerable<UIElement> HotkeySettingsRows()
     {
-        yield return HotkeyRow("展開／收起", () => ToggleHotkey, v => AppSettings.Current.HotkeyToggle = v, () => AppSettings.Current.HotkeyToggle, RegisterToggle);
-        yield return HotkeyRow("問 AI", () => AskHotkey, v => AppSettings.Current.HotkeyAsk = v, () => AppSettings.Current.HotkeyAsk, RegisterAsk);
+        _hotkeyShows.Clear();   // 設定頁重建了，舊的那兩顆按鈕不在畫面上了
+        yield return HotkeyRow("展開／收起", () => ToggleHotkey, () => AskHotkey, v => AppSettings.Current.HotkeyToggle = v, () => AppSettings.Current.HotkeyToggle, () => RegisterToggle(), RegisterAsk);
+        yield return HotkeyRow("問 AI", () => AskHotkey, () => ToggleHotkey, v => AppSettings.Current.HotkeyAsk = v, () => AppSettings.Current.HotkeyAsk, RegisterAsk, () => RegisterToggle());
     }
 
     /// <summary>
     /// 一列：左邊名稱，右邊顯示目前組合的膠囊。按一下進入錄製，按下組合就存起來並立刻重新註冊；
     /// Esc 取消，Backspace／Delete 還原預設。
     /// </summary>
-    private DockPanel HotkeyRow(string name, Func<string> actual, Action<string> store, Func<string> saved, Func<bool> register)
+    /// <param name="other">另一組目前實際用的組合。錄製時兩組都拆掉了，但這個字串要到重新註冊才會變。</param>
+    private DockPanel HotkeyRow(string name, Func<string> actual, Func<string> other, Action<string> store, Func<string> saved, Func<bool> register, Func<bool> registerOther)
     {
         var button = new Button { Style = (Style)FindResource("Pill"), Height = 26, MinWidth = 120, Padding = new Thickness(12, 0, 12, 0), Focusable = true };
         bool recording = false;
         void Show() => button.Content = recording ? L.T("按下新的組合") : actual() is { Length: > 0 } text ? text : "—";
+        _hotkeyShows.Add(Show);
 
-        void Stop()
+        // 錄製時兩組都拆掉了：結束後照設定註冊回去，兩列都更新
+        void Restore()
         {
-            if (!recording) return;
             recording = false;
             _recordingHotkey = false;
-            // 錄製時兩組都拆掉了，結束後照設定註冊回去
-            RegisterToggle();
-            RegisterAsk();
-            Show();
+            RegisterHotkeys();
+            foreach (var show in _hotkeyShows) show();
         }
+
+        void Stop() { if (recording) Restore(); }
 
         void Commit(string value)
         {
-            var before = saved();
-            recording = false;
-            _recordingHotkey = false;
-            store(value);
-            bool ok = register();
-            if (!ok)
+            if (!recording) return;
+            // 跟另一組一樣：先註冊的會拿走它，另一組就悄悄失效了
+            if (value.Length > 0 && value == other())
             {
-                // 被別的程式佔用：恢復原本的
-                store(before);
-                Toast(L.T("這組快速鍵被別的程式佔用"), 4, false);
+                Restore();
+                Toast(L.T("這組快速鍵已經給另一個功能用了"), 4, false);
+                return;
             }
-            // 另一組也要照設定註冊回去
-            RegisterToggle();
-            RegisterAsk();
+            var before = saved();
+            store(value);
+            // 另一組先註冊回去，再註冊這一組：這樣被佔用（不管是別的程式還是另一組的預設）一定看得出來
+            UnregisterHotKey(_hwnd, HotkeyToggle);
+            UnregisterHotKey(_hwnd, HotkeyAsk);
+            registerOther();
+            bool taken = !register();
+            if (taken) store(before);
             AppSettings.Current.Save();
-            Show();
+            Restore();
+            if (taken) Toast(L.T("這組快速鍵被別的程式佔用"), 4, false);
         }
 
         button.Click += (_, _) =>
@@ -70,6 +79,8 @@ public partial class IslandWindow
             Activate();
             button.Focus();
             Keyboard.Focus(button);
+            // 沒拿到焦點（Windows 不讓視窗搶到前景）：收不到按鍵，也不會有失焦事件來收尾，直接結束，不然兩組快速鍵會一直拆著
+            if (!button.IsKeyboardFocused) { Restore(); return; }
             Show();
         };
         button.LostKeyboardFocus += (_, _) => Stop();

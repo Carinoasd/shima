@@ -65,13 +65,12 @@ public sealed class AudioMeter : IDisposable
 
     /// <summary>
     /// 迴路擷取綁在開始時的那個裝置，預設裝置換了它不會自己跟過去（舊裝置還在的話根本不會停），
-    /// 所以由島定期問：預設的不是當初擷取的那個就重開。沒在擷取時什麼都不做。
+    /// 所以由島定期告訴它現在預設的是哪一個：不是當初擷取的那個就重開。沒在擷取時什麼都不做。
     /// </summary>
-    public void FollowDefault()
+    /// <param name="defaultId">現在預設的播放裝置（SystemWatch 本來就在盯，不用這裡每秒再開一次列舉器去問）；空字串表示不知道。</param>
+    public void FollowDefault(string defaultId)
     {
-        if (_capture == null) return;
-        var now = DefaultId();
-        if (now.Length == 0 || now == _deviceId) return;
+        if (_capture == null || defaultId.Length == 0 || defaultId == _deviceId) return;
         Stop();
         Start();
     }

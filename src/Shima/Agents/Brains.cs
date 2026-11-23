@@ -411,7 +411,16 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             JsonObject? message;
             // 有的服務不理 stream: true，直接回一般的 JSON：照不串流的方式讀
             if (!streaming || response.Content.Headers.ContentType?.MediaType == "application/json")
-                message = JsonNode.Parse(await response.Content.ReadAsStringAsync(stop))?["choices"]?[0]?["message"] as JsonObject;
+            {
+                var plain = JsonNode.Parse(await response.Content.ReadAsStringAsync(stop));
+                // 有的代理出錯時照樣回 200，錯誤放在內文裡：當成錯誤處理，不要回一句「嗯。」帶過
+                if ((plain as JsonObject)?["error"] is { } refused)
+                {
+                    var kind = (refused as JsonObject)?["code"] is JsonValue given && given.TryGetValue(out int http) && http is >= 400 and < 600 ? (HttpStatusCode)http : HttpStatusCode.InternalServerError;
+                    throw new ApiError(kind, refused.ToJsonString());
+                }
+                message = plain?["choices"]?[0]?["message"] as JsonObject;
+            }
             else
             {
                 var chat = await Read(response, progress!, stop);

@@ -31,6 +31,18 @@ public sealed class SystemWatch : IDisposable
     /// <summary>要顯示在島上的一行字。</summary>
     public event Action<string>? Changed;
 
+    /// <summary>目前預設播放裝置的 Id（Poll 時更新）；還沒查到是空字串。</summary>
+    public string OutputId => _outputId;
+    /// <summary>啟用中的播放裝置有幾個（Poll 時更新）；還沒啟動是 -1。</summary>
+    public int Outputs { get; private set; } = -1;
+
+    /// <summary>只數個數，不讀每個裝置的名稱（那要逐一開屬性庫）。</summary>
+    private void CountOutputs()
+    {
+        try { if (_devices != null) Outputs = _devices.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).Count; }
+        catch { /* 列不出來就維持上一次的數字 */ }
+    }
+
     public void Start()
     {
         if (_started) return;
@@ -39,6 +51,7 @@ public sealed class SystemWatch : IDisposable
         {
             _devices = new MMDeviceEnumerator();
             Bind();
+            CountOutputs();
         }
         catch (Exception e) { Log.Write("system (audio): " + e.Message); }
 
@@ -92,6 +105,7 @@ public sealed class SystemWatch : IDisposable
             }
         }
         catch { /* 沒有任何播放裝置 */ }
+        CountOutputs();
 
         AskBrightness();
     }

@@ -20,11 +20,28 @@ public class QuickAlarmTests
     [InlineData("下午 3點半 吃藥", 15, 30, "吃藥")]
     [InlineData("3pm call mom", 15, 0, "call mom")]
     [InlineData("7點半開會", 7, 30, "開會")]
+    // am、pm 後面還有字母就不是上下午：不能把內容的開頭吃掉
+    [InlineData("7點 amazon 到貨", 7, 0, "amazon 到貨")]
+    [InlineData("15:30 amp", 15, 30, "amp")]
+    [InlineData("8:00 pmc", 8, 0, "pmc")]
     public void 時刻加內容(string line, int hour, int minute, string text)
     {
         var result = Alarms.ParseLine(line, Now);
         Assert.NotNull(result);
         Assert.Equal((hour, minute), (result.Value.At.Hour, result.Value.At.Minute));
+        Assert.Equal(text, result.Value.Text);
+    }
+
+    [Theory]
+    [InlineData("20分鐘後 喝水", 20, "喝水")]
+    [InlineData("20 分鐘后喝水", 20, "喝水")]
+    [InlineData("1小時後 休息", 60, "休息")]
+    [InlineData("30分 後天的報告", 30, "後天的報告")]
+    public void 幾分鐘後的後不算內容(string line, int minutes, string text)
+    {
+        var result = Alarms.ParseLine(line, Now);
+        Assert.NotNull(result);
+        Assert.Equal(Now.AddMinutes(minutes), result.Value.At);
         Assert.Equal(text, result.Value.Text);
     }
 

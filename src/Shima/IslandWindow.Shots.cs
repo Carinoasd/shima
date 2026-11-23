@@ -54,7 +54,9 @@ public partial class IslandWindow
                 _settingsSection = section;
                 RefreshSettings();
                 // 截圖不帶個人的資料：Roon 位址、ListenBrainz token、Discord ID。只改畫面上的字，沒有存檔
-                foreach (var box in TextBoxesIn(_settingsPages[SettingsSection.Music])) box.Text = "";
+                foreach (var box in InputsIn<System.Windows.Controls.TextBox>(_settingsPages[SettingsSection.Music])) box.Text = "";
+                // 密碼框也清：圓點的數量看得出 secret 有多長
+                foreach (var box in InputsIn<System.Windows.Controls.PasswordBox>(_settingsPages[SettingsSection.Music])) box.Password = "";
                 SettingsScroll.ScrollToVerticalOffset(0);
                 Snap();
                 UpdateTexts();
@@ -89,12 +91,12 @@ public partial class IslandWindow
         Close();
     }
 
-    private static IEnumerable<System.Windows.Controls.TextBox> TextBoxesIn(DependencyObject root)
+    private static IEnumerable<T> InputsIn<T>(DependencyObject root) where T : DependencyObject
     {
         foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
         {
-            if (child is System.Windows.Controls.TextBox box) yield return box;
-            foreach (var inner in TextBoxesIn(child)) yield return inner;
+            if (child is T box) yield return box;
+            foreach (var inner in InputsIn<T>(child)) yield return inner;
         }
     }
 

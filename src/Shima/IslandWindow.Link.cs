@@ -44,7 +44,7 @@ public partial class IslandWindow
     {
         _listening.Listened += listen => { foreach (var s in Scrobbling()) _ = s.Submit(listen); };
         _listening.Started += track => { foreach (var s in Scrobbling()) _ = s.NowPlaying(track); };
-        Closed += (_, _) => { _listening.Flush(); _scrobbler?.Dispose(); _lastFm?.Dispose(); };
+        Closed += (_, _) => { _lastFmConnecting?.Cancel(); _listening.Flush(); _scrobbler?.Dispose(); _lastFm?.Dispose(); };
     }
 
     /// <summary>現在要回報的目的地：ListenBrainz 有填 token、Last.fm 有連接的才算；設定改了就換成新的。</summary>
@@ -62,11 +62,16 @@ public partial class IslandWindow
             if (_lastFm == null)
             {
                 _lastFm = new LastFm();
-                _lastFm.SessionRejected += () => Dispatcher.BeginInvoke(() => { s.SetLastFmSession("", ""); Toast(L.T("Last.fm 授權失效，請重新連接"), 6, false); });
+                _lastFm.SessionRejected += rejected => Dispatcher.BeginInvoke(() =>
+                {
+                    // 被拒的是舊的那一把、使用者已經重新連接了：不要把新的清掉
+                    if (s.LastFmSessionText() != rejected) return;
+                    s.SetLastFmSession("", "");
+                    RefreshLastFmButton();
+                    Toast(L.T("Last.fm 授權失效，請重新連接"), 6, false);
+                });
             }
-            _lastFm.ApiKey = s.LastFmApiKey;
-            _lastFm.Secret = s.LastFmSecretText();
-            _lastFm.Session = s.LastFmSessionText();
+            _lastFm.Use(s.LastFmApiKey, s.LastFmSecretText(), s.LastFmSessionText());
             if (_lastFm.Enabled) sinks.Add(_lastFm);
         }
         return sinks;

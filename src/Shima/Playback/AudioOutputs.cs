@@ -36,6 +36,13 @@ public static class AudioOutputs
         catch (Exception e) { Log.Write("audio outputs: " + e.Message); return []; }
     }
 
+    /// <summary>啟用中的播放裝置有幾個。只數個數，不讀名稱。</summary>
+    public static int Count()
+    {
+        try { using var enumerator = new MMDeviceEnumerator(); return enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).Count; }
+        catch { return 0; }
+    }
+
     /// <summary>名稱去頭尾空白、連續空白併成一個；空的名稱給個占位，免得選單出現空白一列。</summary>
     public static string Tidy(string? name)
     {
@@ -48,7 +55,7 @@ public static class AudioOutputs
         outputs.GroupBy(o => o.Id).Select(g => g.First())
                .OrderBy(o => o.Name, StringComparer.CurrentCultureIgnoreCase).ThenBy(o => o.Id, StringComparer.Ordinal).ToList();
 
-    /// <summary>目前預設之後的下一個裝置（排好序的清單、到尾巴就繞回頭）；少於兩個、或找不到目前的就是 null。</summary>
+    /// <summary>目前預設之後的下一個裝置（排好序的清單、到尾巴就繞回頭）；少於兩個是 null，找不到目前的就從第一個開始。</summary>
     public static AudioOutput? Next(IReadOnlyList<AudioOutput> ordered, string currentId)
     {
         if (ordered.Count < 2) return null;

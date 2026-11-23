@@ -69,7 +69,10 @@ public partial class IslandWindow
                 if (!File.Exists(path) && !Directory.Exists(path)) return;
                 var data = new DataObject(DataFormats.FileDrop, new[] { path });
                 if (kind == ShelfKind.Text && Shelf.ReadText(path) is { } text) data.SetText(text);
-                DragDrop.DoDragDrop(chip, data, DragDropEffects.Copy | DragDropEffects.Link | DragDropEffects.Move);
+                // 自己的複本只給複製：拖到同一顆磁碟時檔案總管預設是「移動」，會把 shelf 資料夾裡的檔案搬走
+                DragDrop.DoDragDrop(chip, data, kind == ShelfKind.File ? DragDropEffects.Copy | DragDropEffects.Link | DragDropEffects.Move : DragDropEffects.Copy);
+                // 使用者自己的檔案被搬走了：架上那一顆已經點不開也拖不動，拿掉
+                if (!File.Exists(path) && !Directory.Exists(path)) RemoveFromShelf(path);
             };
             ShelfBox.Children.Add(chip);
         }
@@ -116,7 +119,7 @@ public partial class IslandWindow
     // ---------------------------------------------------------------- 暫存架：檔案、文字、圖片
 
     private static bool Shelfable(IDataObject data) =>
-        data.GetDataPresent(DataFormats.FileDrop) || data.GetDataPresent(DataFormats.Bitmap) || data.GetDataPresent(DataFormats.UnicodeText);
+        data.GetDataPresent(DataFormats.FileDrop) || data.GetDataPresent("PNG") || data.GetDataPresent(DataFormats.Bitmap) || data.GetDataPresent(DataFormats.UnicodeText);
 
     /// <summary>把拖進來或剪貼簿裡的東西放上暫存架：檔案優先，其次圖片，最後文字。</summary>
     private void AddToShelf(IDataObject data)
@@ -157,7 +160,11 @@ public partial class IslandWindow
         try
         {
             if (data.GetData("PNG") is MemoryStream png)
-                return BitmapFrame.Create(png, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                using (png)
+                {
+                    png.Position = 0;
+                    return BitmapFrame.Create(png, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);   // OnLoad：整張讀進來，之後不需要這個串流
+                }
             if (data.GetData(DataFormats.Bitmap) is BitmapSource bitmap)
             {
                 var flat = new FormatConvertedBitmap(bitmap, PixelFormats.Bgr32, null, 0);

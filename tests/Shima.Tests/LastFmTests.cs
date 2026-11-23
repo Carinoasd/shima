@@ -330,7 +330,7 @@ public class LastFmTests
         var fake = Always(Fail(9), HttpStatusCode.Forbidden);
         using var lastfm = Make(fake);
         int rejected = 0;
-        lastfm.SessionRejected += () => rejected++;
+        lastfm.SessionRejected += _ => rejected++;
         Assert.False(await lastfm.Submit(Done()));
         Assert.Single(fake.Sent);
         Assert.Equal(1, rejected);
@@ -338,6 +338,44 @@ public class LastFmTests
         Assert.False(lastfm.Enabled);
         Assert.False(await lastfm.Submit(Done()));   // 之後不再送
         Assert.Single(fake.Sent);
+    }
+
+    /// <summary>請求送到一半時讓測試插手（改憑證），再回固定的內容。</summary>
+    private sealed class Hooked(string body, Action onSend) : HttpMessageHandler
+    {
+        public int Sent { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Sent++;
+            onSend();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    [Fact]
+    public async Task 舊的_session_被拒時_已經換上的新_session_不會被清掉()
+    {
+        LastFm? lastfm = null;
+        // 請求（帶著 OLD）送出去之後，使用者重新連接、換成 NEW，然後舊請求的「9」才回來
+        var handler = new Hooked(Fail(9), () => lastfm!.Use("KEY", "SECRET", "NEW"));
+        using var made = lastfm = new LastFm(handler, _ => { }, TimeSpan.Zero, TimeSpan.Zero) { ApiKey = "KEY", Secret = "SECRET", Session = "OLD" };
+        var rejected = new List<string>();
+        lastfm.SessionRejected += rejected.Add;
+        Assert.False(await lastfm.Submit(Done()));
+        Assert.Equal(["OLD"], rejected);   // 外面拿這個比對，知道被拒的不是現在這一把
+        Assert.Equal("NEW", lastfm.Session);
+        Assert.True(lastfm.Enabled);
+    }
+
+    [Fact]
+    public async Task 等著重試的時候中斷了_不會再送()
+    {
+        LastFm? lastfm = null;
+        var handler = new Hooked(Fail(11), () => lastfm!.Use("", "", ""));   // 第一次失敗（該重試），同時使用者按了中斷
+        using var made = lastfm = new LastFm(handler, _ => { }, TimeSpan.Zero, TimeSpan.Zero) { ApiKey = "KEY", Secret = "SECRET", Session = "SK" };
+        Assert.False(await lastfm.Submit(Done()));
+        Assert.Equal(1, handler.Sent);
     }
 
     [Fact]
