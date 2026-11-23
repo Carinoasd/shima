@@ -40,6 +40,7 @@ public static class Demo
         s.RoonHost = "";
         s.CheckUpdates = false;
         s.Welcomed = true;
+        s.SetApiKey("claude", "demo");   // 當成已經設定好：AI 分頁顯示的是平常的樣子，不是第一次設定的樣子
         s.Todos =
         [
             new TodoItem { Text = "把新歌加進歌單", Done = true },

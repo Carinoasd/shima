@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Windows;
+using System.Windows.Media;
 using Shima.Agents;
 
 namespace Shima;
@@ -140,8 +141,14 @@ public partial class IslandWindow
         ServiceButton.Content = (service.Id == AiService.Custom ? L.T("自訂") : service.Name) + "  \u25BE";
         var model = service.ModelFor(s);
         ModelButton.Content = (model.Length > 0 ? model : L.T("選擇模型")) + "  \u25BE";
-        UrlBox.Visibility = service.Id == AiService.Custom ? Visibility.Visible : Visibility.Collapsed;
-        KeyRow.Visibility = service.NeedsKey ? Visibility.Visible : Visibility.Collapsed;
+        // 金鑰與自訂網址設定好之後就收起來（那一長串圓點平常用不到），按鑰匙才打開；還沒設定好、或正在打字時一定開著
+        bool custom = service.Id == AiService.Custom;
+        bool unset = service.NeedsKey && s.ApiKey(service.Id).Length == 0 || custom && s.AiCustomUrl.Length == 0;
+        bool open = _showKey || unset || ApiKeyBox.IsKeyboardFocusWithin || UrlBox.IsKeyboardFocusWithin;
+        UrlBox.Visibility = custom && open ? Visibility.Visible : Visibility.Collapsed;
+        KeyRow.Visibility = service.NeedsKey && open ? Visibility.Visible : Visibility.Collapsed;
+        KeyToggle.Visibility = service.NeedsKey || custom ? Visibility.Visible : Visibility.Collapsed;
+        KeyToggle.Foreground = open ? Brushes.White : KeyDim;
         _loadingKey = true;
         if (!UrlBox.IsKeyboardFocusWithin) UrlBox.Text = s.AiCustomUrl;
         if (!ApiKeyBox.IsKeyboardFocusWithin) ApiKeyBox.Password = s.HasKey(service.Id) ? s.ApiKey(service.Id) : "";
@@ -245,6 +252,15 @@ public partial class IslandWindow
 
     // ---------------------------------------------------------------- 語音助手
 
+    private bool _showKey;
+    private static readonly Brush KeyDim = Frozen(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF));
+
+    private void KeyToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _showKey = !_showKey;
+        RefreshAi();
+    }
+
     private void ApiKey_Changed(object sender, RoutedEventArgs e)
     {
         if (_loadingKey) return;
@@ -318,6 +334,8 @@ public partial class IslandWindow
     {
         VoiceText.Text = text;
         VoiceText.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // 有回答的時候把「可以問什麼」的範例收起來：這時分頁最高，範例也用不到
+        ExamplesBox.Visibility = text.Length > 0 ? Visibility.Collapsed : Visibility.Visible;
         if (_tab == Tab.Ai && _expanded) Morph();
         _voiceHeight = VoiceText.DesiredSize.Height;
     }
@@ -333,6 +351,7 @@ public partial class IslandWindow
     {
         VoiceText.Text = text;
         VoiceText.Visibility = Visibility.Visible;
+        ExamplesBox.Visibility = Visibility.Collapsed;
         if (_tab != Tab.Ai || !_expanded) return;
         VoiceText.Measure(new Size(AiPage.ActualWidth, double.PositiveInfinity));
         if (Math.Abs(VoiceText.DesiredSize.Height - _voiceHeight) < 0.5) return;
