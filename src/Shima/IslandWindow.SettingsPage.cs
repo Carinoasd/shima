@@ -129,6 +129,8 @@ public partial class IslandWindow
         DeckSwitch = SettingsSwitch("Stream Dock", Agents.StreamDock.Installed, Deck_Click);
         if (Agents.StreamDock.Available) rows.Add(DeckSwitch);
 
+        foreach (var row in HotkeySettingsRows()) rows.Add(row);
+
         // —— 其他功能的設定列接在這裡（一般）——
     }
 
@@ -195,6 +197,7 @@ public partial class IslandWindow
         rows.Add(Toggle("Roon 搜尋", s.RoonSearch, v => { s.RoonSearch = v; Toast(L.T("重新啟動 Shima，再到 Roon「設定 → 擴充功能」啟用一次"), 10, false); }));
         rows.Add(Toggle("記下聽了什麼", s.History, v => s.History = v));
         rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => s.ListenBrainzToken = v));
+        foreach (var row in LastFmSettingsRows()) rows.Add(row);
 
         rows.Add(Heading("Discord Application ID"));
         rows.Add(DiscordBox = SettingsBox(s.DiscordClientId, double.NaN, 30));
