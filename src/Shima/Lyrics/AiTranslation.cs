@@ -72,7 +72,9 @@ public static partial class AiTranslation
         {
             var m = Numbered().Match(line);
             var digits = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
-            if (!m.Success || !int.TryParse(digits, out int n) || n < 1 || n > count) continue;
+            if (!m.Success || !int.TryParse(digits, out int n) || n < 1) continue;
+            // 編號超過句數：AI 把某一句拆成兩行了，後面的全部錯開一句，不能用
+            if (n > count) return null;
             if (numbered[n - 1] != null) return null;   // 同一個編號兩次：分不出哪一個才是翻譯
             numbered[n - 1] = Unquote(m.Groups[3].Value);
             any = true;

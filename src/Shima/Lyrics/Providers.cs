@@ -94,7 +94,8 @@ public sealed partial class LocalProvider : ILyricsProvider
     }
 
     /// <summary>
-    /// 寫進 folder：已經有同名的檔案就先備份成 .bak（只留一份）再覆寫。檔名帶路徑、會跑出資料夾的一律不寫。回傳寫好的完整路徑。
+    /// 寫進 folder：已經有同名的檔案、而且還沒有 .bak 時先備份再覆寫。.bak 只寫一次：
+    /// 留住的是最原本的那一份（可能是使用者自己放的），第二次存檔不會拿自己上一次寫的把它蓋掉。檔名帶路徑、會跑出資料夾的一律不寫。回傳寫好的完整路徑。
     /// </summary>
     public static string Save(string folder, string fileName, string lrc)
     {
@@ -103,7 +104,7 @@ public sealed partial class LocalProvider : ILyricsProvider
         if (Path.GetFileName(fileName) != fileName || !string.Equals(Path.GetDirectoryName(path), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("檔名不合法: " + fileName);
         Directory.CreateDirectory(root);
-        if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
+        if (File.Exists(path) && !File.Exists(path + ".bak")) File.Copy(path, path + ".bak");
         // 先寫暫存檔再換上去：寫到一半當掉也不會留下半個檔案；加 BOM，其他播放器才認得是 UTF-8
         File.WriteAllText(path + ".tmp", lrc, new System.Text.UTF8Encoding(true));
         File.Move(path + ".tmp", path, overwrite: true);

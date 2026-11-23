@@ -44,7 +44,17 @@ public partial class IslandWindow
         RefreshTools();
     }
 
+    /// <summary>正在重建工具分頁：這時輸入框失焦是被移走的，不是使用者離開。</summary>
+    private bool _rebuildingTools;
+
     private void RefreshTools()
+    {
+        _rebuildingTools = true;
+        try { RebuildTools(); }
+        finally { _rebuildingTools = false; }
+    }
+
+    private void RebuildTools()
     {
         // 暫存架：檔案放的是位置；文字與圖片是 shelf 資料夾裡的複本
         ShelfBox.Children.Clear();
@@ -194,7 +204,16 @@ public partial class IslandWindow
             if (e.Key == Key.Enter) { e.Handled = true; Finish(true); }
             else if (e.Key == Key.Escape) { e.Handled = true; Finish(false); }
         };
-        box.LostKeyboardFocus += (_, _) => Finish(true);
+        box.LostKeyboardFocus += (_, _) =>
+        {
+            // 清單被重建（點了別列的勾、語音助手改了待辦）把輸入框移走：當成取消，不要把打到一半的字存下來
+            if (_rebuildingTools || PresentationSource.FromVisual(box) == null) { finished = true; return; }
+            // 失焦時是空的不算刪除（可能只是全選刪掉準備重打）：要刪請按 Enter
+            Finish(box.Text.Trim().Length > 0);
+        };
+        // 在輸入框裡按右鍵不要冒泡到那一列的「右鍵刪除」；內建的英文選單也不要
+        box.ContextMenu = null;
+        box.MouseRightButtonUp += (_, e) => e.Handled = true;
         box.Dispatcher.BeginInvoke(() => { box.Focus(); Keyboard.Focus(box); box.SelectAll(); }, System.Windows.Threading.DispatcherPriority.Input);
     }
 

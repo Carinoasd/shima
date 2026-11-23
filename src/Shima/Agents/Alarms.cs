@@ -180,7 +180,7 @@ public sealed class Alarms : IDisposable
 
     // 「每天」「平日」「每週五」「every day」「weekdays」「every friday」開頭
     private static readonly Regex RepeatPrefix = new(
-        @"^(?:(?<d>每天|每日|天天|every\s*day|daily)|(?<w>平日|工作日|週間|周间|週一到週五|weekdays?)|(?:每(?:週|周|星期|禮拜|礼拜)|every\s*)(?<n>[一二三四五六日天]|sun|mon|tue|wed|thu|fri|sat)(?:day)?(?![a-z]))\s*",
+        @"^(?:(?<d>每天|每日|天天|every\s*day|daily)|(?<w>平日|工作日|週間|周间|每?(?:週|周|星期)一(?:到|至)(?:週|周|星期)?五|(?:every\s*)?weekdays?)|(?:每(?:週|周|星期|禮拜|礼拜)|every\s*)(?<n>[一二三四五六日天]|sun|mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?)(?:day)?(?![a-z]))\s*",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static string? RepeatOf(Match m)
@@ -190,7 +190,9 @@ public sealed class Alarms : IDisposable
         var n = m.Groups["n"].Value.ToLowerInvariant();
         var index = "日一二三四五六".IndexOf(n, StringComparison.Ordinal);
         if (n == "天") index = 0;
-        return index >= 0 ? Days[index] : Days.Contains(n) ? n : null;
+        if (index >= 0) return Days[index];
+        // tues、wednes、thurs、satur：只看前三個字母
+        return n.Length >= 3 && Days.Contains(n[..3]) ? n[..3] : null;
     }
 
     // ---------------------------------------------------------------- 解析時間

@@ -257,4 +257,12 @@ public class BrainCompleteTests
         Assert.Equal("你好", await brain.ThinkAsync("嗨", CancellationToken.None));
         Assert.Single((JsonArray)script.Sent[1]["messages"]!);
     }
+
+    [Fact]
+    public void 編號超過句數_某一句被拆成兩行_不採用()
+    {
+        // 三句歌詞，AI 把第二句拆成兩行、編到 4：1…3 都在，但第三句其實對到的是第二句的後半
+        Assert.Null(AiTranslation.Parse("1. 甲\n2. 乙的前半\n3. 乙的後半\n4. 丙", 3));
+        Assert.NotNull(AiTranslation.Parse("1. 甲\n2. 乙\n3. 丙", 3));
+    }
 }

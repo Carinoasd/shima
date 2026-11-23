@@ -254,3 +254,26 @@ public class PomodoroCountTests
     [InlineData(12, "● 12")]
     public void 小圓點(int count, string expected) => Assert.Equal(expected, Pomodoro.Dots(count));
 }
+
+public class RepeatWordsTests
+{
+    private static readonly DateTime Now = new(2026, 11, 23, 14, 0, 0);   // 星期一
+
+    [Theory]
+    [InlineData("every tuesday 9:00 a", "tue")]
+    [InlineData("every wednesday 9:00 a", "wed")]
+    [InlineData("every thursday 9:00 a", "thu")]
+    [InlineData("every saturday 9:00 a", "sat")]
+    [InlineData("every sunday 9:00 a", "sun")]
+    [InlineData("every tue 9:00 a", "tue")]
+    [InlineData("every weekday 9:00 a", "weekdays")]
+    [InlineData("每週一到週五 9:00 站會", "weekdays")]
+    [InlineData("週一到週五 9:00 站會", "weekdays")]
+    [InlineData("每週一 9:00 週會", "mon")]
+    public void 英文的星期全名與週一到週五(string line, string repeat)
+    {
+        var parsed = Shima.Agents.Alarms.ParseLine(line, Now);
+        Assert.NotNull(parsed);
+        Assert.Equal(repeat, parsed.Value.Repeat);
+    }
+}

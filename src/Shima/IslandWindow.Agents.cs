@@ -146,7 +146,8 @@ public partial class IslandWindow
         ModelButton.Content = (model.Length > 0 ? model : L.T("選擇模型")) + "  \u25BE";
         // 金鑰與自訂網址設定好之後就收起來（那一長串圓點平常用不到），按鑰匙才打開；還沒設定好、或正在打字時一定開著
         bool custom = service.Id == AiService.Custom;
-        bool unset = service.NeedsKey && s.ApiKey(service.Id).Length == 0 || custom && s.AiCustomUrl.Length == 0;
+        // 自訂的服務（例如本機的）不一定要金鑰：有填網址就算設定好了
+        bool unset = custom ? s.AiCustomUrl.Length == 0 : service.NeedsKey && s.ApiKey(service.Id).Length == 0;
         bool open = _showKey || unset || ApiKeyBox.IsKeyboardFocusWithin || UrlBox.IsKeyboardFocusWithin;
         UrlBox.Visibility = custom && open ? Visibility.Visible : Visibility.Collapsed;
         KeyRow.Visibility = service.NeedsKey && open ? Visibility.Visible : Visibility.Collapsed;

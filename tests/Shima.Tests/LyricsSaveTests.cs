@@ -167,7 +167,7 @@ public class LyricsSaveTests
     }
 
     [Fact]
-    public void 已經有同名檔案_先備份成_bak_只留一份()
+    public void 已經有同名檔案_備份最原本的那一份_之後不再蓋掉()
     {
         var folder = Path.Combine(Path.GetTempPath(), "shima-save-" + Guid.NewGuid().ToString("N"));
         try
@@ -176,7 +176,8 @@ public class LyricsSaveTests
             LocalProvider.Save(folder, "a.lrc", "2");
             LocalProvider.Save(folder, "a.lrc", "3");
             Assert.Equal("3", File.ReadAllText(path));
-            Assert.Equal("2", File.ReadAllText(path + ".bak"));
+            // 「1」可能是使用者自己放的檔案：第二次存檔不可以拿「2」把它的備份蓋掉
+            Assert.Equal("1", File.ReadAllText(path + ".bak"));
             Assert.Equal(["a.lrc", "a.lrc.bak"], Directory.GetFiles(folder).Select(Path.GetFileName).Order());
         }
         finally { Directory.Delete(folder, true); }
@@ -192,5 +193,28 @@ public class LyricsSaveTests
         var folder = Path.Combine(Path.GetTempPath(), "shima-save-" + Guid.NewGuid().ToString("N"));
         try { Assert.Throws<ArgumentException>(() => LocalProvider.Save(folder, name, "x")); }
         finally { if (Directory.Exists(folder)) Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public void 別人的檔案_合唱與多行名單不當成雙語()
+    {
+        // 對唱：一半的時間點有兩位歌手各一行。以前過半就當成雙語，第二行會從歌詞裡消失
+        var duet = "[00:01.00]A1\n[00:01.00]B1\n[00:05.00]A2\n[00:09.00]A3\n[00:09.00]B3\n[00:13.00]A4\n";
+        var sheet = Lrc.ParseSheet(duet);
+        Assert.Null(sheet.Translation);
+        Assert.Equal(6, sheet.Lines.Count);
+
+        // 開頭同一個時間好幾行的製作名單：超過三行，整份照原本的讀法
+        var credits = "[00:00.00]作詞\n[00:00.00]作曲\n[00:00.00]編曲\n[00:00.00]演唱\n[00:05.00]歌詞一\n[00:05.00]翻譯一\n[00:09.00]歌詞二\n[00:09.00]翻譯二\n";
+        Assert.Null(Lrc.ParseSheet(credits).Translation);
+    }
+
+    [Fact]
+    public void 別人的檔案_每一句都成對才當成雙語()
+    {
+        var lrc = "[00:01.00]歌詞一\n[00:01.00]翻譯一\n[00:05.00]歌詞二\n[00:05.00]翻譯二\n[00:09.00]歌詞三\n[00:09.00]翻譯三\n[00:13.00]\n";
+        var sheet = Lrc.ParseSheet(lrc);
+        Assert.NotNull(sheet.Translation);
+        Assert.Equal("翻譯二", sheet.Translation![1]);
     }
 }
