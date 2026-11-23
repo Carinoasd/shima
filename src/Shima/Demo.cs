@@ -58,7 +58,7 @@ public static class Demo
         File.WriteAllText(Path.Combine(folder, "alarms.json"), Alarms.Serialize(
         [
             new Alarm(1, now.Date.AddDays(now.Hour >= 15 ? 1 : 0).AddHours(15).AddMinutes(30), "跟設計開會"),
-            new Alarm(2, now.AddMinutes(20), "喝水"),
+            new Alarm(2, Alarms.NextAfter(now.Date.AddHours(9).AddMinutes(30), "weekdays", now), "站會", "weekdays"),
         ]));
         var favorites = new LyricFavorites();
         favorites.Add("ひかりは水面でほどけていく", "光在水面上慢慢散開", Title, Artist, Album, TimeSpan.FromSeconds(52), now.AddDays(-2));

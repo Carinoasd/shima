@@ -33,6 +33,16 @@ zh-TW	zh-CN	en	ja	ko	es	fr	de	pt	it	ru
 無法取得 Shima 的連線金鑰，沒有更動 {0} 的設定	无法获取 Shima 的连接密钥，没有改动 {0} 的设置	Couldn't get Shima's connection key, so {0}'s settings were left untouched	Shima の接続キーを取得できなかったため、{0} の設定は変更していません	Shima 연결 키를 가져오지 못해 {0} 설정을 변경하지 않았습니다	No se pudo obtener la clave de conexión de Shima; no se cambió la configuración de {0}	Impossible d'obtenir la clé de connexion de Shima ; les réglages de {0} n'ont pas été modifiés	Der Verbindungsschlüssel von Shima konnte nicht gelesen werden; die Einstellungen von {0} wurden nicht geändert	Não foi possível obter a chave de ligação do Shima; as definições do {0} não foram alteradas	Impossibile ottenere la chiave di connessione di Shima; le impostazioni di {0} non sono state modificate	Не удалось получить ключ подключения Shima, настройки {0} не изменены
 開始／暫停	开始／暂停	Start / pause	開始／一時停止	시작／일시정지	Iniciar / pausar	Démarrer / pause	Start / Pause	Iniciar / pausar	Avvia / pausa	Старт / пауза
 重來	重来	Restart	やり直す	다시 시작	Reiniciar	Recommencer	Neu starten	Recomeçar	Ricomincia	Заново
+每天	每天	Daily	毎日	매일	Cada día	Chaque jour	Täglich	Todos os dias	Ogni giorno	Каждый день
+平日	工作日	Weekdays	平日	평일	Entre semana	Jours ouvrés	Werktags	Dias úteis	Feriali	По будням
+週日	周日	Sun	日曜	일	Dom	Dim	So	Dom	Dom	Вс
+週一	周一	Mon	月曜	월	Lun	Lun	Mo	Seg	Lun	Пн
+週二	周二	Tue	火曜	화	Mar	Mar	Di	Ter	Mar	Вт
+週三	周三	Wed	水曜	수	Mié	Mer	Mi	Qua	Mer	Ср
+週四	周四	Thu	木曜	목	Jue	Jeu	Do	Qui	Gio	Чт
+週五	周五	Fri	金曜	금	Vie	Ven	Fr	Sex	Ven	Пт
+週六	周六	Sat	土曜	토	Sáb	Sam	Sa	Sáb	Sab	Сб
+清掉做完的	清除已完成的	Clear completed	完了したものを消去	완료된 항목 지우기	Borrar completadas	Effacer les terminées	Erledigte entfernen	Limpar concluídas	Cancella completate	Убрать выполненные
 把檔案拖到島上暫放	把文件拖到岛上暂存	Drop files on the island to keep them here	ファイルを島にドロップして一時保管	파일을 섬에 끌어다 놓아 보관	Suelta archivos en la isla para guardarlos aquí	Déposez des fichiers sur l'île pour les garder ici	Dateien auf die Insel ziehen, um sie abzulegen	Largue ficheiros na ilha para os guardar aqui	Trascina i file sull'isola per tenerli qui	Перетащите файлы на остров, чтобы отложить их
 新增待辦，按 Enter	新增待办，按 Enter	Add a to-do, then press Enter	やることを追加して Enter	할 일을 입력하고 Enter	Añade una tarea y pulsa Intro	Ajoutez une tâche, puis Entrée	Aufgabe hinzufügen, dann Enter	Adicione uma tarefa e prima Enter	Aggiungi un'attività e premi Invio	Добавьте задачу и нажмите Enter
 把檔案、文字或圖片拖到島上暫放	把文件、文字或图片拖到岛上暂存	Drop files, text or images on the island to keep them here	ファイル・テキスト・画像を島にドロップして一時保管	파일, 텍스트, 이미지를 섬에 끌어다 놓아 보관	Suelta archivos, texto o imágenes en la isla para guardarlos aquí	Déposez fichiers, texte ou images sur l'île pour les garder ici	Dateien, Text oder Bilder auf die Insel ziehen, um sie abzulegen	Largue ficheiros, texto ou imagens na ilha para os guardar aqui	Trascina file, testo o immagini sull'isola per tenerli qui	Перетащите файлы, текст или изображения на остров, чтобы отложить их
