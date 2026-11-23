@@ -9,8 +9,12 @@ using System.Text.RegularExpressions;
 
 namespace Shima.Agents;
 
-/// <summary>一個提醒：幾點、要說什麼。Id 給人（和 AI）取消時指定用。</summary>
-public sealed record Alarm(int Id, DateTime At, string Text);
+/// <summary>
+/// 一個提醒：幾點、要說什麼。Id 給人（和 AI）取消時指定用。
+/// Repeat 是重複的方式：daily、weekdays（週一到週五）、或某一天（mon、tue…sun，每週）；null 是只響一次。
+/// 舊的存檔沒有這個欄位，讀進來就是 null。
+/// </summary>
+public sealed record Alarm(int Id, DateTime At, string Text, string? Repeat = null);
 
 /// <summary>
 /// 「十分鐘後提醒我關火」「七點半叫我」：到點觸發 <see cref="Due"/>。
@@ -46,12 +50,12 @@ public sealed class Alarms : IDisposable
     /// <summary>排好的提醒，照時間先後。</summary>
     public List<Alarm> List { get { lock (_gate) return _list.OrderBy(a => a.At).ThenBy(a => a.Id).ToList(); } }
 
-    public Alarm Add(DateTime at, string text)
+    public Alarm Add(DateTime at, string text, string? repeat = null)
     {
         Alarm added;
         lock (_gate)
         {
-            var alarm = new Alarm(_list.Count == 0 ? 1 : _list.Max(a => a.Id) + 1, at, text.Trim());
+            var alarm = new Alarm(_list.Count == 0 ? 1 : _list.Max(a => a.Id) + 1, at, text.Trim(), NormalizeRepeat(repeat));
             _list.Add(alarm);
             Save();
             added = alarm;
@@ -86,7 +90,12 @@ public sealed class Alarms : IDisposable
         {
             due = _list.Where(a => a.At <= now).OrderBy(a => a.At).ToList();
             if (due.Count == 0) return due;
-            foreach (var a in due) _list.Remove(a);
+            // 重複的不移除，排到下一次（從現在往後算，關機好幾天也只響這一次）
+            foreach (var a in due)
+            {
+                if (NormalizeRepeat(a.Repeat) is { } repeat) _list[_list.IndexOf(a)] = a with { At = NextAfter(a.At, repeat, now) };
+                else _list.Remove(a);
+            }
             Save();
         }
         foreach (var a in due) Due?.Invoke(a, now - a.At > Late);
@@ -126,6 +135,62 @@ public sealed class Alarms : IDisposable
     {
         try { return (JsonSerializer.Deserialize<List<Alarm>>(json) ?? []).Where(a => a is { Text: not null }).ToList(); }
         catch { return []; }
+    }
+
+    // ---------------------------------------------------------------- 重複
+
+    private static readonly string[] Days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+    /// <summary>認得的重複方式（daily、weekdays、sun…sat）；其他一律是 null（不重複）。</summary>
+    public static string? NormalizeRepeat(string? repeat)
+    {
+        var r = repeat?.Trim().ToLowerInvariant();
+        return r is "daily" or "weekdays" || (r != null && Array.IndexOf(Days, r) >= 0) ? r : null;
+    }
+
+    /// <summary>某一天是週幾要響的重複方式，給畫面用：星期日是 0。</summary>
+    public static int? WeeklyDay(string? repeat) => NormalizeRepeat(repeat) is { } r && Array.IndexOf(Days, r) is >= 0 and var i ? i : null;
+
+    public static bool Matches(string repeat, DayOfWeek day) => repeat switch
+    {
+        "daily" => true,
+        "weekdays" => day is >= DayOfWeek.Monday and <= DayOfWeek.Friday,
+        _ => Days[(int)day] == repeat,
+    };
+
+    /// <summary>
+    /// 下一次什麼時候響：時刻沿用 at 的，日期是「現在之後」第一個符合重複方式的那天。
+    /// 不管 at 落後現在多少，只會排到未來的下一次，所以關機錯過好幾次也只補響一次。
+    /// </summary>
+    public static DateTime NextAfter(DateTime at, string repeat, DateTime now)
+    {
+        var candidate = now.Date + at.TimeOfDay;
+        for (var i = 0; i <= 7; i++, candidate = candidate.AddDays(1))
+            if (candidate > now && Matches(repeat, candidate.DayOfWeek)) return candidate;
+        return at;   // 不認得的重複方式：維持原樣（Check 前已經濾掉，不會走到）
+    }
+
+    /// <summary>給 AI 看的重複寫法：每天、平日、每週五。</summary>
+    public static string RepeatName(string repeat) => repeat switch
+    {
+        "daily" => "每天",
+        "weekdays" => "平日",
+        _ => "每週" + "日一二三四五六"[Math.Max(0, Array.IndexOf(Days, repeat))],
+    };
+
+    // 「每天」「平日」「每週五」「every day」「weekdays」「every friday」開頭
+    private static readonly Regex RepeatPrefix = new(
+        @"^(?:(?<d>每天|每日|天天|every\s*day|daily)|(?<w>平日|工作日|週間|周间|週一到週五|weekdays?)|(?:每(?:週|周|星期|禮拜|礼拜)|every\s*)(?<n>[一二三四五六日天]|sun|mon|tue|wed|thu|fri|sat)(?:day)?(?![a-z]))\s*",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static string? RepeatOf(Match m)
+    {
+        if (m.Groups["d"].Success) return "daily";
+        if (m.Groups["w"].Success) return "weekdays";
+        var n = m.Groups["n"].Value.ToLowerInvariant();
+        var index = "日一二三四五六".IndexOf(n, StringComparison.Ordinal);
+        if (n == "天") index = 0;
+        return index >= 0 ? Days[index] : Days.Contains(n) ? n : null;
     }
 
     // ---------------------------------------------------------------- 解析時間
@@ -191,27 +256,41 @@ public sealed class Alarms : IDisposable
     /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。
     /// 時間的部分交給 <see cref="When"/>（所以今天已過的時刻算明天、超過一星期不收）；看不懂是 null。
     /// </summary>
-    public static (DateTime At, string Text)? ParseLine(string? line, DateTime now)
+    public static (DateTime At, string Text, string? Repeat)? ParseLine(string? line, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(line)) return null;
         var text = line.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+
+        // 重複的：「每天 8:00 吃藥」「平日 9:30 站會」「每週五 18:00 倒垃圾」。只收幾點，不收日期；At 是下一次
+        if (RepeatPrefix.Match(text) is { Success: true } rep && RepeatOf(rep) is { } repeat)
+        {
+            var rest = text[rep.Length..];
+            var clock = ClockPrefix.Match(rest);
+            if (!clock.Success || clock.Value.Length == 0 || Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is not { } time
+                || Regex.IsMatch(clock.Value, @"^(?:後天|明天|今天|tomorrow|today)", RegexOptions.IgnoreCase)) return null;
+            return (NextAfter(now.Date + time, repeat, now), rest[clock.Length..].Trim(), repeat);
+        }
 
         if (Duration.Match(text) is { Success: true } rel
             && double.TryParse(rel.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount))
         {
             var unit = rel.Groups[2].Value.ToLowerInvariant();
             var minutes = unit is "小時" or "小时" || unit.StartsWith('h') ? amount * 60 : amount;
-            return When(null, minutes, now) is { } soon ? (soon, rel.Groups[3].Value.Trim()) : null;
+            return When(null, minutes, now) is { } soon ? (soon, rel.Groups[3].Value.Trim(), null) : null;
         }
 
         var head = (FullDate.Match(text) is { Success: true } full ? full : ClockPrefix.Match(text));
         if (!head.Success) return null;
-        return When(head.Value, null, now) is { } at ? (at, text[head.Length..].Trim()) : null;
+        return When(head.Value, null, now) is { } at ? (at, text[head.Length..].Trim(), null) : null;
     }
 
     /// <summary>畫面上的時間：今天只寫幾點，明天前面加 <paramref name="tomorrow"/>，再遠的寫月／日。</summary>
     public static string Short(DateTime at, DateTime now, string tomorrow) =>
         at.Date == now.Date ? $"{at:HH:mm}" : at.Date == now.Date.AddDays(1) ? $"{tomorrow} {at:HH:mm}" : $"{at:M/d} {at:HH:mm}";
+
+    /// <summary>提醒給 AI 看的完整寫法：單次是「明天 07:30」，重複的是「每天 08:00（下一次 明天 08:00）」。</summary>
+    public static string Describe(Alarm alarm, DateTime now) =>
+        NormalizeRepeat(alarm.Repeat) is { } r ? $"{RepeatName(r)} {alarm.At:HH:mm}（下一次 {Describe(alarm.At, now)}）" : Describe(alarm.At, now);
 
     /// <summary>給 AI 看的時間寫法：今天的只寫幾點，其他加上日期。</summary>
     public static string Describe(DateTime at, DateTime now) =>

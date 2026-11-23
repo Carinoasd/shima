@@ -357,7 +357,10 @@
             <!-- 工具：番茄鐘、暫存架、待辦 -->
             <StackPanel x:Name="ToolsPage" Grid.Row="2" Visibility="Collapsed">
               <Grid Height="44">
-                <TextBlock x:Name="TimerText" FontSize="30" FontWeight="SemiBold" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="6,0,0,0">
+                  <TextBlock x:Name="TimerText" FontSize="30" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="TimerDots" FontSize="12" Foreground="#90FFFFFF" VerticalAlignment="Center" Margin="12,4,0,0"/>
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                   <Button x:Name="TimerButton" Style="{StaticResource Key}" Content="&#xE768;" ToolTip="開始／暫停" Click="Timer_Click"/>
                   <Button Style="{StaticResource Key}" Content="&#xE72C;" ToolTip="重來" Click="TimerReset_Click"/>
@@ -376,7 +379,11 @@
                 </Grid>
               </Border>
               <StackPanel x:Name="AlarmBox" Margin="0,10,0,0" Visibility="Collapsed"/>
-              <StackPanel x:Name="TodoBox" Margin="0,10,0,0"/>
+              <Grid Margin="0,10,0,0">
+                <StackPanel x:Name="TodoBox"/>
+                <Button x:Name="TodoClear" Style="{StaticResource Key}" Width="28" Height="28" FontSize="13" Content="&#xE74D;" ToolTip="清掉做完的"
+                        HorizontalAlignment="Right" VerticalAlignment="Bottom" Visibility="Collapsed" Click="TodoClear_Click"/>
+              </Grid>
               <Grid Margin="0,6,0,0">
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition/>
