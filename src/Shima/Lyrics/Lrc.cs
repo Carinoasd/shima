@@ -61,7 +61,9 @@ public static partial class Lrc
     /// <summary>
     /// 本機 .lrc 轉成一份歌詞：同一個時間有兩三行的是雙語歌詞，第一行是原文，接著是翻譯、羅馬拼音
     /// （Shima 自己存的檔案開頭有 [shima:translation,romaji] 說明順序）。
-    /// 沒有標記的檔案，要有一半以上的句子都成對才當成雙語，免得開頭好幾行 [00:00.00] 的製作名單被誤認成翻譯。
+    /// 沒有標記的檔案要夠像雙語才這樣處理：八成以上的句子成對、沒有哪個時間超過三行、成對的第一行不是空的。
+    /// 拿不準就照原本的讀法每一行都當歌詞：合唱與和聲的檔案也會有同一個時間的好幾行，
+    /// 誤判的話第二行以後會從歌詞裡消失。
     /// </summary>
     public static LyricSheet ParseSheet(string lrc)
     {
@@ -77,7 +79,8 @@ public static partial class Lrc
         else
         {
             var sung = groups.Where(g => g[0].Text.Length > 0).ToList();
-            bool paired = sung.Count > 0 && sung.Count(g => g.Count > 1) * 2 >= sung.Count;
+            bool paired = sung.Count > 0 && sung.Count(g => g.Count > 1) * 5 >= sung.Count * 4
+                && groups.All(g => g.Count <= 3 && (g.Count == 1 || g[0].Text.Length > 0));
             if (!paired) return new LyricSheet(lines, true);
             layers = ["translation", "romaji"];
         }

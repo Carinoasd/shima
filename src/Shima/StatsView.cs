@@ -397,7 +397,8 @@ public sealed class StatsView : FrameworkElement
 
     private void SetTip(string? tip, Point p)
     {
-        if (tip == _tip && (tip == null || p == _tipAt)) return;
+        // 同一格（同一句提示）裡移動不重畫：重畫是整張圖，熱力圖有三百多格
+        if (tip == _tip) return;
         _tip = tip;
         _tipAt = p;
         InvalidateVisual();

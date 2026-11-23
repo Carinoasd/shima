@@ -167,7 +167,8 @@ public static class Skills
                 var repeat = Alarms.NormalizeRepeat(Arg("repeat"));
                 if (Arg("repeat") is { Length: > 0 } given && repeat == null && given.ToLowerInvariant() is not ("none" or "once" or "no"))
                     return "看不懂這個重複方式（只有 daily、weekdays、mon…sun）";
-                var at = Alarms.When(Arg("at"), Number(arguments, "minutes"), now);
+                // 重複的只看幾點：同時給了 minutes 的話不要讓它搶走（When 會先用 minutes）
+                var at = Alarms.When(Arg("at"), repeat != null && Arg("at").Length > 0 ? null : Number(arguments, "minutes"), now);
                 if (at == null) return Arg("at").Length == 0 && Number(arguments, "minutes") == null
                     ? "沒有給時間：要幾分鐘後還是幾點？"
                     : "看不懂這個時間（只能排一星期內，幾點請用 24 小時制 HH:mm）";

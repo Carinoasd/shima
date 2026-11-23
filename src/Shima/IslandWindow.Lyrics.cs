@@ -17,7 +17,8 @@ public partial class IslandWindow
     {
         LyricsSaveItem.IsEnabled = _sheet is { Synced: true };
         LyricsCopyItem.IsEnabled = _sheet is { Lines.Count: > 0 };
-        LyricsTranslateItem.IsEnabled = !_translating && _sheet is { Synced: true, Translation: null };
+        // AI 翻的可以再翻一次（翻壞了、錯位了）；歌詞來源自己帶的翻譯就不用
+        LyricsTranslateItem.IsEnabled = !_translating && _sheet is { Synced: true } current && (current.Translation == null || _aiTranslated);
     }
 
     /// <summary>
@@ -40,6 +41,7 @@ public partial class IslandWindow
             // 畫面改用存出去的那份：時間已經含偏移，偏移歸零後才不會跳一下
             _lyricShift = TimeSpan.Zero;
             _sheet = Lrc.ParseSheet(lrc);
+            _aiTranslated = false;   // 翻譯已經寫進檔案，之後是檔案自己的
             _lyricsFrom = "local";
             _lyricIndex = int.MinValue;
             Toast(L.F("歌詞已存成 {0}", name), 4);
@@ -60,12 +62,17 @@ public partial class IslandWindow
     // ---------------------------------------------------------------- AI 翻譯
 
     private bool _translating;
+    /// <summary>現在顯示的翻譯是 AI 翻的（不是歌詞來源帶的）。</summary>
+    private bool _aiTranslated;
 
     /// <summary>這份歌詞沒有翻譯、之前請 AI 翻過的話，把那份翻譯掛上去。</summary>
-    private static LyricSheet? WithAiTranslation(Track track, LyricSheet? sheet)
+    private LyricSheet? WithAiTranslation(Track track, LyricSheet? sheet)
     {
+        _aiTranslated = false;
         if (Demo.On || sheet is not { Synced: true, Translation: null }) return sheet;
-        return AiTranslation.Load(AiTranslation.Folder, LyricsFinder.IdOf(track), sheet, Loc.Lang) is { } lines ? sheet with { Translation = lines } : sheet;
+        if (AiTranslation.Load(AiTranslation.Folder, LyricsFinder.IdOf(track), sheet, Loc.Lang) is not { } lines) return sheet;
+        _aiTranslated = true;
+        return sheet with { Translation = lines };
     }
 
     /// <summary>
@@ -76,7 +83,9 @@ public partial class IslandWindow
     {
         if (_translating) return;
         if (_track is not { } track || _sheet is not { Synced: true } sheet) { Toast(L.T("現在沒有歌詞"), 3, false); return; }
-        if (sheet.Translation != null) return;
+        if (sheet.Translation != null && !_aiTranslated) return;
+        var shown = sheet;                          // 現在畫面上那一份（可能帶著上一次 AI 翻的）
+        sheet = sheet with { Translation = null };  // 送出去與存檔用的鍵都只看原文
         var brain = Agents.Brain.Create((_, _) => "", Loc.Speech, out var problem);
         if (brain == null) { Say(problem); Toast(L.T("先到 AI 分頁設定好 AI 服務"), 4); return; }
 
@@ -87,7 +96,9 @@ public partial class IslandWindow
         Toast(waiting, 15, false);
         try
         {
-            var reply = await Task.Run(() => brain.CompleteAsync(system, text, CancellationToken.None));
+            // 最多等三分鐘：網路卡住時不要讓這一項永遠按不了
+            using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var reply = await Task.Run(() => brain.CompleteAsync(system, text, limit.Token));
             if (AiTranslation.Align(sheet, reply) is not { } lines)
             {
                 Log.Write($"AI 翻譯對不上: {track.Title}（{reply.Split('\n').Length} 行）");
@@ -96,12 +107,13 @@ public partial class IslandWindow
             }
             // 換歌了也先存著（只看歌詞的句子），下次播到就用得上；但不能套到現在這首上
             AiTranslation.Save(AiTranslation.Folder, id, sheet, lang, lines);
-            if (key != _trackKey || !ReferenceEquals(_sheet, sheet))
+            if (key != _trackKey || !ReferenceEquals(_sheet, shown))
             {
                 if (_toast == waiting) { _toast = ""; UpdateTexts(); }
                 return;
             }
             _sheet = sheet with { Translation = lines };
+            _aiTranslated = true;
             _lyricIndex = int.MinValue;
             // 第二行設成不顯示的話，翻好了也看不到：改成顯示翻譯
             if (AppSettings.Current.LyricsSecondLine == "none")
