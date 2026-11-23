@@ -64,6 +64,50 @@ public partial class IslandWindow
             }
             _settingsSection = SettingsSection.General;
 
+            // 外觀的三個選項：只改記憶體裡的設定值，拍完改回來，不存檔
+            {
+                var look = AppSettings.Current;
+                var (mode, custom, lines, progress) = (look.AccentMode, look.AccentCustom, look.LyricsLines, look.PillProgress);
+
+                // 自訂顏色選中時的「外觀」子分頁：色碼輸入框與那一排圓點
+                look.AccentMode = "custom"; look.AccentCustom = "#4FD1C5";
+                ApplyTheme();
+                _settingsSection = SettingsSection.Look;
+                RefreshSettings();
+                Snap(); UpdateTexts();
+                await Save(folder, "c-settings-accent-custom");
+                _settingsSection = SettingsSection.General;
+
+                TabMusic.IsChecked = true; _tab = Tab.Music;
+                look.AccentMode = "sakura";
+                ApplyTheme();
+                Snap(); UpdateTexts();
+                await Save(folder, "c-accent");
+                (look.AccentMode, look.AccentCustom) = (mode, custom);
+                ApplyTheme();
+
+                foreach (var n in new[] { 7, 3 })
+                {
+                    look.LyricsLines = n;
+                    ApplyLyricsLines();
+                    Snap(); UpdateTexts();
+                    await Save(folder, $"c-lyrics-{n}");
+                }
+                look.LyricsLines = lines;
+                ApplyLyricsLines();
+
+                look.PillProgress = true;
+                _expanded = false;
+                Pill.Visibility = Visibility.Visible;   // 前面展開過，膠囊可能被收起來了
+                _pillProgressShown = -1;
+                Snap(); UpdatePillProgress(); UpdateTexts();
+                await Save(folder, "c-pill-progress");
+                await Zoom(folder, "c-pill-progress-zoom", Host, 6);
+                look.PillProgress = progress;
+                UpdatePillProgress();
+                _expanded = true;
+            }
+
             // 聆聽放最後：後面的引導卡片與收藏截圖都接著這一頁
             TabLibrary.IsChecked = true;
             _tab = Tab.Library;

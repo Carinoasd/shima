@@ -16,12 +16,13 @@ public static class LyricCard
 {
     public const int Width = 1200, Height = 630;
 
-    public static BitmapSource Render(Track track, string line, string second)
+    /// <param name="light">短線的顏色；不給就取自封面（島上設定的強調色由呼叫的人傳進來）。</param>
+    public static BitmapSource Render(Track track, string line, string second, Color? light = null)
     {
         bool japanese = Fonts.HasKana(line + track.Title);
         var family = Fonts.For(japanese);
         var culture = Fonts.Culture(japanese);
-        var accent = Accent.From(track.Cover);
+        var accent = light ?? Accent.From(track.Cover);
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {

@@ -93,7 +93,7 @@ public partial class IslandWindow
             {
                 try
                 {
-                    var card = LyricCard.Render(new Track("", "", favorite.Title, favorite.Artist, favorite.Album, null, false, TimeSpan.Zero, default, TimeSpan.Zero), favorite.Line, favorite.Second);
+                    var card = LyricCard.Render(new Track("", "", favorite.Title, favorite.Artist, favorite.Album, null, false, TimeSpan.Zero, default, TimeSpan.Zero), favorite.Line, favorite.Second, ThemeAccent(null));
                     LyricCard.Save(card, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Shima"), favorite.Title);
                     Clipboard.SetImage(card);
                     Toast(L.T("歌詞卡片已複製"), 4);
@@ -123,7 +123,7 @@ public partial class IslandWindow
         try
         {
             if (_stats?.Summary is not { } summary) return;
-            var card = RecapCard.Render(summary, _stats.Period, _stats.Now, _track?.Cover);
+            var card = RecapCard.Render(summary, _stats.Period, _stats.Now, _track?.Cover, ThemeAccent(_track?.Cover));
             if (card == null) { Toast(L.T("這個期間還沒有聽歌"), 3, false); return; }
             LyricCard.Save(card, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Shima"), "Shima Recap");
             Clipboard.SetImage(card);

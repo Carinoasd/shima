@@ -15,17 +15,22 @@ namespace Shima;
 // 主題、膠囊上的手勢、設定頁的列、第一次啟動的引導。
 public partial class IslandWindow
 {
-    private static readonly Color Clay = Color.FromRgb(0xD9, 0x77, 0x57);
-
     // ---------------------------------------------------------------- 主題
 
-    /// <summary>掃光與進度條用的顏色：預設取自封面，也可以固定。</summary>
-    private Color ThemeAccent(ImageSource? cover) => AppSettings.Current.AccentMode switch
+    /// <summary>掃光與進度條用的顏色：預設取自封面，也可以固定（幾個預設色或自訂色碼）。</summary>
+    private static Color ThemeAccent(ImageSource? cover) =>
+        Accent.Fixed(AppSettings.Current.AccentMode, AppSettings.Current.AccentCustom) ?? Accent.From(cover);
+
+    /// <summary>強調色套到每個用到它的地方：膠囊與歌詞的掃光、進度條、膠囊的進度線、音量條、頻譜、桌面歌詞。</summary>
+    private void ApplyAccent()
     {
-        "white" => Colors.White,
-        "clay" => Clay,
-        _ => Accent.From(cover),
-    };
+        var accent = ThemeAccent(_coverShown);
+        PillLine.Light = LyricsList.Light = Meter.Color = Spectrum.Color = accent;
+        if (_desk != null) _desk.Light = accent;
+        BarFill.Background = PillProgressFill.Background = new SolidColorBrush(accent);
+        PillLine.InvalidateVisual();
+        LyricsList.InvalidateVisual();
+    }
 
     private void ApplyTheme()
     {
@@ -35,7 +40,8 @@ public partial class IslandWindow
         // 底色畫在陰影那一層（它本來就是實心的黑），上面那層改成透明，不然兩層疊起來永遠是不透明的
         Shadow.Background = brush;
         Body.Background = Brushes.Transparent;
-        _coverShown = null;   // 讓下一次 Refresh 重新套顏色
+        // 直接套，不等 Refresh：沒在播歌時封面一直是 null，Refresh 看封面沒換就不會重新套顏色
+        ApplyAccent();
         Refresh();
     }
 

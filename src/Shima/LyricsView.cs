@@ -31,6 +31,12 @@ public sealed class LyricsView : FrameworkElement
 
     public Func<(TimeSpan Position, bool Playing)>? Clock { get; set; }
     public Color Light { get; set; } = Colors.White;
+    /// <summary>
+    /// 顯示 lines 行（3、5、7）要多高：一行的高度乘上行數再多一行，留給正在唱的那句放大與第二行。
+    /// 5 行剛好是原本的 150；淡出與正在唱的那句的位置都是照高度的比例算，所以不用跟著改。
+    /// </summary>
+    public static double HeightFor(int lines) => Row * ((lines <= 3 ? 3 : lines >= 7 ? 7 : 5) + 1);
+
     /// <summary>使用者點了某一句：那句開始的時間。</summary>
     public event Action<TimeSpan>? Seek;
 
