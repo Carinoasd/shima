@@ -76,6 +76,27 @@ public sealed record AssistantTool(string Name, string Description, JsonObject P
             new() { ["direction"] = Choice("up：大聲；down：小聲", "up", "down"), ["steps"] = Number("調幾格，預設 2；「一點點」用 1，「很多」用 5") }, ["direction"]),
         new("lyrics_fix", "歌詞有問題時校正。歌詞內容不對、抓到別首歌或別的版本時用 other 換一份來源；歌詞比歌聲慢了用 earlier 提早；比歌聲快了用 later 延後；要回到原本用 reset。",
             new() { ["action"] = Choice("other：換另一個來源的歌詞；earlier：提早顯示；later：延後顯示；reset：還原", "other", "earlier", "later", "reset"), ["seconds"] = Number("earlier、later 時要移多少秒，預設 0.3") }, ["action"]),
+        // 以下由 Skills 執行：天氣、開網站或程式、提醒、時間、計算、剪貼簿
+        new("weather", "查某個地方現在的天氣和今明兩天的預報。使用者問天氣、氣溫、會不會下雨、要不要帶傘時使用。使用者沒說地點就先問他要查哪裡，不要自己猜。",
+            new() { ["location"] = Text("地名，請一律轉成英文寫法，例如 Taipei、Kaohsiung、Osaka、New York"), ["country"] = Text("可省略。同名地點很多時用兩個字母的國家代碼縮小範圍，例如 TW、JP、US") }, ["location"]),
+        new("open", "用預設瀏覽器開網站，或開啟電腦上的常用程式。使用者說「打開 YouTube」「開記事本」「開設定」時使用。" +
+                    "只能開 http／https 網址和這些程式：" + string.Join("、", Opener.Names) + "。不能開檔案、資料夾路徑，也不能帶命令列參數。",
+            new() { ["target"] = Text("網址（例如 https://www.youtube.com 或 youtube.com），或上面清單裡的程式名稱") }, ["target"]),
+        new("alarm", "在指定時間提醒使用者一句話（到時間會顯示在島上並唸出來）。使用者說「十分鐘後提醒我關火」「七點半叫我」「有哪些提醒」「取消提醒」時使用。" +
+                     "跟待辦清單不同：有明確時間的用這個，沒有時間的用 todo。",
+            new()
+            {
+                ["action"] = Choice("add：新增；list：列出全部；cancel：取消一個", "add", "list", "cancel"),
+                ["minutes"] = Number("add 時，幾分鐘後提醒（相對時間用這個，例如「半小時後」給 30）"),
+                ["at"] = Text("add 時，幾點提醒（絕對時間用這個），24 小時制 HH:mm，例如 07:30、19:05；明天的寫「明天 07:30」。只給時間而今天已經過了就是明天。minutes 和 at 擇一"),
+                ["text"] = Text("add 時是到時要說的內容（例如「關火」）；cancel 時是提醒的編號或內容關鍵字"),
+            }, ["action"]),
+        new("datetime", "查詢現在的日期、時間、星期幾。使用者問幾點、今天幾號、星期幾，或你需要知道現在時間才能回答（例如「還有幾天到週末」）時使用。",
+            [], []),
+        new("calc", "精確計算算式。使用者要你算數字（加減乘除、次方、百分比）時用這個，不要心算。",
+            new() { ["expression"] = Text("算式，只能有數字、+ - * / ^、括號和 %（50% 表示 0.5；「200 的 15%」寫成 200*15%）") }, ["expression"]),
+        new("clipboard", "讀取使用者剪貼簿裡的文字（最多約 4000 字）。使用者說「我剛複製的」「剪貼簿裡的」「幫我翻譯／摘要這段」而沒有貼出內容時使用。",
+            [], []),
     ];
 }
 
