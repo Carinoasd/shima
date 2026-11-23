@@ -266,7 +266,7 @@ public partial class IslandWindow : Window
             bool wanted = AppSettings.Current.AudioReactive && _track?.Playing == true;
             bool listen = wanted && !_hiddenForFullscreen;
             bool capture = listen || wanted && _bridge.DeckWatching;
-            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop();
+            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault();
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateTimer();

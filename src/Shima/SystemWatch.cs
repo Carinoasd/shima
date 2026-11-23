@@ -20,6 +20,7 @@ public sealed class SystemWatch : IDisposable
     private MMDevice? _output;
     private int _volume = -1, _brightness = -1, _battery = -1;
     private string _outputId = "";
+    private volatile string _expected = "";
     private bool _muted, _plugged, _online, _started;
     private volatile bool _hasBrightness = true, _disposed;
     private long _quietUntil;
@@ -83,8 +84,11 @@ public sealed class SystemWatch : IDisposable
             {
                 bool first = _outputId.Length == 0;
                 var name = now.FriendlyName;
+                // 島自己切的：切換的地方已經顯示過了，這裡不重複
+                bool mine = now.ID == _expected;
+                _expected = "";
                 Bind();
-                if (!first && name.Length > 0) Changed?.Invoke(Line("device", name));
+                if (!first && !mine && name.Length > 0) Changed?.Invoke(Line("device", name));
             }
         }
         catch { /* 沒有任何播放裝置 */ }
@@ -113,6 +117,9 @@ public sealed class SystemWatch : IDisposable
             finally { Volatile.Write(ref _askingBrightness, 0); }
         });
     }
+
+    /// <summary>島即將把預設播放裝置切到這個 Id：之後 Poll() 發現換成它時不再重複提示。</summary>
+    public void Expect(string deviceId) => _expected = deviceId;
 
     /// <summary>系統音量加減幾個百分點。回傳調整後的音量；沒有播放裝置就是 null。</summary>
     public int? Nudge(int percent)
