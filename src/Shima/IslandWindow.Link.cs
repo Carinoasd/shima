@@ -334,6 +334,7 @@ public partial class IslandWindow
         Skills.Alarms = alarms;
         _alarms = alarms;
         alarms.Changed += () => Dispatcher.BeginInvoke(RefreshAlarms);
+        Month.DayPicked += Month_DayPicked;
         RefreshAlarms();
         alarms.Start();
         Closed += (_, _) => alarms.Dispose();

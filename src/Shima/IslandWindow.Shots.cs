@@ -200,6 +200,42 @@ public partial class IslandWindow
             _tab = Tab.Ask;
             Snap();
             await Save(folder, "6-ask");
+
+            // 沒在播歌的膠囊：示範模式永遠有歌，暫時拿掉，四種顯示各拍一張；只動記憶體，拍完還原
+            if (Demo.On)
+            {
+                var song = _media.Demo;
+                var shows = AppSettings.Current.IdleShows;
+                _media.Demo = null;
+                _expanded = false;
+                foreach (var (mode, name) in new[] { (IdleLine.Clock, "c-idle-clock"), (IdleLine.Date, "c-idle-date"), (IdleLine.Alarm, "c-idle-alarm"), (IdleLine.None, "c-idle-none") })
+                {
+                    AppSettings.Current.IdleShows = mode;
+                    Refresh();
+                    Snap();
+                    await Task.Delay(500);   // 換字的動畫看不見的視窗不會自己走：等它過了再重畫一次
+                    PillLine.InvalidateVisual();
+                    await Save(folder, name);
+                }
+                AppSettings.Current.IdleShows = shows;
+                _media.Demo = song;
+                Refresh();
+                Snap();
+            }
+
+            // 月曆：滑鼠停在有提醒的那一天
+            if (Demo.On && _alarms?.List.Count > 0)
+            {
+                var days = Shima.Agents.Alarms.InMonth(_alarms.List, DateTime.Today, DateTime.Now);
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                RefreshTools();
+                Snap();
+                if (days.Count > 0) Month.Peek(days.Keys.First());
+                await Save(folder, "c-month-tip");
+                Month.Peek(0);
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

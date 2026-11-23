@@ -115,6 +115,8 @@ public sealed class AppSettings
 
     /// <summary>膠囊裡的小角色：claude、eyes、cat、ghost 或 none。</summary>
     public string Character { get; set; } = "claude";
+    /// <summary>沒有歌在播時膠囊顯示什麼：clock（時間）、date（日期與時間）、alarm（下一個提醒）、none（不顯示）。</summary>
+    public string IdleShows { get; set; } = "clock";
     /// <summary>`Character` 是 `custom` 時用的圖片（GIF 或水平排列的 PNG 精靈圖）。</summary>
     public string CharacterImage { get; set; } = "";
     /// <summary>島的底色有多不透明（0.55–1）。</summary>

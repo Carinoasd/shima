@@ -336,8 +336,12 @@ public partial class IslandWindow : Window
             if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
             Spectrum.Active = false;
             if (_desk != null && _deskTitle.Length > 0) { _deskTitle = ""; _deskSheet = null; FeedDesktopLyrics(); }
-            PillLine.Say(TimerLine() ?? DateTime.Now.ToString("HH:mm"));
-            double idle = Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
+            var line = IdleLine.Text(AppSettings.Current.IdleShows, DateTime.Now, TimerLine(), _alarms?.List ?? [], Loc.Culture, L.T("明天"));
+            PillLine.Say(line);
+            // 不顯示：只剩角色，左右邊距一樣、寬度縮到剛好包住它（邊距 8＋8、角色 5＋26）
+            Pill.Margin = line.Length == 0 ? new Thickness(8, 0, 8, 0) : new Thickness(12, 0, 8, 0);
+            double idle = line.Length == 0 ? (Buddy.Kind == "none" ? 36 : 47)
+                : Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
             if (Math.Abs(idle - _pillWidth) > 0.5) { _pillWidth = idle; Morph(); }
             return;
         }
