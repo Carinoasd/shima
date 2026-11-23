@@ -66,6 +66,8 @@ public sealed class KaraokeLine : FrameworkElement
     public KaraokeLine()
     {
         ClipToBounds = true;
+        // 藏起來（島完全展開時膠囊是 Collapsed）期間換句、換字不會要求重畫，看得見的那一刻補畫一次，不然可能停在舊的那句
+        IsVisibleChanged += (_, e) => { if (e.NewValue is true) { InvalidateVisual(); Wake(); } };
         foreach (var c in (Color[])[Colors.White, Colors.White, Colors.White, DimColor, DimColor]) _sweepBrush.GradientStops.Add(new GradientStop(c, 0));
     }
 

@@ -4,6 +4,7 @@
 
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -212,7 +213,22 @@ public partial class IslandWindow
         if (!_hiddenForFullscreen || !AppSettings.Current.FullscreenToast) return;
         var mini = _mini ??= NewMini();
         mini.Scale = _scale;
+        mini.Area = MonitorArea();
         mini.Show(track.Cover, track.Title, track.Artist, ThemeAccent(track.Cover));
+    }
+
+    /// <summary>島所在螢幕的範圍（裝置無關像素，跟 SystemParameters 同一套座標）；查不到是 null，卡片就放主螢幕。</summary>
+    private Rect? MonitorArea()
+    {
+        try
+        {
+            var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+            if (_hwnd == IntPtr.Zero || !GetMonitorInfo(MonitorFromWindow(_hwnd, 2), ref info)) return null;
+            var dpi = VisualTreeHelper.GetDpi(this);
+            var m = info.rcMonitor;
+            return new Rect(m.Left / dpi.DpiScaleX, m.Top / dpi.DpiScaleY, (m.Right - m.Left) / dpi.DpiScaleX, (m.Bottom - m.Top) / dpi.DpiScaleY);
+        }
+        catch { return null; }
     }
 
     private MiniToast NewMini()
