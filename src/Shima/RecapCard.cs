@@ -147,7 +147,7 @@ public static class RecapCard
             {
                 double slot = LeftW / (period == StatsPeriod.Week ? Math.Max(7, bars.Count) : bars.Count), bar = Math.Clamp(slot * 0.62, 2, 26);
                 double max = Math.Max(1, bars.Max(b => b.Time.TotalSeconds));
-                int current = bars.FindLastIndex(b => b.Start <= now.Date);
+                int current = summary.To > now.Date ? bars.FindLastIndex(b => b.Start <= now.Date) : -1;   // 過去的期間沒有「今天」
                 for (int i = 0; i < bars.Count; i++)
                 {
                     double cx = Pad + i * slot + slot / 2;

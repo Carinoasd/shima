@@ -138,6 +138,19 @@ public partial class IslandWindow
                 _stats.Period = Listening.StatsPeriod.Week;
             }
 
+            // 聆聽統計：翻看過去的期間
+            if (_stats != null)
+            {
+                _stats.Period = Listening.StatsPeriod.Month;
+                _stats.Back = 1;
+                Snap(); UpdateTexts(); await Save(folder, "c-stats-prev-month");
+                _stats.Period = Listening.StatsPeriod.Week;
+                _stats.Back = 2;
+                Snap(); UpdateTexts(); await Save(folder, "c-stats-prev-week");
+                _stats.Period = Listening.StatsPeriod.Month;
+                _stats.Period = Listening.StatsPeriod.Week;
+            }
+
             // 聆聽回顧卡片：本月的
             if (_stats != null)
             {
