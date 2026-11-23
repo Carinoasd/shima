@@ -33,6 +33,13 @@ public sealed class StatsView : FrameworkElement
     private List<(DateTime Start, TimeSpan Time)> _bars = [];
     private bool _byYear;
     private readonly Rect[] _tabs = new Rect[4];
+    private Rect _share;
+
+    /// <summary>按下分享鈕：呼叫端用 Summary、Period、Now 做回顧卡片。</summary>
+    public event Action? ShareRequested;
+
+    public StatsSummary? Summary => _summary;
+    public DateTime Now => _now;
 
     /// <summary>切換期間之後觸發。</summary>
     public event Action<StatsPeriod>? PeriodChanged;
@@ -114,10 +121,14 @@ public sealed class StatsView : FrameworkElement
             _tabs[i] = new Rect(x - 6, 0, t.Width + 12, TabsH);
             x += t.Width + 18;
         }
+        // 最右邊是分享鈕，連續天數在它左邊
+        var share = Text("\uE72D", 13, Dim, new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"));
+        dc.DrawText(share, new Point(width - share.Width, (TabsH - share.Height) / 2));
+        _share = new Rect(width - share.Width - 8, 0, share.Width + 8, TabsH);
         if (s.Streak > 0)
         {
             var streak = Text(L.F("連續 {0} 天", s.Streak), 12, Dim);
-            dc.DrawText(streak, new Point(width - streak.Width, (TabsH - streak.Height) / 2));
+            dc.DrawText(streak, new Point(width - share.Width - 14 - streak.Width, (TabsH - streak.Height) / 2));
         }
 
         // 總時間與次數，底線對齊
@@ -193,6 +204,7 @@ public sealed class StatsView : FrameworkElement
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         var p = e.GetPosition(this);
+        if (_share.Contains(p)) { ShareRequested?.Invoke(); e.Handled = true; return; }
         for (int i = 0; i < _tabs.Length; i++)
             if (_tabs[i].Contains(p)) { Period = Periods[i]; e.Handled = true; return; }
         base.OnMouseLeftButtonUp(e);
@@ -201,8 +213,8 @@ public sealed class StatsView : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var p = e.GetPosition(this);
-        Cursor = _tabs.Any(t => t.Contains(p)) ? Cursors.Hand : null;
-        var tip = BarTip(p);
+        Cursor = _share.Contains(p) || _tabs.Any(t => t.Contains(p)) ? Cursors.Hand : null;
+        var tip = _share.Contains(p) ? L.T("分享聆聽回顧") : BarTip(p);
         if (ToolTip as string != tip) ToolTip = tip;
         base.OnMouseMove(e);
     }
