@@ -32,6 +32,9 @@ public sealed class Alarms : IDisposable
     /// <summary>到點了。第二個參數 true：程式關著的時候就該響了，現在才補。在背景執行緒觸發。</summary>
     public event Action<Alarm, bool>? Due;
 
+    /// <summary>清單變了（新增、取消、到點被拿掉）。在任何執行緒觸發；畫面要自己切回 UI 執行緒。</summary>
+    public event Action? Changed;
+
     /// <param name="path">存檔位置；不給就是設定資料夾裡的 alarms.json。</param>
     public Alarms(string? path = null)
     {
@@ -45,29 +48,34 @@ public sealed class Alarms : IDisposable
 
     public Alarm Add(DateTime at, string text)
     {
+        Alarm added;
         lock (_gate)
         {
             var alarm = new Alarm(_list.Count == 0 ? 1 : _list.Max(a => a.Id) + 1, at, text.Trim());
             _list.Add(alarm);
             Save();
-            return alarm;
+            added = alarm;
         }
+        Changed?.Invoke();
+        return added;
     }
 
     /// <summary>取消一個：what 是編號或內容的關鍵字。找不到是 null。</summary>
     public Alarm? Cancel(string what)
     {
+        Alarm? found;
         lock (_gate)
         {
             var key = what.Trim().TrimStart('#');
-            var found = int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
+            found = int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id)
                 ? _list.FirstOrDefault(a => a.Id == id)
                 : _list.Where(a => key.Length > 0 && a.Text.Contains(key, StringComparison.OrdinalIgnoreCase)).OrderBy(a => a.At).FirstOrDefault();
             if (found == null) return null;
             _list.Remove(found);
             Save();
-            return found;
         }
+        Changed?.Invoke();
+        return found;
     }
 
     /// <summary>把到點的拿出來（從清單移除、存檔）並觸發 <see cref="Due"/>。回傳這次到點的。</summary>
@@ -82,6 +90,7 @@ public sealed class Alarms : IDisposable
             Save();
         }
         foreach (var a in due) Due?.Invoke(a, now - a.At > Late);
+        Changed?.Invoke();
         return due;
     }
 
@@ -173,6 +182,36 @@ public sealed class Alarms : IDisposable
         if (hour > 23 || minute > 59) return null;
         return new TimeSpan(hour, minute, 0);
     }
+
+    private static readonly Regex Duration = new(@"^(\d+(?:\.\d+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex FullDate = new(@"^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?", RegexOptions.CultureInvariant);
+    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?\d{1,2}(?::\d{2}|[點点時时](?:半|\d{1,2}分?)?)?(?:\s*(?:am|pm))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。
+    /// 時間的部分交給 <see cref="When"/>（所以今天已過的時刻算明天、超過一星期不收）；看不懂是 null。
+    /// </summary>
+    public static (DateTime At, string Text)? ParseLine(string? line, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return null;
+        var text = line.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+
+        if (Duration.Match(text) is { Success: true } rel
+            && double.TryParse(rel.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount))
+        {
+            var unit = rel.Groups[2].Value.ToLowerInvariant();
+            var minutes = unit is "小時" or "小时" || unit.StartsWith('h') ? amount * 60 : amount;
+            return When(null, minutes, now) is { } soon ? (soon, rel.Groups[3].Value.Trim()) : null;
+        }
+
+        var head = (FullDate.Match(text) is { Success: true } full ? full : ClockPrefix.Match(text));
+        if (!head.Success) return null;
+        return When(head.Value, null, now) is { } at ? (at, text[head.Length..].Trim()) : null;
+    }
+
+    /// <summary>畫面上的時間：今天只寫幾點，明天前面加 <paramref name="tomorrow"/>，再遠的寫月／日。</summary>
+    public static string Short(DateTime at, DateTime now, string tomorrow) =>
+        at.Date == now.Date ? $"{at:HH:mm}" : at.Date == now.Date.AddDays(1) ? $"{tomorrow} {at:HH:mm}" : $"{at:M/d} {at:HH:mm}";
 
     /// <summary>給 AI 看的時間寫法：今天的只寫幾點，其他加上日期。</summary>
     public static string Describe(DateTime at, DateTime now) =>
