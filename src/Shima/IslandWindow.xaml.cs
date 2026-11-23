@@ -230,8 +230,25 @@ public partial class IslandWindow : Window
     /// <summary>歌詞比聲音早一點點亮，看起來才是跟著唱。</summary>
     private static readonly TimeSpan LyricLead = TimeSpan.FromMilliseconds(180);
 
+    /// <summary>島上音樂以外正在發生的事，給 Stream Dock 的長條。</summary>
+    private void UpdateNotice()
+    {
+        Agents.DeckNotice notice;
+        string timer = TimerLine() ?? "";
+        if (_asking is { } ask && !ask.Decision.Task.IsCompleted)
+            notice = new("ask", ask.Project.Length > 0 ? $"Claude Code · {ask.Project}" : "Claude Code", $"{ask.Tool}  {ask.Details}", timer, _planLine, false);
+        else if (_voice != null)
+            notice = new("voice", "", _voiceLine, timer, _planLine, _micOpen);
+        else if (_toast.Length > 0 && DateTime.Now < _toastUntil)
+            notice = new("toast", "", _toast, timer, _planLine, false);
+        else
+            notice = new("", "", "", timer, _planLine, false);
+        if (notice != _bridge.Notice) _bridge.Notice = notice;
+    }
+
     private void UpdateTexts()
     {
+        UpdateNotice();
         var track = _track;
         // 語音助手正在聽或回答：優先顯示，音量條換成麥克風的音量
         if (_voice != null && _voiceLine.Length > 0)
@@ -244,6 +261,7 @@ public partial class IslandWindow : Window
         _toast = "";
         if (track == null)
         {
+            if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
             PillLine.Say(TimerLine() ?? DateTime.Now.ToString("HH:mm"));
             double idle = Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
             if (Math.Abs(idle - _pillWidth) > 0.5) { _pillWidth = idle; Morph(); }
@@ -274,12 +292,16 @@ public partial class IslandWindow : Window
         else PillLine.Say(name);
 
         var shown = _sheet is { Synced: true } ? _sheet : null;
-        LyricsList.Show(shown, AppSettings.Current.LyricsSecondLine switch
+        var second = AppSettings.Current.LyricsSecondLine switch
         {
             "translation" => shown?.Translation ?? shown?.Romaji,
             "romaji" => shown?.Romaji ?? shown?.Translation,
             _ => null,
-        });
+        };
+        LyricsList.Show(shown, second);
+        var deck = _bridge.Deck;
+        if (!ReferenceEquals(deck.Track, track) || !ReferenceEquals(deck.Sheet, shown) || !ReferenceEquals(deck.Second, second) || deck.Shift != LyricLead + _lyricShift)
+            _bridge.Deck = new Agents.DeckState(track, shown, second, LyricLead + _lyricShift);
         LyricsList.Active = _expanded && _tab == Tab.Music;
         LyricsList.Wake();
 
@@ -425,7 +447,9 @@ public partial class IslandWindow : Window
     private void Play_Click(object sender, RoutedEventArgs e) => _media.PlayPause();
 
     /// <summary>點來源那一行：換到 Roon 的下一個播放區域。</summary>
-    private void Source_Click(object sender, MouseButtonEventArgs e)
+    private void Source_Click(object sender, MouseButtonEventArgs e) => SwitchZone();
+
+    private void SwitchZone()
     {
         if (_media.NextZone() is { Length: > 0 } zone) Toast(L.F("播放區域：{0}", zone), 3);
     }
@@ -565,12 +589,22 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 全域快速鍵
 
     private const int HotkeyToggle = 1, HotkeyAsk = 2, WM_HOTKEY = 0x0312;
+    /// <summary>實際註冊到的展開快速鍵。</summary>
+    public string ToggleHotkey { get; private set; } = "";
 
     /// <summary>Ctrl+Alt+Space：展開／收起。Ctrl+Alt+V：問語音助手一句。被別的程式佔用就記在紀錄檔。</summary>
     private void InitHotkeys()
     {
         const uint control = 2, alt = 1, noRepeat = 0x4000;
-        if (!RegisterHotKey(_hwnd, HotkeyToggle, control | alt | noRepeat, 0x20)) Log.Write("快速鍵 Ctrl+Alt+Space 被別的程式佔用");
+        // 展開的快速鍵被別的程式佔走就換下一組
+        const uint shift = 4;
+        (uint Modifiers, uint Key, string Name)[] toggles = [(control | alt, 0x20, "Ctrl+Alt+Space"), (control | alt, 0x49, "Ctrl+Alt+I"), (control | shift, 0x20, "Ctrl+Shift+Space")];
+        ToggleHotkey = toggles.FirstOrDefault(t => RegisterHotKey(_hwnd, HotkeyToggle, t.Modifiers | noRepeat, t.Key)).Name ?? "";
+        if (ToggleHotkey != toggles[0].Name)
+        {
+            Log.Write($"快速鍵 Ctrl+Alt+Space 被別的程式佔用，改用 {(ToggleHotkey.Length > 0 ? ToggleHotkey : "（都被佔用）")}");
+            if (ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
+        }
         if (!RegisterHotKey(_hwnd, HotkeyAsk, control | alt | noRepeat, 0x56)) Log.Write("快速鍵 Ctrl+Alt+V 被別的程式佔用");
         HwndSource.FromHwnd(_hwnd)?.AddHook((IntPtr h, int message, IntPtr w, IntPtr l, ref bool handled) =>
         {

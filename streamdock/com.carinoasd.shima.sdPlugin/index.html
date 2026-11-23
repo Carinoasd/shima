@@ -1,0 +1,375 @@
+<!doctype html>
+<!-- Shima · Copyright (C) 2026 Carinoasd · SPDX-License-Identifier: MIT -->
+<meta charset="utf-8">
+<script src="bridge.js"></script>
+<script>
+// Stream Dock 外掛：向 Shima 開在本機的橋接問現在的歌與歌詞，畫到按鍵或觸控長條上。
+const FONT = '"Yu Gothic UI","Microsoft JhengHei UI","Segoe UI",sans-serif';
+const url = (path, extra = '') => `http://localhost:${SHIMA.port}/deck/${path}?t=${SHIMA.token}${extra}`;
+const shown = new Map();          // context → { kind, settings, strip, last }
+let socket, now = null, lines = [], key = '\0', at = 0, cover = null, coverFor = '';
+let notice = { kind: '', title: '', text: '' }, noticeSince = 0, timer = '', alive = false;
+
+function connect(port, uuid, event) {
+  socket = new WebSocket('ws://127.0.0.1:' + port);
+  socket.onopen = () => { socket.send(JSON.stringify({ event, uuid })); log('connected'); };
+  socket.onmessage = e => { try { on(JSON.parse(e.data)); } catch (x) { log('error ' + x); } };
+}
+window.connectElgatoStreamDeckSocket = window.connectSocket = window.connectSDSocket = window.connectMiraBoxSDSocket = connect;
+
+const log = text => fetch(url('log', '&m=' + encodeURIComponent(text))).catch(() => {});
+const press = action => fetch(url('press', '&do=' + action)).catch(() => {});
+const now_notice = () => notice;
+
+const send = (path, extra) => fetch(url(path, extra)).catch(() => {});
+let logged = 0;
+
+/** 點在長條的哪裡（0–1）；Stream Dock 沒給位置就是 null。 */
+function tapAt(p, item) {
+  const raw = p.tapPos?.[0] ?? p.tapPosition?.[0] ?? p.x ?? p.tapX ?? p.position?.x ?? p.pos?.x;
+  if (typeof raw !== 'number') return null;
+  const width = Number(item.settings.touchbarWidth) || 800;
+  return Math.max(0, Math.min(1, raw > 1 ? raw / width : raw));
+}
+
+function pressed(kind, item, p) {
+  if (kind === 'lyrics' && item?.strip) {
+    const x = tapAt(p, item), asking = now_notice().kind === 'ask';
+    if (asking) { if (x !== null && x > 0.72) press(x > 0.86 ? 'deny' : 'allow'); return; }   // 要權限時只認那兩顆按鈕，免得誤觸
+    press(x === null ? 'playpause' : x < 0.2 ? 'previous' : x > 0.8 ? 'next' : 'playpause');
+    return;
+  }
+  press({ previous: 'previous', next: 'next', ask: 'ask', allow: 'allow', deny: 'deny' }[kind] || 'playpause');
+}
+
+function on(m) {
+  const kind = (m.action || '').split('.').pop();
+  const p = m.payload || {};
+  switch (m.event) {
+    case 'willAppear': {
+      const settings = p.settings || {};
+      // 長條上的項目沒有按鍵座標；按鍵是正方形
+      const strip = kind === 'lyrics' && !(p.coordinates && p.coordinates.column >= 0 && p.coordinates.row >= 0);
+      shown.set(m.context, { kind, settings, strip, at: p.coordinates, last: '' });
+      // 長條預設只給 66 高的小格子：要求整條的高度與寬度
+      if (strip && settings.sized !== 2) {
+        const wanted = { ...settings, sized: 2, touchbarWidth: 800, touchbarHeight: 128, ActionGeometry: { width: 800, height: 128 } };
+        shown.get(m.context).settings = wanted;      // Stream Dock 不會把外掛自己改的設定再傳回來
+        socket.send(JSON.stringify({ event: 'setSettings', context: m.context, payload: wanted }));
+      }
+      log(`appear ${kind} controller=${p.controller} at=${JSON.stringify(p.coordinates)} width=${settings.touchbarWidth} height=${settings.touchbarHeight}`);
+      break;
+    }
+    case 'willDisappear': shown.delete(m.context); break;
+    case 'didReceiveSettings': {
+      const item = shown.get(m.context);
+      if (item) { item.settings = p.settings || {}; item.last = ''; }
+      break;
+    }
+    case 'keyUp': case 'touchTap':
+      if (logged++ < 12) log(`${m.event} ${kind} ${JSON.stringify(p).slice(0, 300)}`);
+      pressed(kind, shown.get(m.context), p);
+      break;
+    case 'dialRotate':
+      if (logged++ < 12) log(`dialRotate ${kind} ${JSON.stringify(p).slice(0, 200)}`);
+      if (typeof p.ticks === 'number' && p.ticks) send('turn', `&what=${kind}&ticks=${Math.round(p.ticks)}`);
+      break;
+    case 'dialDown':
+      press({ volume: 'mute', seek: 'playpause', zone: 'zone', shift: 'playpause' }[kind] || 'playpause');
+      break;
+  }
+}
+
+async function poll() {
+  try {
+    const r = await fetch(url('now', '&have=' + encodeURIComponent(key)));
+    const j = await r.json();
+    if (j.lines) lines = j.lines;
+    if (j.key !== key && !j.lines) lines = [];
+    key = j.key; now = j.title === undefined ? null : j; at = performance.now(); alive = true;
+    const n = j.notice || { kind: '', title: '', text: '' };
+    if (n.kind !== notice.kind || n.text !== notice.text) noticeSince = performance.now();
+    notice = n; timer = j.timer || '';
+    const track = now ? now.title + '\n' + now.artist + '\n' + now.cover : '';
+    if (track !== coverFor) {
+      coverFor = track; cover = null;
+      if (now && now.cover) {
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.onload = () => { if (coverFor === track) cover = image; };
+        image.src = url('cover', '&k=' + encodeURIComponent(track));
+      }
+    }
+  } catch { now = null; alive = false; notice = { kind: '', title: '', text: '' }; timer = ''; }
+}
+
+const position = () => now ? now.position + (now.playing ? (performance.now() - at) / 1000 : 0) : 0;
+
+/** 現在唱到哪一句：{ text, second, progress }，沒有就是 null。 */
+function singing() {
+  if (!now || !lines.length) return null;
+  const t = position();
+  let i = -1;
+  for (let n = 0; n < lines.length && lines[n][0] <= t; n++) i = n;
+  if (i < 0 || !lines[i][1]) return null;
+  const next = i + 1 < lines.length ? lines[i + 1][0] : lines[i][0] + 6;
+  const length = Math.max(0.6, Math.min(next - lines[i][0], 1 + lines[i][1].length * 0.45));
+  return { text: lines[i][1], second: lines[i][2], progress: Math.min(1, (t - lines[i][0]) / length) };
+}
+
+/** 縮字到放得下；回傳畫出來的寬度。 */
+function fit(g, text, size, min, width, weight) {
+  for (; size > min; size -= 1) {
+    g.font = `${weight} ${size}px ${FONT}`;
+    if (g.measureText(text).width <= width) break;
+  }
+  g.font = `${weight} ${size}px ${FONT}`;
+  return Math.min(width, g.measureText(text).width);
+}
+
+/** 封面模糊後當背景（跟島展開時一樣），連同從封面取的主色；換封面或換尺寸才重畫。 */
+let backdrop = null, backdropFor = '', accent = '#fff';
+function background(w, h, s) {
+  const id = `${coverFor}|${!!cover}|${w}x${h}`;
+  if (id === backdropFor) return backdrop;
+  backdropFor = id; accent = '#fff';
+  const c = document.createElement('canvas'); c.width = w * s; c.height = h * s;
+  const g = c.getContext('2d'); g.scale(s, s);
+  g.fillStyle = '#0b0b0d'; g.fillRect(0, 0, w, h);
+  if (cover) {
+    g.filter = 'blur(22px) saturate(1.35)';
+    g.drawImage(cover, -40, -(w + 80 - h) / 2, w + 80, w + 80);
+    g.filter = 'none';
+    g.fillStyle = 'rgba(0,0,0,.62)'; g.fillRect(0, 0, w, h);
+    // 主色：縮成 12×12 後挑最鮮豔的一格，調亮到在深色底上看得清楚
+    const t = document.createElement('canvas'); t.width = t.height = 12;
+    const tg = t.getContext('2d'); tg.drawImage(cover, 0, 0, 12, 12);
+    const d = tg.getImageData(0, 0, 12, 12).data;
+    let best = 0.18, pick = null;
+    for (let i = 0; i < d.length; i += 4) {
+      const max = Math.max(d[i], d[i + 1], d[i + 2]), min = Math.min(d[i], d[i + 1], d[i + 2]);
+      const score = (max - min) / 255 * (0.4 + max / 425);
+      if (score > best) { best = score; pick = [d[i], d[i + 1], d[i + 2]]; }
+    }
+    if (pick) {
+      const lift = 235 / Math.max(...pick);
+      accent = `rgb(${pick.map(v => Math.round(Math.min(255, v * lift * 0.8 + 255 * 0.2))).join(',')})`;
+    }
+  }
+  return backdrop = c;
+}
+
+function rounded(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+
+/** 像素小 Claude，跟島上那隻同一張圖：播放時踏步，暫停時偶爾吸一口氣。x、y 是 24×24 格子的左上角，u 是一格多大。 */
+function claude(g, x, y, u) {
+  const frame = Math.floor(performance.now() / 125), dancing = now && now.playing;
+  const beat = frame % 4;
+  const lift = dancing ? (beat === 1 ? 1 : 0) : (frame % 16 < 2 ? 1 : 0);
+  const arms = dancing && beat === 1 ? -1 : 0;
+  const box = (color, bx, by, bw, bh) => { g.fillStyle = color; g.fillRect(x + bx * u, y + (by - lift) * u, bw * u, bh * u); };
+  const clay = '#D97757', ink = '#000';
+  box(clay, 5, 6, 14, 10); box(clay, 3, 10 + arms, 2, 3); box(clay, 19, 10 + arms, 2, 3);
+  const leg = (lx, up) => { g.fillStyle = clay; g.fillRect(x + lx * u, y + (16 - lift) * u, 2 * u, (3 + lift - (up ? 2 : 0)) * u); };
+  leg(6, dancing && beat === 1); leg(13, dancing && beat === 1); leg(9, dancing && beat === 3); leg(16, dancing && beat === 3);
+  const closed = frame % 28 === 0;
+  box(ink, 8, closed ? 10 : 9, 2, closed ? 1 : 3); box(ink, 14, closed ? 10 : 9, 2, closed ? 1 : 3);
+}
+
+/** 一行字：放得下就置中，放不下就維持大小、依 progress（0–1）往左捲。 */
+function row(g, text, size, min, weight, y, left, room, progress, paint) {
+  for (; size > min; size--) { g.font = `${weight} ${size}px ${FONT}`; if (g.measureText(text).width <= room) break; }
+  g.font = `${weight} ${size}px ${FONT}`;
+  const tw = g.measureText(text).width;
+  const x = tw <= room ? left + (room - tw) / 2 : left - Math.max(0, Math.min(tw - room, tw * progress - room * 0.4));
+  paint(x, tw, y);
+}
+
+/** 提示出現後過了多久該捲到哪：先停一秒，再用固定速度捲到底。 */
+const reading = (g, text, room) => Math.min(1, Math.max(0, (performance.now() - noticeSince - 1000) / 1000 * 70) / Math.max(1, g.measureText(text).width));
+
+function pill(g, x, y, w, h, color, glyph) {
+  g.fillStyle = color; rounded(g, x, y, w, h, h / 2); g.fill();
+  const k = h / 39, cx = x + w / 2, cy = y + h / 2;
+  g.strokeStyle = '#fff'; g.lineWidth = 3 * k; g.lineCap = g.lineJoin = 'round'; g.beginPath();
+  if (glyph === 'yes') { g.moveTo(cx - 8 * k, cy); g.lineTo(cx - 2 * k, cy + 6 * k); g.lineTo(cx + 9 * k, cy - 6 * k); }
+  else { g.moveTo(cx - 6 * k, cy - 6 * k); g.lineTo(cx + 6 * k, cy + 6 * k); g.moveTo(cx + 6 * k, cy - 6 * k); g.lineTo(cx - 6 * k, cy + 6 * k); }
+  g.stroke();
+}
+
+/** 長條：島展開時的樣子攤成一排。音樂以外的事（Claude Code 要權限、語音助手、提示）會插播；沒歌的時候是時鐘。 */
+function drawStrip(item) {
+  // 版面以 66 高為準，長條給多高就等比放大
+  const fullW = Number(item.settings.touchbarWidth) || 750, fullH = Number(item.settings.touchbarHeight) || Number(item.settings.ActionGeometry?.height) || 66;
+  const h = 66, w = Math.round(fullW * h / fullH), s = Math.max(2, 1.5 * fullH / h);
+  const c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+  const g = c.getContext('2d');
+  g.drawImage(background(w, h, s), 0, 0, c.width, c.height);
+  g.scale(s, s);
+  // 整條高的時候 Stream Dock 只顯示圖中間約八成（四邊裁掉）：背景照樣鋪滿，內容剛好排滿看得到的那一塊
+  const tall = fullH > 66;
+  if (tall) { const inset = 0.82; g.translate(w * (1 - inset) / 2, h * (1 - inset) / 2); g.scale(inset, inset); }
+  g.textBaseline = 'middle'; g.textAlign = 'left';
+  let left = tall ? 1 : 6, right = w - (tall ? 0 : 6);
+  const text = (t, size, min, weight, y, color, progress) => {
+    g.save(); g.beginPath(); g.rect(left, 0, right - left, h); g.clip();
+    row(g, t, size, min, weight, y, left, right - left, progress ?? 0, (x, tw, ry) => { g.fillStyle = color; g.fillText(t, x, ry); });
+    g.restore();
+  };
+
+  if (notice.kind === 'ask') {                      // Claude Code 要權限：右邊兩顆按鈕，允許、拒絕
+    claude(g, left, Math.round((h - 4) / 2 - 22), 2); left += 52;
+    if (w >= 300) {
+      const bw = Math.min(54, w * 0.14);
+      pill(g, right - bw, 12, bw, h - 27, '#c0392b', 'no');
+      pill(g, right - bw * 2 - 6, 12, bw, h - 27, '#2e9e5b', 'yes');
+      right -= bw * 2 + 16;
+    }
+    text(notice.title, 13, 10, 400, h * 0.26, 'rgba(255,255,255,.66)');
+    g.font = `600 22px ${FONT}`;
+    text(notice.text, 22, 21, 600, h * 0.62, '#fff', reading(g, notice.text, right - left));
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  if (w >= 300) { claude(g, right - 44, Math.round((h - 4) / 2 - 22), 2); right -= 52; }   // 小 Claude
+
+  if (notice.kind === 'voice' || notice.kind === 'toast') {
+    if (notice.kind === 'voice') {                  // 麥克風開著的時候一顆會呼吸的紅點
+      g.fillStyle = notice.listening ? `rgba(235,87,87,${0.55 + 0.45 * Math.sin(performance.now() / 260)})` : 'rgba(255,255,255,.35)';
+      g.beginPath(); g.arc(left + 14, h / 2 - 2, 8, 0, Math.PI * 2); g.fill();
+      left += 34;
+    }
+    const say = notice.text || '…';
+    g.font = `600 26px ${FONT}`;
+    text(say, 26, 22, 600, h * 0.46, '#fff', reading(g, say, right - left));
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  if (!now) {                                       // 沒有歌：時鐘
+    const d = new Date(), two = n => String(n).padStart(2, '0');
+    text(alive ? `${two(d.getHours())}:${two(d.getMinutes())}` : 'Shima', 34, 20, 600, timer ? h * 0.36 : h * 0.46, alive ? '#fff' : 'rgba(255,255,255,.4)');
+    if (timer) text(timer, 15, 11, 400, h * 0.76, 'rgba(255,255,255,.7)');
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  if (w >= 200) {                                   // 封面
+    const top = tall ? 2 : 5, size = h - top * 2 - 3;
+    g.save(); rounded(g, left, top, size, size, 9); g.clip();
+    if (cover) g.drawImage(cover, left, top, size, size); else { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(left, top, size, size); }
+    g.restore();
+    left += size + 10;
+  }
+  const line = singing();
+  if (w >= 520 && line) {                           // 歌名與藝人，有歌詞時靠左排
+    const column = Math.min(190, w * 0.24), keep = right;
+    right = left + column;
+    g.textAlign = 'left';
+    fit(g, now.title, 15, 11, column, 600); g.fillStyle = '#fff'; g.fillText(now.title, left, h * 0.34, column);
+    fit(g, now.artist, 12, 9, column, 400); g.fillStyle = 'rgba(255,255,255,.62)'; g.fillText(now.artist, left, h * 0.64, column);
+    left += column + 14; right = keep;
+  }
+
+  const room = right - left;
+  if (line) {
+    // 字不縮到看不清楚：太長的句子維持大小，跟著唱的進度往左捲
+    const two = !!line.second, y = two ? h * 0.33 : h * 0.46;
+    g.save(); g.beginPath(); g.rect(left, 0, room, h); g.clip();
+    row(g, line.text, two ? 28 : 34, two ? 23 : 26, 600, y, left, room, line.progress, (x, tw, ry) => {
+      g.fillStyle = 'rgba(255,255,255,.4)'; g.fillText(line.text, x, ry);
+      g.save(); g.beginPath(); g.rect(x, 0, tw * line.progress, h); g.clip();
+      g.shadowColor = accent; g.shadowBlur = 10;
+      g.fillStyle = '#fff'; g.fillText(line.text, x, ry); g.restore();
+    });
+    if (two) row(g, line.second, 16, 13, 400, h * 0.74, left, room, line.progress, (x, tw, ry) => { g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText(line.second, x, ry); });
+    g.restore();
+  } else {
+    const two = !!now.artist;
+    text(now.title, 28, 16, 600, two ? h * 0.33 : h * 0.46, '#fff');
+    if (two) text(now.artist, 16, 11, 400, h * 0.72, 'rgba(255,255,255,.62)');
+  }
+  if (now.duration > 0) {
+    g.fillStyle = 'rgba(255,255,255,.16)'; g.fillRect(0, h - 3, w, 3);
+    g.fillStyle = accent; g.fillRect(0, h - 3, w * Math.min(1, position() / now.duration), 3);
+  }
+  return c.toDataURL('image/jpeg', 0.92);
+}
+
+function wrap(g, text, width, max) {
+  const rows = []; let row = '';
+  for (const ch of text) {
+    if (g.measureText(row + ch).width > width && row) { rows.push(row); row = ''; }
+    row += ch;
+  }
+  if (row) rows.push(row);
+  if (rows.length > max) { rows.length = max; rows[max - 1] = rows[max - 1].slice(0, -1) + '…'; }
+  return rows;
+}
+
+/** 「大封面」的按鍵各自是整張封面的一格：依這些按鍵佔的範圍把封面切開。 */
+function drawTile(item, g, n) {
+  const tiles = [...shown.values()].filter(i => i.kind === 'tile' && i.at);
+  if (!cover || !item.at || !tiles.length) return;
+  const cols = tiles.map(i => i.at.column), rows = tiles.map(i => i.at.row);
+  const c0 = Math.min(...cols), r0 = Math.min(...rows), nc = Math.max(...cols) - c0 + 1, nr = Math.max(...rows) - r0 + 1;
+  // 封面是正方形，按鍵排成的範圍通常是扁的：等比放大到蓋滿，上下裁掉
+  const scale = Math.max(nc * n / cover.width, nr * n / cover.height);
+  const ox = (nc * n - cover.width * scale) / 2, oy = (nr * n - cover.height * scale) / 2;
+  g.drawImage(cover, ox - (item.at.column - c0) * n, oy - (item.at.row - r0) * n, cover.width * scale, cover.height * scale);
+  if (now && !now.playing) { g.fillStyle = 'rgba(0,0,0,.45)'; g.fillRect(0, 0, n, n); }
+}
+
+function drawKey(item) {
+  const n = 144, c = document.createElement('canvas'); c.width = c.height = n;
+  const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, n, n);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  if (item.kind === 'tile') { drawTile(item, g, n); return c.toDataURL('image/jpeg', 0.9); }
+  if (item.kind === 'allow' || item.kind === 'deny') {      // 有權限請求在等的時候才亮
+    g.globalAlpha = notice.kind === 'ask' ? 1 : 0.22;
+    pill(g, 22, 22, 100, 100, item.kind === 'allow' ? '#2e9e5b' : '#c0392b', item.kind === 'allow' ? 'yes' : 'no');
+    return c.toDataURL('image/jpeg', 0.9);
+  }
+  if (item.kind === 'ask') {                                // 麥克風；在聽的時候變紅
+    const on = notice.kind === 'voice';
+    g.fillStyle = on && notice.listening ? '#eb5757' : on ? '#D97757' : '#fff';
+    rounded(g, 56, 30, 32, 58, 16); g.fill();
+    g.strokeStyle = g.fillStyle; g.lineWidth = 6; g.lineCap = 'round';
+    g.beginPath(); g.arc(72, 72, 30, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke();
+    g.beginPath(); g.moveTo(72, 102); g.lineTo(72, 118); g.stroke();
+    return c.toDataURL('image/jpeg', 0.9);
+  }
+  if (item.kind === 'cover') {
+    if (cover) g.drawImage(cover, 0, 0, n, n);
+    else if (now) { g.font = `600 20px ${FONT}`; g.fillStyle = '#fff'; wrap(g, now.title, n - 16, 4).forEach((r, i, a) => g.fillText(r, n / 2, n / 2 + (i - (a.length - 1) / 2) * 26)); }
+    if (now && !now.playing) {
+      g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(0, 0, n, n);
+      g.fillStyle = '#fff'; g.beginPath(); g.moveTo(56, 46); g.lineTo(56, 98); g.lineTo(100, 72); g.fill();
+    }
+    return c.toDataURL('image/jpeg', 0.9);
+  }
+  const line = singing(), text = line ? line.text : now ? now.title : '';
+  g.font = `600 22px ${FONT}`;
+  g.fillStyle = line ? '#fff' : 'rgba(255,255,255,.6)';
+  wrap(g, text, n - 12, 4).forEach((r, i, a) => g.fillText(r, n / 2, n / 2 + (i - (a.length - 1) / 2) * 28));
+  return c.toDataURL('image/jpeg', 0.9);
+}
+
+const DRAWN = new Set(['lyrics', 'cover', 'tile', 'ask', 'allow', 'deny']);
+
+function render() {
+  if (!socket || socket.readyState !== 1) return;
+  for (const [context, item] of shown) {
+    if (!DRAWN.has(item.kind)) continue;
+    const image = item.strip ? drawStrip(item) : drawKey(item);
+    if (image === item.last) continue;
+    item.last = image;
+    socket.send(JSON.stringify({ event: 'setImage', context, payload: { target: 0, image } }));
+  }
+}
+
+setInterval(poll, 250);
+setInterval(render, 125);
+</script>

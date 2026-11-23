@@ -21,6 +21,8 @@ public sealed class AppSettings
     public string RoonExtensionId { get; set; } = "com.carinoasd.shima";
     /// <summary>每個 Roon Core 在「設定 → 擴充功能」啟用 Shima 後發給的 token。</summary>
     public Dictionary<string, string> RoonTokens { get; set; } = [];
+    /// <summary>最後在播的 Roon 播放區域。</summary>
+    public string RoonZone { get; set; } = "";
 
     /// <summary>歌詞來源，依序查；同一版本的歌詞先找到的先用。</summary>
     public List<string> LyricsProviders { get; set; } = ["local", "lrclib", "netease", "qq", "kugou"];

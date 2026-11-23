@@ -36,6 +36,7 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
 - **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
 - **Message notifications**: Discord, LINE, Telegram and other messengers flash on the island (turn it on in Settings)
+- **Stream Dock**: puts the island on a Stream Dock touch strip or keys: cover, the line being sung, little Claude, progress; press to pause or skip (turn it on in Settings)
 - **Draggable**: hold the pill and drag it anywhere, on any monitor; the place is remembered. Right-click to send it back to the centre
 - Hides itself while a full-screen app (a game, a video) is in front
 
@@ -51,7 +52,7 @@ After the first start, enable **Shima** in Roon under Settings → Extensions.
 
 | Shortcut | |
 | --- | --- |
-| Ctrl+Alt+Space | Open / close |
+| Ctrl+Alt+Space | Open / close (falls back to Ctrl+Alt+I, then Ctrl+Shift+Space, when another program owns it; a toast at startup tells you) |
 | Ctrl+Alt+V | Ask the voice assistant one question |
 
 The tray icon hides the island or quits. The gear at the right of the open panel is Settings.
@@ -86,6 +87,30 @@ The music is paused while it listens (otherwise the microphone hears the song) a
 | Custom | the same, with an API URL you enter (ending in `/v1`) |
 
 With no key entered, the provider's usual environment variable is read (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`…). Models without tool calling still chat; they just cannot skip songs for you.
+
+## Stream Dock
+
+For HotSpot / Mirabox Stream Dock devices (N4 Pro and others). The "Stream Dock" switch only shows up in Shima's settings when the Stream Dock software is installed; turning it on puts the plugin in `%APPDATA%\HotSpot\StreamDock\plugins\com.carinoasd.shima.sdPlugin`. Restart Stream Dock and **Shima** appears in the action list. Turning the switch off deletes the plugin folder.
+
+| Keys and strip | Shows | Press |
+| --- | --- | --- |
+| Lyrics | On the touch strip: cover, the line being sung and its second line, little Claude, progress; a clock and the pomodoro when nothing is playing. On a key: the current line | Play / pause |
+| Now Playing | Cover | Play / pause |
+| Big Cover | Put it on several adjacent keys and they tile into one large cover | Play / pause |
+| Previous / Next | | Previous / next track |
+| Ask AI | A microphone, red while listening | Ask the voice assistant once |
+| Allow / Deny | A tick and a cross, lit only while Claude Code waits for permission | Allow / deny |
+
+| Knob | Turn | Press |
+| --- | --- | --- |
+| Volume | Volume (Roon's when Roon is playing, the PC's otherwise) | Mute |
+| Seek | 5 seconds back or forward | Play / pause |
+| Lyrics Timing | Lyrics 0.1 s earlier or later | Play / pause |
+| Roon Zone | Next zone | Next zone |
+
+The strip follows the island: when Claude Code asks for permission it shows the tool and its input with allow and deny buttons on the right; the voice assistant, Claude Code progress, message notifications and the water reminder show up too.
+
+The plugin only talks to Shima on `localhost:47813`, with a token written into the plugin folder at install time. Any player Shima can read (Roon, Spotify, browsers…) shows up. The strip layout has only been checked on an N4 Pro.
 
 ## Settings
 

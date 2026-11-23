@@ -28,8 +28,46 @@ public partial class IslandWindow
             if (total > 0) Toast($"Claude Code {_planLine}", 5);
             if (_tab == Tab.Ai) RefreshAi();
         });
+        _bridge.DeckPressed += action => Dispatcher.BeginInvoke(() =>
+        {
+            switch (action)
+            {
+                case "next": _media.Next(); break;
+                case "previous": _media.Previous(); break;
+                case "allow": Decide("allow"); break;
+                case "deny": Decide("deny"); break;
+                case "ask": AskOnce(); break;
+                case "zone": SwitchZone(); break;
+                case "mute":
+                    if ((_media.ToggleMute() ?? _system.ToggleMute()) is { } muted) Toast(L.T(muted ? "靜音" : "取消靜音"), 2, false);
+                    break;
+                default: _media.PlayPause(); break;
+            }
+        });
+        _bridge.DeckTurned += (what, ticks) => Dispatcher.BeginInvoke(() =>
+        {
+            switch (what)
+            {
+                case "volume":
+                    if ((_media.Nudge(ticks) ?? _system.Nudge(ticks * 2)) is { } volume) Toast(L.F("音量 {0}", volume), 2, false);
+                    break;
+                case "seek":
+                    if (_track is { } t && t.Duration > TimeSpan.Zero)
+                    {
+                        var to = t.Now + TimeSpan.FromSeconds(ticks * 5);
+                        _media.Seek(to < TimeSpan.Zero ? TimeSpan.Zero : to > t.Duration ? t.Duration : to);
+                    }
+                    break;
+                case "shift": ShiftLyrics(ticks * 100); break;
+                case "zone": SwitchZone(); break;
+            }
+        });
         InitExamples();
-        Loaded += (_, _) => _bridge.Start();
+        Loaded += (_, _) =>
+        {
+            _bridge.Start();
+            if (StreamDock.Installed) StreamDock.Install();   // 跟著 Shima 一起更新
+        };
     }
 
     // ---------------------------------------------------------------- Claude Code

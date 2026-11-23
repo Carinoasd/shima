@@ -98,6 +98,19 @@ public sealed class SystemWatch : IDisposable
         catch (Exception e) { Log.Write("system (set volume): " + e.Message); return null; }
     }
 
+    /// <summary>系統靜音開關。回傳現在是不是靜音；沒有播放裝置就是 null。</summary>
+    public bool? ToggleMute()
+    {
+        try
+        {
+            if (_output == null) return null;
+            var volume = _output.AudioEndpointVolume;
+            volume.Mute = !volume.Mute;
+            return volume.Mute;
+        }
+        catch (Exception e) { Log.Write("system (mute): " + e.Message); return null; }
+    }
+
     /// <summary>一種狀態 → 給人看的一行字。</summary>
     public static string Line(string kind, string value) => kind switch
     {

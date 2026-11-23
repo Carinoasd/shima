@@ -51,6 +51,8 @@ public partial class IslandWindow
         var s = AppSettings.Current;
         _loadingSettings = true;
         StartupSwitch.IsChecked = Startup.Enabled;
+        DeckSwitch.Visibility = Agents.StreamDock.Available ? Visibility.Visible : Visibility.Collapsed;
+        DeckSwitch.IsChecked = Agents.StreamDock.Installed;
         FullscreenSwitch.IsChecked = s.HideInFullscreen;
         AudioSwitch.IsChecked = s.AudioReactive;
         NotifySwitch.IsChecked = s.Notifications;
@@ -96,6 +98,17 @@ public partial class IslandWindow
             FoldersBox.Children.Add(chip);
         }
         if (_tab == Tab.Settings && _expanded) Morph();
+    }
+
+    private void Deck_Click(object sender, RoutedEventArgs e)
+    {
+        if (_loadingSettings) return;
+        if (DeckSwitch.IsChecked == true)
+        {
+            DeckSwitch.IsChecked = Agents.StreamDock.Install();
+            if (DeckSwitch.IsChecked == true) Toast(L.T("重新開啟 Stream Dock 後，把 Shima 拖到按鍵上"), 6);
+        }
+        else Agents.StreamDock.Remove();
     }
 
     private void Switch_Click(object sender, RoutedEventArgs e)

@@ -18,7 +18,8 @@ public static class Chinese
         {
             var buffer = new char[text.Length];
             int n = LCMapStringEx("zh-CN", LCMAP_TRADITIONAL_CHINESE, text, text.Length, buffer, buffer.Length, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            return n > 0 ? new string(buffer, 0, n) : text;
+            // 對照表把「于」當成繁體字留著不動；歌詞裡它幾乎都是「於」
+            return n > 0 ? new string(buffer, 0, n).Replace('于', '於') : text;
         }
         catch { return text; }
     }

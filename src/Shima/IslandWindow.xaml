@@ -340,6 +340,7 @@
               <CheckBox x:Name="FullscreenSwitch" Style="{StaticResource Switch}" Content="全螢幕時隱藏" Click="Switch_Click"/>
               <CheckBox x:Name="AudioSwitch" Style="{StaticResource Switch}" Content="跟著聲音動" Click="Switch_Click"/>
               <CheckBox x:Name="NotifySwitch" Style="{StaticResource Switch}" Content="顯示訊息通知" Click="Notify_Click"/>
+              <CheckBox x:Name="DeckSwitch" Style="{StaticResource Switch}" Content="Stream Dock" Click="Deck_Click"/>
               <CheckBox x:Name="SystemSwitch" Style="{StaticResource Switch}" Content="顯示音量、電量、網路的變化" Click="Switch_Click"/>
               <CheckBox x:Name="DictationSwitch" Style="{StaticResource Switch}" Content="語音辨識用 Windows 的聽寫" Click="Switch_Click"/>
               <DockPanel Height="32">

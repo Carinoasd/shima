@@ -36,6 +36,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 - **Claude Code**：權限請求顯示在島上，按「允許／拒絕／回終端機」；顯示它的待辦進度（3/5 · 正在做的事），做完會通知
 - **問 AI**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來；可以幫忙切歌；按 Ctrl+Alt+V 隨時問一句。可以接 Claude、OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter、本機的 Ollama，或任何 OpenAI 相容的服務
 - **訊息通知**：Discord、LINE、Telegram 等通訊軟體的通知在島上閃一下（設定頁開啟）
+- **Stream Dock**：把島搬到 Stream Dock 的觸控長條或按鍵上：封面、唱到哪一句、小 Claude、進度；按一下暫停或換歌（設定頁開啟）
 - **可以拖**：按住膠囊拖到任何位置、任何螢幕，會記住；右鍵可以回到正中間
 - 前景是全螢幕程式（遊戲、影片）時自動隱藏
 
@@ -51,7 +52,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 | 快速鍵 | |
 | --- | --- |
-| Ctrl+Alt+Space | 展開／收起 |
+| Ctrl+Alt+Space | 展開／收起（被別的程式佔用時依序改用 Ctrl+Alt+I、Ctrl+Shift+Space，啟動時會提示） |
 | Ctrl+Alt+V | 問語音助手一句 |
 
 系統匣的圖示可以把島藏起來或結束。展開後最右邊的齒輪是設定。
@@ -86,6 +87,30 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | 自訂 | 同上，自己填 API 網址（結尾到 `/v1`） |
 
 沒填金鑰時會讀那一家慣用的環境變數（`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`、`GEMINI_API_KEY`…）。不支援工具呼叫的模型仍然可以聊天，只是沒辦法幫忙切歌。
+
+## Stream Dock
+
+給 HotSpot／Mirabox 的 Stream Dock（N4 Pro 等）。電腦上裝了 Stream Dock 軟體，Shima 的設定頁才會出現「Stream Dock」開關；打開後外掛會放進 `%APPDATA%\HotSpot\StreamDock\plugins\com.carinoasd.shima.sdPlugin`，重新開啟 Stream Dock 就能在動作清單找到 **Shima**。關掉開關會把外掛資料夾刪掉。
+
+| 按鍵與長條 | 顯示 | 按下 |
+| --- | --- | --- |
+| Lyrics | 拖到觸控長條：封面、唱到哪一句與第二行、小 Claude、進度；沒有歌的時候是時鐘與番茄鐘。拖到按鍵：目前這句歌詞 | 播放／暫停 |
+| Now Playing | 封面 | 播放／暫停 |
+| Big Cover | 放在相鄰的幾顆按鍵上，拼成一張大封面 | 播放／暫停 |
+| Previous／Next | | 上一首／下一首 |
+| Ask AI | 麥克風，在聽的時候變紅 | 問語音助手一句 |
+| Allow／Deny | 勾與叉，Claude Code 在等權限時才亮 | 允許／拒絕 |
+
+| 旋鈕 | 轉 | 按 |
+| --- | --- | --- |
+| Volume | 音量（Roon 在播就調 Roon，否則調電腦） | 靜音 |
+| Seek | 前後 5 秒 | 播放／暫停 |
+| Lyrics Timing | 歌詞提早／延後 0.1 秒 | 播放／暫停 |
+| Roon Zone | 換播放區域 | 換播放區域 |
+
+長條會跟著島插播：Claude Code 要權限時顯示工具與內容，右邊兩顆按鈕是允許、拒絕；語音助手在聽與回答、Claude Code 的進度、訊息通知、喝水提醒也會顯示。
+
+外掛只跟 Shima 開在本機的 `localhost:47813` 說話，用的 token 在安裝時寫進外掛資料夾。Shima 讀得到的播放器（Roon、Spotify、瀏覽器…）都會顯示。長條的版面只在 N4 Pro 上看過。
 
 ## 設定
 

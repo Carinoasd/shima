@@ -1,0 +1,223 @@
+{
+  "SDKVersion": 1,
+  "Author": "Carinoasd",
+  "Name": "Shima",
+  "Description": "Lyrics and playback from Shima",
+  "Category": "Shima",
+  "CategoryIcon": "icon.png",
+  "Icon": "icon.png",
+  "CodePath": "index.html",
+  "Version": "0.5.0",
+  "URL": "https://github.com/Carinoasd/shima",
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "Software": {
+    "MinimumVersion": "3.10.188.226"
+  },
+  "Actions": [
+    {
+      "UUID": "com.carinoasd.shima.lyrics",
+      "Name": "Lyrics",
+      "Tooltip": "Lyrics",
+      "Icon": "lyrics.png",
+      "States": [
+        {
+          "Image": "lyrics.png"
+        }
+      ],
+      "Settings": {
+        "sized": 2,
+        "touchbarWidth": 800,
+        "touchbarHeight": 128,
+        "ActionGeometry": {
+          "width": 800,
+          "height": 128
+        }
+      },
+      "Controllers": [
+        "Keypad",
+        "Information"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.cover",
+      "Name": "Now Playing",
+      "Tooltip": "Now Playing",
+      "Icon": "icon.png",
+      "States": [
+        {
+          "Image": "icon.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.previous",
+      "Name": "Previous",
+      "Tooltip": "Previous",
+      "Icon": "previous.png",
+      "States": [
+        {
+          "Image": "previous.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.next",
+      "Name": "Next",
+      "Tooltip": "Next",
+      "Icon": "next.png",
+      "States": [
+        {
+          "Image": "next.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.tile",
+      "Name": "Big Cover",
+      "Tooltip": "Big Cover",
+      "Icon": "icon.png",
+      "States": [
+        {
+          "Image": "icon.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.ask",
+      "Name": "Ask AI",
+      "Tooltip": "Ask AI",
+      "Icon": "ask.png",
+      "States": [
+        {
+          "Image": "ask.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.allow",
+      "Name": "Allow (Claude Code)",
+      "Tooltip": "Allow (Claude Code)",
+      "Icon": "allow.png",
+      "States": [
+        {
+          "Image": "allow.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.deny",
+      "Name": "Deny (Claude Code)",
+      "Tooltip": "Deny (Claude Code)",
+      "Icon": "deny.png",
+      "States": [
+        {
+          "Image": "deny.png"
+        }
+      ],
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.volume",
+      "Name": "Volume",
+      "Tooltip": "Volume",
+      "Icon": "volume.png",
+      "States": [
+        {
+          "Image": "volume.png"
+        }
+      ],
+      "Controllers": [
+        "Knob"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.seek",
+      "Name": "Seek",
+      "Tooltip": "Seek",
+      "Icon": "seek.png",
+      "States": [
+        {
+          "Image": "seek.png"
+        }
+      ],
+      "Controllers": [
+        "Knob"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.shift",
+      "Name": "Lyrics Timing",
+      "Tooltip": "Lyrics Timing",
+      "Icon": "shift.png",
+      "States": [
+        {
+          "Image": "shift.png"
+        }
+      ],
+      "Controllers": [
+        "Knob"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.carinoasd.shima.zone",
+      "Name": "Roon Zone",
+      "Tooltip": "Roon Zone",
+      "Icon": "zone.png",
+      "States": [
+        {
+          "Image": "zone.png"
+        }
+      ],
+      "Controllers": [
+        "Knob"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false
+    }
+  ]
+}

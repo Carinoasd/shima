@@ -165,9 +165,14 @@ public sealed class RoonSource : IMediaSource
                     foreach (var s in body["zones_seek_changed"] as JsonArray ?? [])
                         if (_zones.TryGetValue(s?["zone_id"]?.ToString() ?? "", out var zone) && zone["now_playing"] is JsonObject np)
                             np["seek_position"] = Number(s?["seek_position"]);
-                    // 使用者指定過播放區域就一直看它（它還在、還有歌的話）
-                    var pinned = _pinned.Length > 0 && _zones.TryGetValue(_pinned, out var p) && p["now_playing"] is JsonObject ? p : null;
-                    newCover = Show(pinned ?? Pick(_zones.Values, _zoneId));
+                    var shownZone = Pick(_zones.Values, _zoneId, AppSettings.Current.RoonZone, _pinned);
+                    newCover = Show(shownZone);
+                    // 記住最後在播的區域：全部暫停或重開 Shima 之後，按播放要控制的是它
+                    if (shownZone?["state"]?.ToString() == "playing" && AppSettings.Current.RoonZone != _zoneId)
+                    {
+                        AppSettings.Current.RoonZone = _zoneId;
+                        AppSettings.Current.Save();
+                    }
                 }
                 Changed?.Invoke();
                 if (newCover) _ = LoadCoverAsync();
@@ -175,14 +180,20 @@ public sealed class RoonSource : IMediaSource
         }
     }
 
-    /// <summary>要顯示的 zone：目前這個還在播就不換，否則換到正在播的，再不然留著暫停的那個。</summary>
-    public static JsonObject? Pick(IEnumerable<JsonObject> zones, string shownId)
+    /// <summary>
+    /// 要顯示（也就是按鍵要控制）的 zone。正在播的優先：指定的、目前顯示的、其他的；
+    /// 都沒在播就用最後播過的那個，再不然留著目前的，最後才猜（停在歌曲中間的比停在開頭的像是剛剛在聽的）。
+    /// </summary>
+    public static JsonObject? Pick(IEnumerable<JsonObject> zones, string shownId, string lastPlayedId = "", string pinnedId = "")
     {
         var withTrack = zones.Where(z => z["now_playing"] is JsonObject).ToList();
         static bool Playing(JsonObject z) => z["state"]?.ToString() == "playing";
-        var shown = withTrack.FirstOrDefault(z => z["zone_id"]?.ToString() == shownId);
+        JsonObject? Find(string id) => id.Length == 0 ? null : withTrack.FirstOrDefault(z => z["zone_id"]?.ToString() == id);
+        JsonObject? pinned = Find(pinnedId), shown = Find(shownId);
+        if (pinned != null && Playing(pinned)) return pinned;
         if (shown != null && Playing(shown)) return shown;
-        return withTrack.FirstOrDefault(Playing) ?? shown ?? withTrack.FirstOrDefault();
+        return withTrack.FirstOrDefault(Playing) ?? pinned ?? Find(lastPlayedId) ?? shown
+            ?? withTrack.OrderByDescending(z => z["state"]?.ToString() == "paused" && Number(z["now_playing"]!["seek_position"]) > 0).FirstOrDefault();
     }
 
     /// <summary>把 zone 的歌讀進欄位（呼叫前要先鎖）。回傳 true 表示要去抓新封面。</summary>
@@ -296,6 +307,23 @@ public sealed class RoonSource : IMediaSource
         }
         _ = RequestAsync(Transport + "/change_volume", "command", new JsonObject { ["output_id"] = output, ["how"] = "absolute", ["value"] = value });
         return (int)value;
+    }
+
+    /// <summary>靜音開關。回傳現在是不是靜音；這個區域不能調音量就是 null。</summary>
+    public bool? ToggleMute()
+    {
+        string output;
+        bool muted;
+        lock (_lock)
+        {
+            if (!_zones.TryGetValue(_zoneId, out var zone) || (zone["outputs"] as JsonArray)?.FirstOrDefault(o => o?["volume"] is JsonObject) is not { } o) return null;
+            var volume = o["volume"]!;
+            output = o["output_id"]?.ToString() ?? "";
+            muted = !(volume["is_muted"] is JsonValue v && v.TryGetValue<bool>(out var m) && m);
+            volume["is_muted"] = muted;
+        }
+        _ = RequestAsync(Transport + "/mute", "command", new JsonObject { ["output_id"] = output, ["how"] = muted ? "mute" : "unmute" });
+        return muted;
     }
 
     public void PlayPause() => Command("control", new JsonObject { ["control"] = "playpause" });

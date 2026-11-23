@@ -50,6 +50,8 @@ public sealed class MediaHub
     /// <summary>音量加減（目前只有 Roon 支援）。</summary>
     public int? Nudge(int steps) => ReferenceEquals(Active(out _), _roon) ? _roon.Nudge(steps) : null;
 
+    public bool? ToggleMute() => ReferenceEquals(Active(out _), _roon) ? _roon.ToggleMute() : null;
+
     public void PlayPause() => Active(out _)?.PlayPause();
     public void Play() => Active(out _)?.Play();
     public void Pause() => Active(out _)?.Pause();

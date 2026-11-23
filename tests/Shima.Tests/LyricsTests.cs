@@ -232,6 +232,9 @@ public class SecondLineTests
     }
 
     [Fact]
+    public void 于轉成於() => Assert.Equal("屬於我們的故事", Chinese.ToTraditional("属于我们的故事"));
+
+    [Fact]
     public void 簡體字轉成繁體字() => Assert.Equal("想要和你一同見證 永不消失的夢想", Chinese.ToTraditional("想要和你一同见证 永不消失的梦想"));
 }
 

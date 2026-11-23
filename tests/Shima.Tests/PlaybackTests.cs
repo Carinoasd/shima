@@ -63,6 +63,26 @@ public class RoonZoneTests
         Assert.Equal("b", RoonSource.Pick(zones, "b")!["zone_id"]!.ToString());
         Assert.Null(RoonSource.Pick([Zone("c", "stopped", track: false)], "c"));
     }
+
+    [Fact]
+    public void 都暫停時_控制最後在播的那個()
+    {
+        var idle = Zone("a", "paused"); idle["now_playing"]!["seek_position"] = 0.0;
+        var listening = Zone("b", "paused"); listening["now_playing"]!["seek_position"] = 88.0;
+        JsonObject[] zones = [idle, listening];
+        Assert.Equal("b", RoonSource.Pick(zones, "")!["zone_id"]!.ToString());
+        Assert.Equal("b", RoonSource.Pick(zones, "a", lastPlayedId: "b")!["zone_id"]!.ToString());
+        Assert.Equal("a", RoonSource.Pick(zones, "b", lastPlayedId: "b", pinnedId: "a")!["zone_id"]!.ToString());
+    }
+
+    [Fact]
+    public void 指定的區域沒在播時_跟著正在播的()
+    {
+        JsonObject[] zones = [Zone("a", "paused"), Zone("b", "playing")];
+        Assert.Equal("b", RoonSource.Pick(zones, "a", pinnedId: "a")!["zone_id"]!.ToString());
+        JsonObject[] both = [Zone("a", "playing"), Zone("b", "playing")];
+        Assert.Equal("a", RoonSource.Pick(both, "b", pinnedId: "a")!["zone_id"]!.ToString());
+    }
 }
 
 public class TrackTests
