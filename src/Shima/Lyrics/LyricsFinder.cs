@@ -49,6 +49,20 @@ public sealed class LyricsFinder
         return title.Length == 0 ? null : new SongQuery(title, artist, track.Album, track.Duration.TotalSeconds);
     }
 
+    /// <summary>整理過的歌名、藝人（跟查歌詞用的一樣）；認不出歌名是 null。</summary>
+    public static SongQuery? QueryOf(Track track) => Query(track);
+
+    /// <summary>
+    /// 這首歌換了歌詞檔（剛存了 .lrc）：忘掉記住的結果、自己的歌詞資料夾重新掃一次，下次查才會用到新檔案。
+    /// </summary>
+    public void Forget(Track track)
+    {
+        var id = "|" + IdOf(track) + "|";
+        lock (_memory)
+            foreach (var key in _memory.Keys.Where(k => k.Contains(id, StringComparison.Ordinal)).ToList()) _memory.Remove(key);
+        foreach (var local in _providers.OfType<LocalProvider>()) local.Reindex();
+    }
+
     /// <summary>一首歌的身分（不含長度）：使用者為它選的歌詞來源、調的時間都記在這個名字下。</summary>
     public static string IdOf(Track track) =>
         Query(track) is { } q ? $"{Titles.Norm(q.Artist)}|{Titles.Norm(q.Title)}" : "";

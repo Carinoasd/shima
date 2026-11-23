@@ -54,8 +54,109 @@ public static partial class Lrc
                 });
             }
         }
-        lines.Sort((a, b) => a.Time.CompareTo(b.Time));
-        return lines;
+        // 要穩定排序：雙語 .lrc 同一個時間的兩行，原文在前、翻譯在後，順序不能被打亂
+        return lines.OrderBy(l => l.Time).ToList();
+    }
+
+    /// <summary>
+    /// 本機 .lrc 轉成一份歌詞：同一個時間有兩三行的是雙語歌詞，第一行是原文，接著是翻譯、羅馬拼音
+    /// （Shima 自己存的檔案開頭有 [shima:translation,romaji] 說明順序）。
+    /// 沒有標記的檔案，要有一半以上的句子都成對才當成雙語，免得開頭好幾行 [00:00.00] 的製作名單被誤認成翻譯。
+    /// </summary>
+    public static LyricSheet ParseSheet(string lrc)
+    {
+        lrc = lrc.Replace("\r", "");
+        var lines = Parse(lrc);
+        var tag = Layers().Match(lrc);
+        var groups = new List<List<LyricLine>>();
+        foreach (var line in lines)
+            if (groups.Count > 0 && groups[^1][0].Time == line.Time) groups[^1].Add(line); else groups.Add([line]);
+
+        string[] layers;
+        if (tag.Success) layers = tag.Groups[1].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        else
+        {
+            var sung = groups.Where(g => g[0].Text.Length > 0).ToList();
+            bool paired = sung.Count > 0 && sung.Count(g => g.Count > 1) * 2 >= sung.Count;
+            if (!paired) return new LyricSheet(lines, true);
+            layers = ["translation", "romaji"];
+        }
+
+        var main = groups.Select(g => g[0]).ToList();
+        IReadOnlyList<string>? Layer(string name)
+        {
+            int slot = Array.IndexOf(layers, name) + 1;
+            if (slot == 0) return null;
+            var texts = groups.Select(g => slot < g.Count ? g[slot].Text : "").ToList();
+            return texts.Any(t => t.Length > 0) ? texts : null;
+        }
+        return new LyricSheet(main, true) { Translation = Layer("translation"), Romaji = Layer("romaji") };
+    }
+
+    /// <summary>
+    /// 一份同步歌詞寫成 .lrc：使用者調過的時間（shift，正的是提早）直接算進每一句與每個字；
+    /// 有翻譯／羅馬拼音的話，同一個時間接著寫一行；有逐字時間就寫成加強版 LRC（&lt;mm:ss.xxx&gt;）。
+    /// 時間取到毫秒；兩句同一個時間的話後一句挪 1 毫秒，讀回來才不會被當成翻譯。
+    /// </summary>
+    public static string Write(LyricSheet sheet, TimeSpan shift, string title = "", string artist = "")
+    {
+        var sb = new System.Text.StringBuilder();
+        static string Tag(string s) => s.Replace("\r", " ").Replace("\n", " ").Replace("[", "(").Replace("]", ")").Trim();
+        if (Tag(title) is { Length: > 0 } ti) sb.Append("[ti:").Append(ti).Append("]\n");
+        if (Tag(artist) is { Length: > 0 } ar) sb.Append("[ar:").Append(ar).Append("]\n");
+
+        var layers = new List<IReadOnlyList<string>>();
+        var names = new List<string>();
+        if (sheet.Translation is { } tr) { layers.Add(tr); names.Add("translation"); }
+        if (sheet.Romaji is { } ro) { layers.Add(ro); names.Add("romaji"); }
+        if (names.Count > 0) sb.Append("[shima:").Append(string.Join(",", names)).Append("]\n");
+
+        long Ms(TimeSpan t) => Math.Max(0, (long)Math.Round((t - shift).TotalMilliseconds));
+        long last = -1;
+        for (int i = 0; i < sheet.Lines.Count; i++)
+        {
+            var line = sheet.Lines[i];
+            long at = Math.Max(Ms(line.Time), last + 1);
+            last = at;
+            var stamp = "[" + Clock(at) + "]";
+            sb.Append(stamp);
+            if (line.Words is { Count: > 0 } words && WordTiming.Fits(line.Text, words))
+            {
+                for (int k = 0; k < words.Count; k++)
+                {
+                    long start = Ms(words[k].Start), end = Ms(words[k].End);
+                    sb.Append('<').Append(Clock(start)).Append('>').Append(words[k].Text);
+                    // 下一個字不是緊接著開始（中間停頓），或是最後一個字：寫出結束時間，長度才讀得回來
+                    if (k + 1 == words.Count || Ms(words[k + 1].Start) != end) sb.Append('<').Append(Clock(end)).Append('>');
+                }
+            }
+            else sb.Append(line.Text);
+            sb.Append('\n');
+
+            // 後面的層都是空的就不用寫；中間空的那層要留一行空的，順序才對得上
+            int used = layers.FindLastIndex(l => i < l.Count && l[i].Length > 0);
+            if (line.Text.Length == 0) used = -1;
+            for (int k = 0; k <= used; k++) sb.Append(stamp).Append(i < layers[k].Count ? OneLine(layers[k][i]) : "").Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    private static string OneLine(string s) => s.Replace("\r", " ").Replace("\n", " ").Trim();
+
+    private static string Clock(long ms) =>
+        $"{ms / 60000:00}:{ms / 1000 % 60:00}.{ms % 1000:000}";
+
+    /// <summary>整份歌詞的純文字：一行一句，有翻譯的那句下一行是翻譯；間奏的空行略過。</summary>
+    public static string PlainText(LyricSheet sheet)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < sheet.Lines.Count; i++)
+        {
+            if (sheet.Lines[i].Text.Length == 0) continue;
+            sb.Append(sheet.Lines[i].Text).Append('\n');
+            if (sheet.Translation is { } tr && i < tr.Count && tr[i].Length > 0) sb.Append(tr[i]).Append('\n');
+        }
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>
@@ -114,6 +215,9 @@ public static partial class Lrc
 
     [GeneratedRegex(@"^\s*\[offset:\s*([+-]?\d+)\s*\]", RegexOptions.IgnoreCase)]
     private static partial Regex Offset();
+
+    [GeneratedRegex(@"^\s*\[shima:([a-z,\s]+)\]\s*$", RegexOptions.Multiline)]
+    private static partial Regex Layers();
 
     [GeneratedRegex(@"^(?:\[[^\]]*\])+\s*[^\[\]:：]{1,12}\s[:：]\s")]
     private static partial Regex Credit();
