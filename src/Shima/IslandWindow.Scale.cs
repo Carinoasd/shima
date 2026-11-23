@@ -20,8 +20,12 @@ public partial class IslandWindow
 
     private double _scale = 1;
 
-    /// <summary>島展開到這麼高時視窗要多高（視窗的單位，已乘上比例）。</summary>
-    private double WindowHeightFor(double islandHeight) => IslandScale.WindowHeight(BaseWindowHeight, islandHeight, _scale);
+    /// <summary>
+    /// 島展開到這麼高時視窗要多高（視窗的單位，已乘上比例）。收著的時候只留膠囊加上陰影要的高度（約 92）：
+    /// 透明視窗裡任何東西重畫都要整塊重新呈現，膠囊一直在動，視窗越矮越省（量到播歌時約省 1.5% 一核）。
+    /// 展開前 <see cref="Morph"/> 會先把視窗長高，收合的動畫停下來才縮回去，所以途中不會被切掉。
+    /// </summary>
+    private double WindowHeightFor(double islandHeight) => IslandScale.WindowHeight(_expanded ? BaseWindowHeight : 0, islandHeight, _scale);
 
     /// <summary>照設定套用大小：啟動時一次，設定頁改了再一次，不用重開。</summary>
     private void ApplyScale()

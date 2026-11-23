@@ -88,3 +88,16 @@ public class BarsTests
         Assert.False(Bars.Worth(drawn, [0.9, 0.9, 0.9, 0.9], 0));         // 還沒排版
     }
 }
+
+public class CollapsedWindowTests
+{
+    [Theory]
+    [InlineData(1, 92)]       // 上面 8、膠囊 36、下面 48 留給陰影與回彈
+    [InlineData(0.9, 83)]
+    [InlineData(1.3, 120)]
+    public void 收著時視窗只留膠囊與陰影的高度(double scale, double expected) =>
+        Assert.Equal(expected, IslandScale.WindowHeight(0, 36, scale));
+
+    [Fact]
+    public void 展開時照舊至少312() => Assert.Equal(312, IslandScale.WindowHeight(312, 36, 1));
+}
