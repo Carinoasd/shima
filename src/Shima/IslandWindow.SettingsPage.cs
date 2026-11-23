@@ -123,12 +123,14 @@ public partial class IslandWindow
         rows.Add(Toggle("開機時啟動", Startup.Enabled, v => Startup.Enabled = v));
         rows.Add(Toggle("全螢幕時隱藏", s.HideInFullscreen, v => s.HideInFullscreen = v));
         rows.Add(Toggle("檢查新版", s.CheckUpdates, v => s.CheckUpdates = v));
+        rows.Add(Gap());
         rows.Add(Toggle("顯示音量、電量、網路的變化", s.SystemStatus, v => s.SystemStatus = v));
         // 通知要先問 Windows、Stream Dock 要裝外掛：開關的結果不一定是點下去的那個，各自有處理的方法
         rows.Add(NotifySwitch = SettingsSwitch("顯示訊息通知", s.Notifications, Notify_Click));
         DeckSwitch = SettingsSwitch("Stream Dock", Agents.StreamDock.Installed, Deck_Click);
         if (Agents.StreamDock.Available) rows.Add(DeckSwitch);
 
+        rows.Add(Gap());
         foreach (var row in HotkeySettingsRows()) rows.Add(row);
 
         // —— 其他功能的設定列接在這裡（一般）——
@@ -193,14 +195,16 @@ public partial class IslandWindow
             rows.Add(chip);
         }
 
-        rows.Add(Entry("Roon", s.RoonHost, 150, v => { if (v != s.RoonHost) { s.RoonHost = v; Toast(L.T("重新啟動後生效"), 4, false); } }));
+        rows.Add(Gap());
+        rows.Add(Entry("Roon", s.RoonHost, 190, v => { if (v != s.RoonHost) { s.RoonHost = v; Toast(L.T("重新啟動後生效"), 4, false); } }));
         rows.Add(Toggle("Roon 搜尋", s.RoonSearch, v => { s.RoonSearch = v; Toast(L.T("重新啟動 Shima，再到 Roon「設定 → 擴充功能」啟用一次"), 10, false); }));
+        rows.Add(Gap());
         rows.Add(Toggle("記下聽了什麼", s.History, v => s.History = v));
         rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => s.ListenBrainzToken = v));
         foreach (var row in LastFmSettingsRows()) rows.Add(row);
 
-        rows.Add(Heading("Discord Application ID"));
-        rows.Add(DiscordBox = SettingsBox(s.DiscordClientId, double.NaN, 30));
+        rows.Add(Gap());
+        rows.Add(SettingsRow("Discord Application ID", DiscordBox = SettingsBox(s.DiscordClientId, 190, 26)));
         rows.Add(Toggle("Discord 顯示封面", s.DiscordCover, v => s.DiscordCover = v));
 
         // —— 其他功能的設定列接在這裡（音樂）——
@@ -215,6 +219,7 @@ public partial class IslandWindow
         rows.Add(Toggle("一直對話到再按一次", s.VoiceContinuous, v => s.VoiceContinuous = v));
         rows.Add(Toggle("說「Shima」就開始聽", s.WakeWord, v => { s.WakeWord = v; ApplyWakeWord(); }));
 
+        rows.Add(Gap());
         // 喝水提醒：開關，右邊是幾分鐘一次
         WaterBox = SettingsBox(s.WaterMinutes.ToString(), 52, 26);
         WaterBox.Margin = new Thickness(8, 0, 0, 0);
@@ -232,13 +237,21 @@ public partial class IslandWindow
         waterRow.Children.Add(water);
         rows.Add(waterRow);
 
-        rows.Add(Heading("番茄鐘：專注／休息（分鐘）"));
-        FocusBox = SettingsBox(s.FocusMinutes.ToString(), 64, 30);
-        BreakBox = SettingsBox(s.BreakMinutes.ToString(), 64, 30);
-        BreakBox.Margin = new Thickness(8, 0, 0, 0);
-        var pomodoro = new StackPanel { Orientation = Orientation.Horizontal };
-        pomodoro.Children.Add(FocusBox);
-        pomodoro.Children.Add(BreakBox);
+        // 番茄鐘：專注／休息各幾分鐘，排成跟喝水提醒一樣的一列
+        FocusBox = SettingsBox(s.FocusMinutes.ToString(), 52, 26);
+        FocusBox.ToolTip = L.T("專注");
+        BreakBox = SettingsBox(s.BreakMinutes.ToString(), 52, 26);
+        BreakBox.ToolTip = L.T("休息");
+        var dim = new SolidColorBrush(Color.FromArgb(0x90, 255, 255, 255));
+        var slash = new TextBlock { Text = "／", FontSize = 12, Foreground = dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(3, 0, 3, 0) };
+        var minutes = new TextBlock { Text = L.T("分鐘"), FontSize = 12, Foreground = dim, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 0) };
+        var pomodoro = new DockPanel { Height = 32, Margin = new Thickness(2, 0, 0, 2) };
+        foreach (var part in new FrameworkElement[] { minutes, BreakBox, slash, FocusBox })
+        {
+            DockPanel.SetDock(part, Dock.Right);
+            pomodoro.Children.Add(part);
+        }
+        pomodoro.Children.Add(new TextBlock { Text = L.T("番茄鐘"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
         rows.Add(pomodoro);
 
         // —— 其他功能的設定列接在這裡（AI 與工具）——
@@ -246,7 +259,10 @@ public partial class IslandWindow
 
     // ---------------------------------------------------------------- 只有這一頁用的小零件
 
-    /// <summary>一列：左邊文字，右邊一個控制項（語言按鈕）。</summary>
+    /// <summary>兩組設定之間的空隙：用距離分組，不另外放小標題。</summary>
+    private static Border Gap() => new() { Height = 10 };
+
+    /// <summary>一列：左邊文字，右邊一個控制項（語言按鈕、輸入框）。</summary>
     private static DockPanel SettingsRow(string text, FrameworkElement right)
     {
         DockPanel.SetDock(right, Dock.Right);

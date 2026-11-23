@@ -141,9 +141,18 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="PasswordBox">
-            <Border Background="#1FFFFFFF" CornerRadius="10" Padding="10,0">
+            <Border x:Name="Bg" Background="#1FFFFFFF" BorderBrush="Transparent" BorderThickness="1" CornerRadius="10" Padding="10,0">
               <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="#2BFFFFFF"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="#2BFFFFFF"/>
+                <Setter TargetName="Bg" Property="BorderBrush" Value="#80FFFFFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
