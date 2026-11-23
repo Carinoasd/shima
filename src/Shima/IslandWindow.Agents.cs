@@ -326,8 +326,8 @@ public partial class IslandWindow
 
     /// <summary>串流中的回答，每一個片段都要更新：只有字多到換行、高度變了才讓島重新變形，不要每個字都重排整個面板。</summary>
     /// <remarks>
-    /// 超過 MaxHeight 的部分維持截斷、顯示開頭：答案是從頭讀的，而且整段完成後畫面本來就是開頭加刪節號，
-    /// 串流途中改成跟著最新的字捲動的話，結束那一刻會整段跳回開頭。
+    /// 長過 AnswerView 的 MaxHeight 之後高度就不再變，島也不用再變形：回答在裡面捲動、跟著最新的字。
+    /// 最後整段的答案（Say）跟串流的最後一份只差頭尾空白，AnswerView 會當成同一段，不會跳回開頭。
     /// </remarks>
     private void SayPartial(string text)
     {

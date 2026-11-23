@@ -321,7 +321,7 @@
                 <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 AI，按 Enter"/>
               </Grid>
               <WrapPanel x:Name="ExamplesBox" Margin="0,10,0,-4"/>
-              <TextBlock x:Name="VoiceText" FontSize="13" Foreground="#D0FFFFFF" TextWrapping="Wrap" MaxHeight="150" TextTrimming="CharacterEllipsis" Margin="4,10,4,0" Visibility="Collapsed"/>
+              <s:AnswerView x:Name="VoiceText" Margin="4,10,4,0" Visibility="Collapsed"/>
               <DockPanel Height="30" Margin="0,12,0,0">
                 <Button x:Name="ServiceButton" DockPanel.Dock="Left" Style="{StaticResource Pill}" Height="28" Padding="12,0" ToolTip="AI 服務" Click="Service_Click"/>
                 <Button x:Name="ModelButton" Style="{StaticResource Pill}" Height="28" Padding="12,0" Margin="8,0,0,0" HorizontalAlignment="Left" MaxWidth="290" ToolTip="模型" Click="Model_Click"/>
