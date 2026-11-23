@@ -23,6 +23,10 @@ ROWS = """
 設定 | 设置 | Settings | 設定 | 설정 | Ajustes | Réglages | Einstellungen | Definições | Impostazioni | Настройки
 語音助手 | 语音助手 | Voice assistant | 音声アシスタント | 음성 비서 | Asistente de voz | Assistant vocal | Sprachassistent | Assistente de voz | Assistente vocale | Голосовой помощник
 連接 | 连接 | Connect | 接続 | 연결 | Conectar | Connecter | Verbinden | Ligar | Collega | Подключить
+以後都允許 | 以后都允许 | Always allow | 常に許可 | 항상 허용 | Permitir siempre | Toujours autoriser | Immer erlauben | Permitir sempre | Consenti sempre | Всегда разрешать
+所有專案 | 所有项目 | All projects | すべてのプロジェクト | 모든 프로젝트 | Todos los proyectos | Tous les projets | Alle Projekte | Todos os projetos | Tutti i progetti | Все проекты
+刪除 | 删除 | Delete | 削除 | 삭제 | Eliminar | Supprimer | Löschen | Eliminar | Elimina | Удалить
+全部清除 | 全部清除 | Clear all | すべて消去 | 모두 지우기 | Borrar todo | Tout effacer | Alle löschen | Limpar tudo | Cancella tutto | Очистить всё
 開始／暫停 | 开始／暂停 | Start / pause | 開始／一時停止 | 시작／일시정지 | Iniciar / pausar | Démarrer / pause | Start / Pause | Iniciar / pausar | Avvia / pausa | Старт / пауза
 重來 | 重来 | Restart | やり直す | 다시 시작 | Reiniciar | Recommencer | Neu starten | Recomeçar | Ricomincia | Заново
 把檔案拖到島上暫放 | 把文件拖到岛上暂存 | Drop files on the island to keep them here | ファイルを島にドロップして一時保管 | 파일을 섬에 끌어다 놓아 보관 | Suelta archivos en la isla para guardarlos aquí | Déposez des fichiers sur l'île pour les garder ici | Dateien auf die Insel ziehen, um sie abzulegen | Largue ficheiros na ilha para os guardar aqui | Trascina i file sull'isola per tenerli qui | Перетащите файлы на остров, чтобы отложить их

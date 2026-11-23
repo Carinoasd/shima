@@ -145,6 +145,7 @@ public partial class IslandWindow
         if (!UrlBox.IsKeyboardFocusWithin) UrlBox.Text = s.AiCustomUrl;
         if (!ApiKeyBox.IsKeyboardFocusWithin) ApiKeyBox.Password = s.HasKey(service.Id) ? s.ApiKey(service.Id) : "";
         _loadingKey = false;
+        RefreshRules();
         if (_tab == Tab.Ai && _expanded) Morph();
     }
 

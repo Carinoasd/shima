@@ -49,21 +49,44 @@ public sealed class AgentRules
             var rules = Loaded();
             if (rules.Contains(rule)) return false;
             rules.Add(rule);
-            Save(rules);
-            return true;
+            if (!Save(rules)) return false;
         }
+        Changed?.Invoke();
+        return true;
     }
 
+    /// <summary>刪掉一條規則（舊版寫法的 Git.exe status 也找得到 git status）。回傳 true 表示真的刪了、也存好了。</summary>
     public bool Remove(AgentRule rule)
     {
         lock (_gate)
         {
             var rules = Loaded();
             if (!rules.Remove(rule) && !rules.Remove(Normalized(rule))) return false;
-            Save(rules);
-            return true;
+            if (!Save(rules)) return false;
         }
+        Changed?.Invoke();
+        return true;
     }
+
+    /// <summary>全部刪掉。本來就沒有規則就什麼都不寫。</summary>
+    public bool Clear()
+    {
+        lock (_gate)
+        {
+            var rules = Loaded();
+            if (rules.Count == 0) return false;
+            if (!Save([])) return false;
+            rules.Clear();
+        }
+        Changed?.Invoke();
+        return true;
+    }
+
+    /// <summary>
+    /// 規則有增減（在改的那個執行緒上、鎖外面觸發）。「以後都允許」是在 hook 的執行緒上、使用者按下去之後才 Add 的，
+    /// 畫面要等這個事件再更新數量，不能在按鈕的 Click 裡馬上讀。
+    /// </summary>
+    public event Action? Changed;
 
     /// <summary>這個請求有沒有被某一條規則允許；有的話回傳那一條。</summary>
     public AgentRule? Match(string tool, JsonNode? input, string? cwd)
@@ -92,7 +115,11 @@ public sealed class AgentRules
         return _rules;
     }
 
-    private void Save(List<AgentRule> rules)
+    /// <summary>
+    /// 存檔；失敗就回傳 false，並丟掉記憶體裡的那份，下次從檔案重新讀：
+    /// 不然畫面上刪掉了、檔案裡卻還在，重開 Shima 之後規則又會回來，比「刪不掉」更糟。
+    /// </summary>
+    private bool Save(List<AgentRule> rules)
     {
         try
         {
@@ -108,8 +135,14 @@ public sealed class AgentRules
             var temp = FilePath + ".tmp";
             File.WriteAllText(temp, array.ToJsonString(new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }) + "\n");
             File.Move(temp, FilePath, overwrite: true);   // 先寫暫存檔再換掉：寫到一半當掉也不會留下半個檔
+            return true;
         }
-        catch (Exception e) { Log.Write("agent rules: " + e.Message); }
+        catch (Exception e)
+        {
+            Log.Write("agent rules: " + e.Message);
+            _rules = null;
+            return false;
+        }
     }
 
     // ---------------------------------------------------------------- 名單
