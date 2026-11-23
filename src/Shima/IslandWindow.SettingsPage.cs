@@ -255,7 +255,7 @@ public partial class IslandWindow
             DockPanel.SetDock(part, Dock.Right);
             pomodoro.Children.Add(part);
         }
-        pomodoro.Children.Add(new TextBlock { Text = L.T("番茄鐘"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        pomodoro.Children.Add(new TextBlock { Text = L.T("番茄鐘"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 10, 0) });
         rows.Add(pomodoro);
 
         // —— 其他功能的設定列接在這裡（AI 與工具）——

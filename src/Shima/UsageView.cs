@@ -53,11 +53,11 @@ public sealed class UsageView : FrameworkElement
     }
 
     /// <summary>「1.2M」「456K」。</summary>
-    public static string Amount(long tokens) =>
-        tokens >= 1_000_000 ? (tokens / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M" : (tokens / 1000.0).ToString("0", CultureInfo.InvariantCulture) + "K";
+    public static string Amount(long tokens, CultureInfo? culture = null) =>
+        tokens >= 1_000_000 ? (tokens / 1_000_000.0).ToString("0.0", culture ?? Loc.Culture) + "M" : (tokens / 1000.0).ToString("0", culture ?? Loc.Culture) + "K";
 
     /// <summary>「$1.23」；花費只算了一部分（有不認得的模型）就加「+」。</summary>
-    public static string Money(decimal cost, bool known) => "$" + cost.ToString("0.00", CultureInfo.InvariantCulture) + (known ? "" : "+");
+    public static string Money(decimal cost, bool known, CultureInfo? culture = null) => "$" + cost.ToString("0.00", culture ?? Loc.Culture) + (known ? "" : "+");
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -80,8 +80,8 @@ public sealed class UsageView : FrameworkElement
             return;
         }
 
-        string amount = Amount(_trend.Tokens.Total) + " tokens";
-        dc.DrawText(Text(L.F("近 {0} 天 {1}", _trend.Days.Count, (_trend.Cost > 0 ? Money(_trend.Cost, _trend.CostKnown) + " · " : "") + amount), 11.5, Dim), new Point(0, 0));
+        string amount = Amount(_trend.Tokens.Total, culture) + " tokens";
+        dc.DrawText(Text(L.F("近 {0} 天 {1}", _trend.Days.Count, (_trend.Cost > 0 ? Money(_trend.Cost, _trend.CostKnown, culture) + " · " : "") + amount), 11.5, Dim), new Point(0, 0));
 
         var days = _trend.Days;
         double slot = width / days.Count, bar = Math.Clamp(slot * 0.62, 1, 18);
@@ -101,7 +101,7 @@ public sealed class UsageView : FrameworkElement
             // 今天一定標；其他每隔四天標一次，且離今天的標籤留一點空
             if (today || (i % 4 == 0 && days.Count - 1 - i >= 3))
             {
-                var t = Text(d.Day.ToString("M/d", CultureInfo.InvariantCulture), 10.5, today ? Brushes.White : Dim);
+                var t = Text(d.Day.ToString(culture.DateTimeFormat.MonthDayPattern, culture), 10.5, today ? Brushes.White : Dim);
                 dc.DrawText(t, new Point(Math.Clamp(cx - t.Width / 2, 0, width - t.Width), LabelY));
             }
         }
@@ -112,11 +112,11 @@ public sealed class UsageView : FrameworkElement
         {
             var m = _trend.Models[i];
             double y = ListY + i * RowH;
-            var tokens = Text(Amount(m.Tokens.Total), 11, Dim);
+            var tokens = Text(Amount(m.Tokens.Total, culture), 11, Dim);
             dc.DrawText(tokens, new Point(width - tokens.Width, y + (RowH - tokens.Height) / 2));
             if (m.Cost is { } cost)
             {
-                var money = Text(Money(cost, true), 11.5, Brushes.White);
+                var money = Text(Money(cost, true, culture), 11.5, Brushes.White);
                 dc.DrawText(money, new Point(width - 62 - money.Width, y + (RowH - money.Height) / 2));
             }
             var name = Text(Pretty(m.Model), 12, Brushes.White, CostCol - 100);
@@ -126,7 +126,7 @@ public sealed class UsageView : FrameworkElement
         if (_hover >= 0 && _hover < days.Count)
         {
             var d = days[_hover];
-            string tip = d.Day.ToString(culture.DateTimeFormat.MonthDayPattern, culture) + "  " + (d.Cost > 0 ? Money(d.Cost, d.CostKnown) + " · " : "") + Amount(d.Tokens.Total) + " tokens";
+            string tip = d.Day.ToString(culture.DateTimeFormat.MonthDayPattern, culture) + "  " + (d.Cost > 0 ? Money(d.Cost, d.CostKnown, culture) + " · " : "") + Amount(d.Tokens.Total, culture) + " tokens";
             var t = Text(tip, 11.5, Brushes.White);
             double w = t.Width + TipPad * 2, h = t.Height + TipPad;
             double tx = Math.Clamp(_tipAt.X + 12, 0, Math.Max(0, width - w));

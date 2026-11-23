@@ -41,6 +41,7 @@ public sealed class StatsView : FrameworkElement
     private readonly Rect[] _arrows = new Rect[2];     // 0 往前、1 往後
     private int _back;                                 // 往前翻了幾段，0 是最新的這一段
     private DateTime? _earliest;
+    private int _wheel;
     private Rect _share;
 
     private const double ToggleH = 16, HeatGap = 1.5, TipPad = 6;
@@ -118,7 +119,7 @@ public sealed class StatsView : FrameworkElement
     {
         _listens = listens;
         _now = now;
-        _earliest = listens.Count > 0 ? listens.Min(l => l.Start.DateTime) : null;
+        _earliest = listens.Where(Stats.Plausible).Select(l => (DateTime?)l.Start.DateTime).Min();
         while (_back > 0 && !Stats.CanGoBack(_period, _now, FirstDay, _earliest, _back - 1)) _back--;
         Recompute();
     }
@@ -385,8 +386,14 @@ public sealed class StatsView : FrameworkElement
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         if (_period == StatsPeriod.All || e.Delta == 0) { base.OnMouseWheel(e); return; }
-        Back += e.Delta > 0 ? 1 : -1;
+        // 精密觸控板會送很多 Delta 很小的事件：累加到一格（120）才翻一段
+        if (Math.Sign(_wheel) == -Math.Sign(e.Delta)) _wheel = 0;
+        _wheel += e.Delta;
         e.Handled = true;
+        int steps = _wheel / 120;
+        if (steps == 0) return;
+        _wheel -= steps * 120;
+        Back += steps;
     }
 
     protected override void OnMouseLeave(MouseEventArgs e)
