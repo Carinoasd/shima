@@ -247,7 +247,7 @@ public partial class IslandWindow
         }
         Line("", L.T("用 Roon 的話，到 Roon「設定 → 擴充功能」啟用 Shima"));
         Line("", L.T("在島上按右鍵：換角色、校正歌詞、桌面歌詞"));
-        Line("", ToggleHotkey.Length > 0 ? L.F("{0} 展開，Ctrl+Alt+V 問 AI", ToggleHotkey) : L.T("滑鼠移到島上就會展開"));
+        Line("", ToggleHotkey.Length > 0 ? L.F("{0} 展開，{1} 問 AI", ToggleHotkey, AskHotkey.Length > 0 ? AskHotkey : "—") : L.T("滑鼠移到島上就會展開"));
         var ok = new Button { Style = (Style)FindResource("Pill"), Height = 28, Padding = new Thickness(18, 0, 18, 0), HorizontalAlignment = HorizontalAlignment.Right, Content = L.T("知道了") };
         ok.Click += (_, _) =>
         {

@@ -728,32 +728,62 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 全域快速鍵
 
     private const int HotkeyToggle = 1, HotkeyAsk = 2, WM_HOTKEY = 0x0312;
-    /// <summary>實際註冊到的展開快速鍵。</summary>
+    private const uint NoRepeat = 0x4000;
+    /// <summary>實際註冊到的快速鍵（沒註冊成功是空字串）。</summary>
     public string ToggleHotkey { get; private set; } = "";
+    public string AskHotkey { get; private set; } = "";
+    /// <summary>錄製新快速鍵時先拆掉自己的，免得按下去就觸發。</summary>
+    private bool _recordingHotkey;
 
-    /// <summary>Ctrl+Alt+Space：展開／收起。Ctrl+Alt+V：問語音助手一句。被別的程式佔用就記在紀錄檔。</summary>
+    /// <summary>預設 Ctrl+Alt+Space 展開／收起、Ctrl+Alt+V 問語音助手一句，都可以在設定改。被別的程式佔用就記在紀錄檔。</summary>
     private void InitHotkeys()
     {
-        const uint control = 2, alt = 1, noRepeat = 0x4000;
-        // 展開的快速鍵被別的程式佔走就換下一組
-        const uint shift = 4;
-        (uint Modifiers, uint Key, string Name)[] toggles = [(control | alt, 0x20, "Ctrl+Alt+Space"), (control | alt, 0x49, "Ctrl+Alt+I"), (control | shift, 0x20, "Ctrl+Shift+Space")];
-        ToggleHotkey = toggles.FirstOrDefault(t => RegisterHotKey(_hwnd, HotkeyToggle, t.Modifiers | noRepeat, t.Key)).Name ?? "";
-        if (ToggleHotkey != toggles[0].Name)
-        {
-            Log.Write($"快速鍵 Ctrl+Alt+Space 被別的程式佔用，改用 {(ToggleHotkey.Length > 0 ? ToggleHotkey : "（都被佔用）")}");
-            if (ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
-        }
-        if (!RegisterHotKey(_hwnd, HotkeyAsk, control | alt | noRepeat, 0x56)) Log.Write("快速鍵 Ctrl+Alt+V 被別的程式佔用");
+        RegisterToggle();
+        RegisterAsk();
         HwndSource.FromHwnd(_hwnd)?.AddHook((IntPtr h, int message, IntPtr w, IntPtr l, ref bool handled) =>
         {
             if (message != WM_HOTKEY) return IntPtr.Zero;
             handled = true;
+            if (_recordingHotkey) return IntPtr.Zero;
             if (w.ToInt32() == HotkeyToggle) { _close.Stop(); _open.Stop(); SetExpanded(!_expanded); }
             else if (w.ToInt32() == HotkeyAsk) AskOnce();
             return IntPtr.Zero;
         });
         Closed += (_, _) => { UnregisterHotKey(_hwnd, HotkeyToggle); UnregisterHotKey(_hwnd, HotkeyAsk); };
+    }
+
+    /// <summary>依設定註冊展開快速鍵；設定的那組註冊不成（或沒設定）就走預設備援順序。回傳 false 表示設定的那組被佔用。</summary>
+    private bool RegisterToggle()
+    {
+        UnregisterHotKey(_hwnd, HotkeyToggle);
+        ToggleHotkey = "";
+        bool custom = Hotkeys.TryParse(AppSettings.Current.HotkeyToggle, out var m, out var k);
+        if (custom && RegisterHotKey(_hwnd, HotkeyToggle, m | NoRepeat, k))
+        {
+            ToggleHotkey = Hotkeys.Format(m, k)!;
+            return true;
+        }
+        const uint control = 2, alt = 1, shift = 4;
+        // 預設的展開快速鍵被別的程式佔走就換下一組
+        (uint Modifiers, uint Key, string Name)[] toggles = [(control | alt, 0x20, "Ctrl+Alt+Space"), (control | alt, 0x49, "Ctrl+Alt+I"), (control | shift, 0x20, "Ctrl+Shift+Space")];
+        ToggleHotkey = toggles.FirstOrDefault(t => RegisterHotKey(_hwnd, HotkeyToggle, t.Modifiers | NoRepeat, t.Key)).Name ?? "";
+        if (ToggleHotkey != toggles[0].Name)
+        {
+            Log.Write($"快速鍵 Ctrl+Alt+Space 被別的程式佔用，改用 {(ToggleHotkey.Length > 0 ? ToggleHotkey : "（都被佔用）")}");
+            if (ToggleHotkey.Length > 0) Dispatcher.BeginInvoke(() => Toast(L.F("展開的快速鍵：{0}", ToggleHotkey), 8, false));
+        }
+        return !custom;
+    }
+
+    private bool RegisterAsk()
+    {
+        UnregisterHotKey(_hwnd, HotkeyAsk);
+        AskHotkey = "";
+        bool custom = Hotkeys.TryParse(AppSettings.Current.HotkeyAsk, out var m, out var k);
+        if (custom && RegisterHotKey(_hwnd, HotkeyAsk, m | NoRepeat, k)) { AskHotkey = Hotkeys.Format(m, k)!; return true; }
+        if (RegisterHotKey(_hwnd, HotkeyAsk, 2 | 1 | NoRepeat, 0x56)) AskHotkey = "Ctrl+Alt+V";
+        else Log.Write("快速鍵 Ctrl+Alt+V 被別的程式佔用");
+        return !custom;
     }
 
     [DllImport("user32.dll")] private static extern bool RegisterHotKey(IntPtr h, int id, uint modifiers, uint key);
