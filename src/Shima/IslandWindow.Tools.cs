@@ -93,10 +93,17 @@ public partial class IslandWindow
         RefreshTodos();
         RefreshAlarms();
         UpdateTimer();
-        Month.Today = DateTime.Today;
-        MonthTitle.Text = DateTime.Today.ToString("Y", Loc.Culture);
+        SyncMonth();
         Month.InvalidateVisual();
         if (_tab == Tab.Tools && _expanded) Morph();
+    }
+
+    /// <summary>月曆的「今天」跟著日期走：島開著跨日、跨月之後，格子與標題才不會還是上個月的。</summary>
+    private void SyncMonth()
+    {
+        var today = DateTime.Today;
+        if (Month.Today.Date != today) Month.Today = today;
+        MonthTitle.Text = today.ToString("Y", Loc.Culture);
     }
 
     private static readonly Brush DropLine = Frozen(Color.FromRgb(0xD9, 0x77, 0x57));
@@ -383,6 +390,7 @@ public partial class IslandWindow
             AlarmBox.Children.Add(row);
         }
         AlarmBox.Visibility = list.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        SyncMonth();
         Month.AlarmDays = Alarms.InMonth(list, DateTime.Today, now);
         if (_tab == Tab.Tools && _expanded) Morph();
     }

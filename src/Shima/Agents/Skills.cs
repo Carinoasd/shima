@@ -181,7 +181,7 @@ public static class Skills
                 }
                 var alarm = alarms.Add(at.Value, text, repeat);
                 var left = at.Value - now;
-                var wait = left.TotalMinutes < 60 ? $"{Math.Max(1, (int)Math.Round(left.TotalMinutes))} 分鐘後" : $"{(int)left.TotalHours} 小時 {left.Minutes} 分後";
+                var wait = left.TotalMinutes < 60 ? $"{Math.Max(1, (int)Math.Round(left.TotalMinutes))} 分鐘後" : left.TotalHours < 24 ? $"{(int)left.TotalHours} 小時 {left.Minutes} 分後" : $"{(int)left.TotalDays} 天 {left.Hours} 小時後";
                 return repeat != null
                     ? $"已設定重複提醒 #{alarm.Id}：{Alarms.RepeatName(repeat)} {at:HH:mm}，下一次 {Alarms.Describe(at.Value, now)}（{wait}）「{alarm.Text}」"
                     : $"已設定提醒 #{alarm.Id}：{Alarms.Describe(at.Value, now)}（{wait}）「{alarm.Text}」";
