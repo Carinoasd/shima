@@ -553,6 +553,34 @@ public class ClaudeStreamTests
     }
 
     [Fact]
+    public async Task 思考區塊與簽章拼回去_放回對話_思考內容不顯示()
+    {
+        var thinking = Sse(Event(Start) +
+            Event("""{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}""") +
+            Event("""{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"使用者想"}}""") +
+            Event("""{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"切歌"}}""") +
+            Event("""{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}""") +
+            Event("""{"type":"content_block_stop","index":0}""") +
+            Text(1, "好") +
+            Event("""{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_9","name":"music","input":{}}}""") +
+            Event("""{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"action\":\"next\"}"}}""") +
+            Event("""{"type":"content_block_stop","index":2}""") + End("tool_use"));
+        var script = new Script(() => thinking, () => Say("換好了"));
+        var seen = new List<string>();
+
+        await Brain(script, (_, _) => "已切到下一首").ThinkAsync("下一首", CancellationToken.None, seen.Add);
+        Assert.Equal(["好", "換好了"], seen);   // 用工具前的那句換成最後的回答；思考內容不顯示
+
+        // 簽章沒拼回去的話，第二輪會被 API 以簽章無效拒絕
+        var echo = (JsonArray)script.Sent[1]["messages"]![1]!["content"]!;
+        Assert.Equal("thinking", echo[0]!["type"]!.ToString());
+        Assert.Equal("使用者想切歌", echo[0]!["thinking"]!.ToString());
+        Assert.Equal("sig-abc", echo[0]!["signature"]!.ToString());
+        Assert.Equal("text", echo[1]!["type"]!.ToString());
+        Assert.Equal("toolu_9", echo[2]!["id"]!.ToString());
+    }
+
+    [Fact]
     public async Task 串流被拒_改用一般請求()
     {
         var script = new Script(
