@@ -65,6 +65,19 @@ public partial class IslandWindow
                 Say(Demo.Answer);
             }
 
+            // 最近的通知：打開清單拍一張，拍完關掉
+            if (Demo.On)
+            {
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                SetRecentOpen(true);
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-recent");
+                SetRecentOpen(false);
+            }
+
             // 設定頁：四個子分頁各一張
             _expanded = true;
             TabSettings.IsChecked = true;

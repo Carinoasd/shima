@@ -326,7 +326,9 @@ public partial class IslandWindow
         var alarms = new Alarms();
         alarms.Due += (alarm, missed) => Dispatcher.BeginInvoke(() =>
         {
-            Toast(alarm.Text.Length > 0 ? alarm.Text : L.T("時間到了"), 20);
+            var due = alarm.Text.Length > 0 ? alarm.Text : L.T("時間到了");
+            Remember(RecentKind.Reminder, L.T("提醒"), due, "");
+            Toast(due, 20);
             if (!_expanded) SetExpanded(false);
         });
         Skills.Alarms = alarms;
