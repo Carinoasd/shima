@@ -150,6 +150,9 @@ public partial class IslandWindow
         rows.Add(Choice("歌詞行數", [("3", "少"), ("5", "中"), ("7", "多")],
             () => s.LyricsLines <= 3 ? "3" : s.LyricsLines >= 7 ? "7" : "5",
             v => { s.LyricsLines = int.Parse(v, CultureInfo.InvariantCulture); ApplyLyricsLines(); }));
+        rows.Add(Choice("大小", [("0.9", "90%"), ("1", "100%"), ("1.15", "115%"), ("1.3", "130%")],
+            () => IslandScale.Nearest(s.Scale).ToString(CultureInfo.InvariantCulture),
+            v => { s.Scale = double.Parse(v, CultureInfo.InvariantCulture); ApplyScale(); }));
 
         // —— 其他功能的設定列接在這裡（外觀）——
     }

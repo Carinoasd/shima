@@ -20,6 +20,7 @@ public sealed class MiniToast : Window
     private const double MaxCard = 380, Room = 14;
 
     private readonly Border _card, _cover;
+    private readonly Grid _frame = new();
     private readonly TextBlock _title, _artist;
     private readonly TranslateTransform _slide = new();
     private readonly DispatcherTimer _hold = new() { Interval = TimeSpan.FromSeconds(2.2) };
@@ -35,6 +36,26 @@ public sealed class MiniToast : Window
         get => _hold.Interval;
         set => _hold.Interval = value;
     }
+
+    /// <summary>跟著島的大小（設定 → 外觀「大小」）。卡片在裡面照原本的數字排，整張縮放；視窗跟著變大變小。</summary>
+    public double Scale
+    {
+        get => _scale;
+        set
+        {
+            _scale = IslandScale.Sanitize(value);
+            if (_scale == 1) _frame.ClearValue(LayoutTransformProperty);
+            else
+            {
+                var scale = new ScaleTransform(_scale, _scale);
+                scale.Freeze();
+                _frame.LayoutTransform = scale;
+            }
+            Width = IslandScale.Window(MaxCard + Room * 2, _scale);
+            Height = IslandScale.Window(64 + Room * 2, _scale);
+        }
+    }
+    private double _scale = 1;
 
     public MiniToast()
     {
@@ -75,7 +96,8 @@ public sealed class MiniToast : Window
             Margin = new Thickness(0, Room, 0, 0),
             RenderTransform = _slide,
         };
-        Content = _card;
+        _frame.Children.Add(_card);
+        Content = _frame;
         _slide.Y = Away;
 
         SourceInitialized += (_, _) =>
