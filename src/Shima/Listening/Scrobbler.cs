@@ -57,13 +57,22 @@ public static class ListenBrainzJson
     }
 }
 
+/// <summary>回報目的地：ListenBrainz、Last.fm 各一個，兩邊可以同時開。</summary>
+public interface IListenSink
+{
+    /// <summary>剛開始播一首。</summary>
+    Task NowPlaying(Track track);
+    /// <summary>聽完一首；回傳有沒有送成功。</summary>
+    Task<bool> Submit(Listen listen);
+}
+
 /// <summary>
 /// 回報到 ListenBrainz。token 由呼叫端給（使用者在設定填的 user token），空的就什麼都不送。
 /// 網路錯誤只寫進紀錄，不丟例外；token 不會出現在紀錄裡。
 /// 官方要求每個程式一秒最多一次請求，所以請求一個一個排隊、至少間隔一秒；
 /// 「正在播放」快速切歌時只送最後一首。
 /// </summary>
-public sealed class Scrobbler : IDisposable
+public sealed class Scrobbler : IListenSink, IDisposable
 {
     public const string Endpoint = "https://api.listenbrainz.org/1/submit-listens";
 
