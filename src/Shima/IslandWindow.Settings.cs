@@ -81,62 +81,6 @@ public partial class IslandWindow
         Root.Visibility = _userHidden || _hiddenForFullscreen ? Visibility.Hidden : Visibility.Visible;
     }
 
-    private void RefreshSettings()
-    {
-        var s = AppSettings.Current;
-        _loadingSettings = true;
-        BuildMoreSettings();
-        StartupSwitch.IsChecked = Startup.Enabled;
-        DeckSwitch.Visibility = Agents.StreamDock.Available ? Visibility.Visible : Visibility.Collapsed;
-        DeckSwitch.IsChecked = Agents.StreamDock.Installed;
-        FullscreenSwitch.IsChecked = s.HideInFullscreen;
-        AudioSwitch.IsChecked = s.AudioReactive;
-        NotifySwitch.IsChecked = s.Notifications;
-        SystemSwitch.IsChecked = s.SystemStatus;
-        UpdateSwitch.IsChecked = s.CheckUpdates;
-        DictationSwitch.IsChecked = s.SpeechEngine == "windows";
-        WaterSwitch.IsChecked = s.Water;
-        WaterBox.Text = s.WaterMinutes.ToString();
-        DiscordBox.Text = s.DiscordClientId;
-        FocusBox.Text = s.FocusMinutes.ToString();
-        BreakBox.Text = s.BreakMinutes.ToString();
-        LanguageButton.Content = (Loc.Languages.FirstOrDefault(l => l.Code == s.Language).Name ?? L.T("跟著 Windows")) + "  \u25BE";
-        _loadingSettings = false;
-
-        // 歌詞來源：點一下開關，亮的才會問
-        SourcesBox.Children.Clear();
-        foreach (var name in LyricsFinder.Known.Keys)
-        {
-            bool on = s.LyricsProviders.Contains(name);
-            var chip = new Button
-            {
-                Content = name switch { "local" => L.T("自己的 .lrc"), "lrclib" => "LRCLIB", "netease" => L.T("網易雲"), "qq" => L.T("QQ 音樂"), "kugou" => L.T("酷狗"), _ => name },
-                Style = (Style)FindResource("Pill"), Height = 28, Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(11, 0, 11, 0),
-                Background = on ? Brushes.White : new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)),
-                Foreground = on ? Brushes.Black : Brushes.White,
-            };
-            chip.Click += (_, _) =>
-            {
-                if (!s.LyricsProviders.Remove(name)) s.LyricsProviders.Add(name);
-                // 順序固定，照來源清單的順序
-                s.LyricsProviders = LyricsFinder.Known.Keys.Where(s.LyricsProviders.Contains).ToList();
-                s.Save();
-                _lyrics = new LyricsFinder();
-                RefreshSettings();
-            };
-            SourcesBox.Children.Add(chip);
-        }
-
-        FoldersBox.Children.Clear();
-        foreach (var folder in s.LyricsFolders.ToList())
-        {
-            var chip = new Button { Content = folder, ToolTip = L.T("按一下移除"), Style = (Style)FindResource("Pill"), Height = 26, Margin = new Thickness(0, 0, 0, 6), HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 400 };
-            chip.Click += (_, _) => { s.LyricsFolders.Remove(folder); s.Save(); _lyrics = new LyricsFinder(); RefreshSettings(); };
-            FoldersBox.Children.Add(chip);
-        }
-        if (_tab == Tab.Settings && _expanded) Morph();
-    }
-
     private void Deck_Click(object sender, RoutedEventArgs e)
     {
         if (_loadingSettings) return;
@@ -146,21 +90,6 @@ public partial class IslandWindow
             if (DeckSwitch.IsChecked == true) Toast(L.T("重新開啟 Stream Dock 後，把 Shima 拖到按鍵上"), 6);
         }
         else Agents.StreamDock.Remove();
-    }
-
-    private void Switch_Click(object sender, RoutedEventArgs e)
-    {
-        if (_loadingSettings) return;
-        CommitSettingsText(WaterBox);
-        var s = AppSettings.Current;
-        Startup.Enabled = StartupSwitch.IsChecked == true;
-        s.HideInFullscreen = FullscreenSwitch.IsChecked == true;
-        s.AudioReactive = AudioSwitch.IsChecked == true;
-        s.SystemStatus = SystemSwitch.IsChecked == true;
-        s.CheckUpdates = UpdateSwitch.IsChecked == true;
-        s.SpeechEngine = DictationSwitch.IsChecked == true ? "windows" : "whisper";
-        if (s.Water != (WaterSwitch.IsChecked == true)) { s.Water = WaterSwitch.IsChecked == true; _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes); }
-        s.Save();
     }
 
     private async void Notify_Click(object sender, RoutedEventArgs e)

@@ -353,43 +353,13 @@
               <s:MonthView x:Name="Month"/>
             </StackPanel>
 
-            <!-- 設定 -->
-            <ScrollViewer x:Name="SettingsPage" Grid.Row="2" Visibility="Collapsed" MaxHeight="540" VerticalScrollBarVisibility="Hidden" Focusable="False">
-            <StackPanel>
-              <DockPanel Height="32" Margin="2,0,0,2">
-                <Button x:Name="LanguageButton" DockPanel.Dock="Right" Style="{StaticResource Pill}" Height="26" Padding="12,0" Click="Language_Click"/>
-                <TextBlock Text="語言" FontSize="13" VerticalAlignment="Center"/>
-              </DockPanel>
-              <CheckBox x:Name="StartupSwitch" Style="{StaticResource Switch}" Content="開機時啟動" Click="Switch_Click"/>
-              <CheckBox x:Name="FullscreenSwitch" Style="{StaticResource Switch}" Content="全螢幕時隱藏" Click="Switch_Click"/>
-              <CheckBox x:Name="AudioSwitch" Style="{StaticResource Switch}" Content="跟著聲音動" Click="Switch_Click"/>
-              <CheckBox x:Name="NotifySwitch" Style="{StaticResource Switch}" Content="顯示訊息通知" Click="Notify_Click"/>
-              <CheckBox x:Name="DeckSwitch" Style="{StaticResource Switch}" Content="Stream Dock" Click="Deck_Click"/>
-              <CheckBox x:Name="SystemSwitch" Style="{StaticResource Switch}" Content="顯示音量、電量、網路的變化" Click="Switch_Click"/>
-              <CheckBox x:Name="UpdateSwitch" Style="{StaticResource Switch}" Content="檢查新版" Click="Switch_Click"/>
-              <CheckBox x:Name="DictationSwitch" Style="{StaticResource Switch}" Content="語音辨識用 Windows 的聽寫" Click="Switch_Click"/>
-              <DockPanel Height="32">
-                <TextBlock DockPanel.Dock="Right" Text="分鐘" FontSize="12" Foreground="#90FFFFFF" VerticalAlignment="Center" Margin="5,0,0,0"/>
-                <TextBox x:Name="WaterBox" DockPanel.Dock="Right" Style="{StaticResource Input}" Height="26" Width="52" Margin="8,0,0,0" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown" ToolTip="每隔幾分鐘"/>
-                <CheckBox x:Name="WaterSwitch" Style="{StaticResource Switch}" Content="喝水提醒" Click="Switch_Click"/>
-              </DockPanel>
-              <StackPanel x:Name="MoreSettings"/>
-              <TextBlock Text="歌詞來源" FontSize="12" Foreground="#90FFFFFF" Margin="2,10,0,6"/>
-              <WrapPanel x:Name="SourcesBox"/>
-              <DockPanel Margin="2,12,0,6">
-                <Button DockPanel.Dock="Right" Style="{StaticResource Pill}" Height="24" Padding="10,0" Content="加入" Click="AddFolder_Click"/>
-                <TextBlock Text="歌詞資料夾" FontSize="12" Foreground="#90FFFFFF" VerticalAlignment="Center"/>
-              </DockPanel>
-              <StackPanel x:Name="FoldersBox"/>
-              <TextBlock Text="Discord Application ID" FontSize="12" Foreground="#90FFFFFF" Margin="2,8,0,6"/>
-              <TextBox x:Name="DiscordBox" Style="{StaticResource Input}" Height="30" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
-              <TextBlock Text="番茄鐘：專注／休息（分鐘）" FontSize="12" Foreground="#90FFFFFF" Margin="2,12,0,6"/>
-              <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="FocusBox" Style="{StaticResource Input}" Height="30" Width="64" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
-                <TextBox x:Name="BreakBox" Style="{StaticResource Input}" Height="30" Width="64" Margin="8,0,0,0" LostKeyboardFocus="SettingsText_LostKeyboardFocus" KeyDown="SettingsText_KeyDown"/>
-              </StackPanel>
+            <!-- 設定：上面一排切換四個子分頁，每一頁的列都由程式產生（IslandWindow.SettingsPage.cs） -->
+            <StackPanel x:Name="SettingsPage" Grid.Row="2" Visibility="Collapsed">
+              <StackPanel x:Name="SettingsSections" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+              <ScrollViewer x:Name="SettingsScroll" MaxHeight="540" VerticalScrollBarVisibility="Hidden" Focusable="False" ScrollChanged="SettingsScroll_ScrollChanged">
+                <Grid x:Name="SettingsRows"/>
+              </ScrollViewer>
             </StackPanel>
-            </ScrollViewer>
 
             <!-- Claude Code 在問可不可以 -->
             <StackPanel x:Name="AskPage" Grid.Row="2" Margin="0,4,0,0" Visibility="Collapsed">
