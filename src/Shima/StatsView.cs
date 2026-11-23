@@ -120,7 +120,7 @@ public sealed class StatsView : FrameworkElement
 
     /// <summary>排行榜旁邊的短時間：「38 分」或「2.5 小時」。</summary>
     public static string Short(TimeSpan t) =>
-        t.TotalMinutes >= 60 ? Loc.F("{0} 小時", Math.Round(t.TotalHours, 1).ToString("0.#", CultureInfo.InvariantCulture))
+        t.TotalMinutes >= 60 ? Loc.F("{0} 小時", Math.Round(t.TotalHours, 1).ToString("0.#", Loc.Culture))
                              : Loc.F("{0} 分", (long)Math.Max(1, Math.Round(t.TotalMinutes)));
 
     protected override void OnRender(DrawingContext dc)
