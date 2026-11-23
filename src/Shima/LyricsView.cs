@@ -83,7 +83,7 @@ public sealed class LyricsView : FrameworkElement
         if (!Moving)
         {
             // 沒在動但光頭的位置變了（暫停時拖了進度）：補畫一次
-            if (Active && IsVisible && FrameGate.Moved(_drawnHead, Head())) InvalidateVisual();
+            if (Active && IsVisible && FrameGate.Stale(_drawnHead, Head())) InvalidateVisual();
             return;
         }
         _frames = true;

@@ -12,31 +12,45 @@ public class FrameGateTests
     private static TimeSpan Ms(double ms) => TimeSpan.FromMilliseconds(ms);
 
     [Fact]
-    public void 還沒畫過就要畫() => Assert.True(FrameGate.Due(TimeSpan.Zero, Ms(5)));
+    public void 第一幀就是一拍() => Assert.True(new BeatGate().Next(Ms(5)));
 
     [Theory]
-    [InlineData(1000, 1016.7, false)]   // 60 Hz 的下一幀：跳過
-    [InlineData(1000, 1033.3, true)]    // 再下一幀：畫
-    [InlineData(1000, 1031.0, true)]    // 幀稍微早到一點也要畫，不然會在隔兩幀與隔三幀之間跳
-    [InlineData(1000, 1006.9, false)]   // 144 Hz
-    [InlineData(1000, 1027.8, true)]    // 144 Hz 第四幀
-    [InlineData(1000, 900, true)]       // 時鐘倒退
-    public void 約每秒三十次(double last, double now, bool due) => Assert.Equal(due, FrameGate.Due(Ms(last), Ms(now)));
+    [InlineData(60, 2)]
+    [InlineData(75, 2)]     // 剛好卡在中間：固定隔 2 幀（37.5 次），不會在 2 與 3 之間跳
+    [InlineData(90, 3)]
+    [InlineData(100, 3)]
+    [InlineData(120, 4)]
+    [InlineData(144, 5)]
+    [InlineData(165, 0)]    // 5.5 幀：隔 5 或 6 都可以，但一旦定了就不換
+    public void 各種更新率都是固定隔幾幀一拍_不會忽快忽慢(double hz, int every)
+    {
+        // 幀的時間帶一點抖動（±1 毫秒），偶爾掉一幀
+        var gate = new BeatGate();
+        var random = new Random(7);
+        var beats = new List<int>();
+        for (int frame = 1; frame <= 600; frame++)
+        {
+            if (frame % 97 == 0) continue;   // 掉一幀
+            var now = Ms(1000 + frame * 1000 / hz + random.NextDouble() * 2 - 1);
+            if (gate.Next(now)) beats.Add(frame);
+        }
+        if (every == 0) Assert.InRange(gate.Every, 5, 6); else Assert.Equal(every, gate.Every);
+        every = gate.Every;
+        // 前面幾幀還在量更新率，之後拍與拍之間都是 every 幀（掉幀的那一拍會晚一幀）
+        var gaps = beats.SkipWhile(f => f < 30).Zip(beats.SkipWhile(f => f < 30).Skip(1), (a, b) => b - a).ToList();
+        Assert.True(gaps.Count(g => g == every) >= gaps.Count - 8, $"{hz} Hz: " + string.Join(",", gaps));
+        Assert.All(gaps, g => Assert.InRange(g, every, every + 1));
+    }
 
     [Fact]
-    public void 六十赫茲時剛好隔一幀畫一次()
+    public void 停了一陣子再開始_不會把更新率量錯()
     {
-        // 帶一點抖動的 60 Hz：每兩幀畫一次，不會忽快忽慢
-        var last = TimeSpan.Zero;
-        var drawn = new List<int>();
-        var random = new Random(7);
-        for (int frame = 1; frame <= 120; frame++)
-        {
-            var now = Ms(frame * 1000 / 60.0 + random.NextDouble() * 2 - 1);
-            if (FrameGate.Due(last, now)) { drawn.Add(frame); last = now; }
-        }
-        var gaps = drawn.Zip(drawn.Skip(1), (a, b) => b - a).Distinct().ToList();
-        Assert.Equal([2], gaps);
+        var gate = new BeatGate();
+        for (int f = 0; f < 30; f++) gate.Next(Ms(f * 1000 / 60.0));
+        gate.Next(Ms(5000));   // 停了好幾秒
+        for (int f = 1; f < 30; f++) gate.Next(Ms(5000 + f * 1000 / 60.0));
+        Assert.Equal(2, gate.Every);
+        Assert.InRange(gate.Interval, 0.016, 0.0175);
     }
 
     [Theory]
@@ -47,6 +61,14 @@ public class FrameGateTests
     [InlineData(10, 8, true)]           // 往回（拖了進度）也算
     [InlineData(10, double.NaN, true)]
     public void 光頭動了半個像素才畫(double drawn, double now, bool moved) => Assert.Equal(moved, FrameGate.Moved(drawn, now));
+
+    [Theory]
+    [InlineData(double.NaN, double.NaN, false)]   // 前奏、間奏、空白的一句：沒有光頭，不用每 0.1 秒補畫
+    [InlineData(5, double.NaN, false)]
+    [InlineData(double.NaN, 3, true)]             // 還沒畫過這句
+    [InlineData(10, 30, true)]                    // 暫停時拖了進度
+    [InlineData(10, 10.2, false)]
+    public void 沒在動時只有光頭真的變了才補畫(double drawn, double now, bool stale) => Assert.Equal(stale, FrameGate.Stale(drawn, now));
 }
 
 public class PulseTests
@@ -55,8 +77,8 @@ public class PulseTests
     public void 計時器只在沒有人跟著幀打拍子時才打()
     {
         var t = TimeSpan.FromSeconds(10);
-        Assert.False(FrameGate.Quiet(t, t + TimeSpan.FromMilliseconds(33)));   // 掃光剛打過一拍
-        Assert.True(FrameGate.Quiet(t, t + TimeSpan.FromMilliseconds(45)));    // 掃光停了，計時器接手
+        Assert.False(FrameGate.Quiet(t, t + TimeSpan.FromMilliseconds(40)));   // 掃光剛打過一拍（165 Hz 隔 6 幀是 36 毫秒）
+        Assert.True(FrameGate.Quiet(t, t + TimeSpan.FromMilliseconds(55)));    // 掃光停了，計時器接手
         Assert.True(FrameGate.Quiet(TimeSpan.FromDays(-1), t));                // 從來沒打過
     }
 

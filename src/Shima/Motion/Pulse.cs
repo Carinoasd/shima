@@ -20,13 +20,15 @@ public static class Pulse
     private static Action[] _copy = [];
     private static readonly DispatcherTimer Timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
-    private static TimeSpan _beatAt, _seen, _lastRun = TimeSpan.FromDays(-1);
+    private static readonly BeatGate Gate = new();
+    private static TimeSpan _seen = TimeSpan.FromDays(-1), _lastFrameBeat = TimeSpan.FromDays(-1);
     private static bool _beat;
 
     static Pulse() => Timer.Tick += (_, _) =>
     {
-        // 最近有跟著幀的節拍，就不用計時器再打一次，不然兩邊各打各的又不同幀了
-        if (FrameGate.Quiet(_lastRun, Clock.Elapsed)) Run();
+        // 最近有跟著幀的節拍，就不用計時器再打一次，不然兩邊各打各的又不同幀了。
+        // 只看幀打的拍：計時器自己上一拍打得早不早不算，不然計時器自己會跳過一半的拍子
+        if (FrameGate.Quiet(_lastFrameBeat, Clock.Elapsed)) Run();
     };
 
     /// <summary>這一幀是不是節拍（給本來就跟著幀在畫的東西問）。同一幀裡不管誰先問，答案都一樣；是的話順便讓加入的人走一步。</summary>
@@ -34,8 +36,8 @@ public static class Pulse
     {
         if (now == _seen) return _beat;
         _seen = now;
-        _beat = FrameGate.Due(_beatAt, now);
-        if (_beat) { _beatAt = now; Run(); }
+        _beat = Gate.Next(now);
+        if (_beat) { _lastFrameBeat = Clock.Elapsed; Run(); }
         return _beat;
     }
 
@@ -54,7 +56,6 @@ public static class Pulse
 
     private static void Run()
     {
-        _lastRun = Clock.Elapsed;
         if (Steps.Count == 0) return;
         // 呼叫途中可能有人離開（看不到了），先抄一份
         if (_copy.Length != Steps.Count) _copy = new Action[Steps.Count];

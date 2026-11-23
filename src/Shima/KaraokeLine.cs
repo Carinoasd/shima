@@ -101,7 +101,7 @@ public sealed class KaraokeLine : FrameworkElement
         if (!Moving)
         {
             // 沒在動但光頭的位置變了（拖了進度、暫停時跳到別處）：補畫一次
-            if (_sweep && IsVisible && FrameGate.Moved(_drawnHead, Head())) InvalidateVisual();
+            if (_sweep && IsVisible && FrameGate.Stale(_drawnHead, Head())) InvalidateVisual();
             return;
         }
         _frames = true;
