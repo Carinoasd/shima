@@ -128,6 +128,7 @@ public partial class IslandWindow : Window
             _closed = true;
             _meter.Dispose();
             _bridge.Stop();
+            _discord.Dispose();   // 每次都讀欄位：設定頁改了 Discord 的 ID 會換一個新的
             if (_rendering) { CompositionTarget.Rendering -= OnFrame; _rendering = false; }   // 動畫跑到一半就關了
         };
         foreach (var (id, name) in Mascot.All)

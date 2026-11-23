@@ -264,6 +264,8 @@ public partial class IslandWindow
             _wake.Problem += problem => Dispatcher.BeginInvoke(() => Toast(problem, 6, false));
             Closed += (_, _) => _wake.Stop();
         }
+        // 語言設定可能改過；下一次開始聽的時候才會套用
+        _wake.Language = AppSettings.Current.VoiceLanguage is { Length: > 0 } now ? now : Loc.Speech;
         _wake.Start();
     }
 }

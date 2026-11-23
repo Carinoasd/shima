@@ -351,7 +351,9 @@ public partial class IslandWindow
             VoiceButton.Content = "";
         });
         VoiceButton.Content = "";   // 停止
-        _ = Task.Run(voice.RunAsync);
+        // 等喚醒詞那一輪真的收尾（放掉麥克風、辨識結束）再開始聽，兩邊才不會同時開著麥克風
+        var wake = _wake;
+        _ = Task.Run(async () => { if (wake != null) await wake.StopAsync(); await voice.RunAsync(); });
     }
 
     /// <summary>助手要用某個工具：做完之後回一句話讓它知道結果。（給 AI 看的，所以不翻譯。）</summary>
