@@ -188,6 +188,8 @@ public sealed class DesktopLyrics : Window
         {
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             _poll.Stop();
+            // 剛拖完就關掉：還沒通知的位置也要存
+            if (_settle.IsEnabled) { _settle.Stop(); PlacementChanged?.Invoke(); }
             StopFrames();
         };
     }

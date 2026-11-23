@@ -147,19 +147,20 @@ public sealed class MascotImage
         using var stream = new MemoryStream(bytes);
         var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
         if (decoder.Frames.Count == 0) throw new InvalidDataException("圖片裡沒有畫面");
-        return decoder is GifBitmapDecoder && decoder.Frames.Count > 1 ? Gif(decoder) : Still(decoder.Frames[0]);
+        return decoder is GifBitmapDecoder && decoder.Frames.Count > 1 ? Gif(decoder) : Still(decoder.Frames[0], sprite: decoder is PngBitmapDecoder);
     }
 
-    private static MascotImage Still(BitmapSource source)
+    /// <param name="sprite">只有 PNG 才照寬高比切成精靈圖，其他格式就是一張。</param>
+    private static MascotImage Still(BitmapSource source, bool sprite)
     {
         int w = source.PixelWidth, h = source.PixelHeight;
         Guard(w, h);
         var all = Pixels(source);
-        int count = Math.Min(SpriteFrames(w, h), MaxFrames);
+        int count = sprite ? Math.Min(SpriteFrames(w, h), MaxFrames) : 1;
         var frames = new List<BitmapSource>(count);
         for (int i = 0; i < count; i++)
         {
-            var cell = SpriteCell(i, w, h);
+            var cell = count == 1 ? new Int32Rect(0, 0, w, h) : SpriteCell(i, w, h);
             var px = new byte[cell.Width * cell.Height * 4];
             for (int y = 0; y < cell.Height; y++)
                 Buffer.BlockCopy(all, ((cell.Y + y) * w + cell.X) * 4, px, y * cell.Width * 4, cell.Width * 4);

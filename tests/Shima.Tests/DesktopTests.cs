@@ -149,6 +149,12 @@ public class MascotImageTests
         var still = MascotImage.Decode(Png(20, 16));
         Assert.Single(still.Frames);
 
+        // 不是 PNG 的寬圖不切
+        var bmp = new BmpBitmapEncoder();
+        bmp.Frames.Add(BitmapFrame.Create(BitmapSource.Create(32, 16, 96, 96, PixelFormats.Bgra32, null, new byte[32 * 16 * 4], 32 * 4)));
+        Assert.Equal(2, MascotImage.Decode(Png(32, 16)).Frames.Count);
+        using (var ms = new MemoryStream()) { bmp.Save(ms); Assert.Single(MascotImage.Decode(ms.ToArray()).Frames); }
+
         var big = MascotImage.Decode(Png(400, 200)).Frames[0];
         Assert.Equal(MascotImage.MaxSide, Math.Max(big.PixelWidth, big.PixelHeight));
     });
