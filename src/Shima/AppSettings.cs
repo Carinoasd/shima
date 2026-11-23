@@ -141,7 +141,7 @@ public sealed class AppSettings
                 return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored), null, DataProtectionScope.CurrentUser));
         }
         catch (Exception e) { Log.Write("api key: " + e.Message); }
-        var variable = service switch { "claude" => "ANTHROPIC_API_KEY", "gemini" => "GEMINI_API_KEY", "custom" or "ollama" => "", _ => service.ToUpperInvariant() + "_API_KEY" };
+        var variable = Agents.AiService.Of(service).Id == service ? Agents.AiService.Of(service).Variable : "";
         return variable.Length > 0 ? Environment.GetEnvironmentVariable(variable) ?? "" : "";
     }
 

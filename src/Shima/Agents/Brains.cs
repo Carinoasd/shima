@@ -23,30 +23,61 @@ public interface IBrain
     Task<List<string>> ModelsAsync();
 }
 
-/// <summary>可以接的 AI 服務。</summary>
-/// <param name="BaseUrl">OpenAI 相容的 API 位址；Claude 走官方 SDK 所以是空的。</param>
-/// <param name="NeedsKey">本機的 Ollama 不用金鑰。</param>
-public sealed record AiService(string Id, string Name, string BaseUrl, bool NeedsKey = true)
+/// <summary>
+/// 一家 AI 服務。DefaultModel：還沒選模型時用的那一款（有幾家不提供模型清單，沒有預設就沒得選）。
+/// KeyVariable：那一家文件慣用的環境變數；留空就是「識別碼大寫 + _API_KEY」。
+/// </summary>
+public sealed record AiService(string Id, string Name, string BaseUrl, bool NeedsKey = true, string DefaultModel = "", string KeyVariable = "")
 {
     public const string Custom = "custom";
 
     /// <summary>
     /// Claude 以外都用「OpenAI 相容」的格式：同一種寫法就能接 OpenAI、Gemini、DeepSeek、Groq、xAI、Mistral、
     /// OpenRouter、本機的 Ollama，以及任何提供這種介面的服務（選「自訂」填網址）。
+    /// 中國大陸的幾家分中國站與國際站，兩邊的金鑰不通用，所以各列一項。
+    /// 網址與預設模型是 2026-11-23 對照各家官方文件填的。
     /// </summary>
     public static readonly AiService[] All =
     [
         new("claude", "Claude", ""),
         new("openai", "OpenAI", "https://api.openai.com/v1"),
         new("gemini", "Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
-        new("deepseek", "DeepSeek", "https://api.deepseek.com/v1"),
+        new("deepseek", "DeepSeek", "https://api.deepseek.com", DefaultModel: "deepseek-flash"),
         new("xai", "xAI", "https://api.x.ai/v1"),
         new("mistral", "Mistral", "https://api.mistral.ai/v1"),
         new("groq", "Groq", "https://api.groq.com/openai/v1"),
         new("openrouter", "OpenRouter", "https://openrouter.ai/api/v1"),
+        new("qwen", "通義千問 Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3.8-flash", KeyVariable: "DASHSCOPE_API_KEY"),
+        new("qwen-intl", "通義千問 Qwen（國際）", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", DefaultModel: "qwen3.8-flash", KeyVariable: "DASHSCOPE_API_KEY"),
+        new("zhipu", "智譜 GLM", "https://open.bigmodel.cn/api/paas/v4", DefaultModel: "glm-4.7-flash", KeyVariable: "ZAI_API_KEY"),
+        new("moonshot", "Kimi", "https://api.moonshot.cn/v1", KeyVariable: "MOONSHOT_API_KEY"),
+        new("moonshot-intl", "Kimi（國際）", "https://api.moonshot.ai/v1", KeyVariable: "MOONSHOT_API_KEY"),
+        new("doubao", "豆包 Doubao", "https://ark.cn-beijing.volces.com/api/v3", DefaultModel: "doubao-seed-2-0-mini-260428", KeyVariable: "ARK_API_KEY"),
+        new("qianfan", "文心 ERNIE", "https://qianfan.baidubce.com/v2", DefaultModel: "ernie-5.1", KeyVariable: "QIANFAN_API_KEY"),
+        new("hunyuan", "混元 Hunyuan", "https://tokenhub.tencentmaas.com/v1", DefaultModel: "hy4-flash", KeyVariable: "HUNYUAN_API_KEY"),
+        new("hunyuan-intl", "混元 Hunyuan（國際）", "https://tokenhub-intl.tencentmaas.com/v1", DefaultModel: "hy4-flash", KeyVariable: "HUNYUAN_API_KEY"),
+        new("minimax", "MiniMax", "https://api.minimax.cn/v1", DefaultModel: "MiniMax-M3.1-Flash", KeyVariable: "MINIMAX_API_KEY"),
+        new("minimax-intl", "MiniMax（國際）", "https://api.minimax.io/v1", DefaultModel: "MiniMax-M3.1-Flash", KeyVariable: "MINIMAX_API_KEY"),
+        new("stepfun", "階躍星辰 StepFun", "https://api.stepfun.com/v1", DefaultModel: "step-3.7-flash", KeyVariable: "STEP_API_KEY"),
+        new("stepfun-intl", "階躍星辰 StepFun（國際）", "https://api.stepfun.ai/v1", DefaultModel: "step-3.7-flash", KeyVariable: "STEP_API_KEY"),
+        new("siliconflow", "硅基流動 SiliconFlow", "https://api.siliconflow.cn/v1", KeyVariable: "SILICONFLOW_API_KEY"),
+        new("siliconflow-intl", "硅基流動 SiliconFlow（國際）", "https://api.siliconflow.com/v1", KeyVariable: "SILICONFLOW_API_KEY"),
         new("ollama", "Ollama", "http://localhost:11434/v1", NeedsKey: false),
         new(Custom, "", ""),
     ];
+
+    /// <summary>這一家現在用哪個模型：使用者選的，沒選就是預設的（Claude 與幾家不給模型清單的服務有預設）。</summary>
+    public string ModelFor(AppSettings settings) =>
+        settings.AiModels.GetValueOrDefault(Id, "") is { Length: > 0 } chosen ? chosen : Id == "claude" ? ClaudeBrain.DefaultModel : DefaultModel;
+
+    /// <summary>沒存金鑰時去讀的環境變數；本機的 Ollama 與自訂網址沒有。</summary>
+    public string Variable => Id switch
+    {
+        "claude" => "ANTHROPIC_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
+        Custom or "ollama" => "",
+        _ => KeyVariable.Length > 0 ? KeyVariable : Id.ToUpperInvariant() + "_API_KEY",
+    };
 
     public static AiService Of(string id) => All.FirstOrDefault(s => s.Id == id) ?? All[0];
 }
@@ -119,7 +150,7 @@ public static class Brain
         var s = AppSettings.Current;
         var service = AiService.Of(s.AiService);
         var key = s.ApiKey(service.Id);
-        var model = s.AiModels.GetValueOrDefault(service.Id, service.Id == "claude" ? ClaudeBrain.DefaultModel : "");
+        var model = service.ModelFor(s);
         problem = "";
         if (service.NeedsKey && key.Length == 0 && service.Id != AiService.Custom) { problem = L.T("先貼上 API 金鑰"); return null; }
         if (service.Id == "claude") return new ClaudeBrain(key, model, language, run);

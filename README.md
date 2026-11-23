@@ -92,6 +92,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | --- | --- |
 | Claude | 官方 Anthropic SDK，預設模型 `claude-haiku-5-5`（便宜、回應快；要更聰明可以在選單換成 Sonnet 或 Opus） |
 | OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter | OpenAI 相容的 Chat Completions |
+| 通義千問 Qwen、智譜 GLM、Kimi、豆包、文心 ERNIE、混元、MiniMax、階躍星辰、硅基流動 | 同上。分中國站與國際站的各列一項，兩邊的金鑰不通用，選錯會被拒絕。豆包、文心、混元要先在各自的控制台開通模型 |
 | Ollama | 同上，連本機的 `localhost:11434`，不用金鑰 |
 | 自訂 | 同上，自己填 API 網址（結尾到 `/v1`） |
 
@@ -157,7 +158,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `WhisperModel` | `base` | 本機辨識的模型：`tiny`、`base`、`small`、`medium`；越大越準也越慢 |
 | `PauseWhileListening` | `true` | 語音助手在聽的時候先暫停音樂，問完再繼續 |
 | `VoiceContinuous` | `false` | 按一次麥克風就一直對話到再按一次。預設是問一句答一句；喇叭在放音樂時不建議開，麥克風會把歌聲當成有人講話 |
-| `AiService` | `claude` | 問 AI 用哪一家：`claude`、`openai`、`gemini`、`deepseek`、`xai`、`mistral`、`groq`、`openrouter`、`ollama`、`custom` |
+| `AiService` | `claude` | 問 AI 用哪一家：`claude`、`openai`、`gemini`、`deepseek`、`xai`、`mistral`、`groq`、`openrouter`、`qwen`、`zhipu`、`moonshot`、`doubao`、`qianfan`、`hunyuan`、`minimax`、`stepfun`、`siliconflow`（有國際站的加 `-intl`）、`ollama`、`custom` |
 | `AiModels` | `{}` | 每一家選的模型 |
 | `AiCustomUrl` | 空 | 選 `custom` 時的 API 網址 |
 | `VoiceLanguage` | 空 | 語音助手聽與說的語言；留空跟著介面語言 |

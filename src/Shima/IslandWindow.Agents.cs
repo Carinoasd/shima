@@ -127,7 +127,7 @@ public partial class IslandWindow
         var s = AppSettings.Current;
         var service = AiService.Of(s.AiService);
         ServiceButton.Content = (service.Id == AiService.Custom ? L.T("自訂") : service.Name) + "  \u25BE";
-        var model = s.AiModels.GetValueOrDefault(service.Id, service.Id == "claude" ? ClaudeBrain.DefaultModel : "");
+        var model = service.ModelFor(s);
         ModelButton.Content = (model.Length > 0 ? model : L.T("選擇模型")) + "  \u25BE";
         UrlBox.Visibility = service.Id == AiService.Custom ? Visibility.Visible : Visibility.Collapsed;
         KeyRow.Visibility = service.NeedsKey ? Visibility.Visible : Visibility.Collapsed;
@@ -172,13 +172,20 @@ public partial class IslandWindow
 
         ModelButton.IsEnabled = false;
         List<string> models;
+        // 有幾家不給模型清單：抓不到就只列預設的那一款，至少能用
         try { models = await brain.ModelsAsync(); }
-        catch (Exception x) { Say(brain.Explain(x)); return; }
+        catch (Exception x)
+        {
+            if (service.DefaultModel.Length == 0) { Say(brain.Explain(x)); return; }
+            Log.Write($"ai: {service.Id} 的模型清單抓不到（{x.Message}）");
+            models = [];
+        }
         finally { ModelButton.IsEnabled = true; }
+        if (service.DefaultModel.Length > 0 && !models.Contains(service.DefaultModel)) models.Insert(0, service.DefaultModel);
         if (models.Count == 0) { Say(L.T("找不到可用的模型")); return; }
 
         var menu = new System.Windows.Controls.ContextMenu { PlacementTarget = ModelButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom, MaxHeight = 420 };
-        var current = s.AiModels.GetValueOrDefault(service.Id, service.Id == "claude" ? ClaudeBrain.DefaultModel : "");
+        var current = service.ModelFor(s);
         foreach (var model in models)
         {
             var item = new System.Windows.Controls.MenuItem { Header = model.Replace("_", "__"), IsCheckable = true, IsChecked = model == current };

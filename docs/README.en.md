@@ -93,6 +93,7 @@ The music is paused while it listens (otherwise the microphone hears the song) a
 | --- | --- |
 | Claude | the official Anthropic SDK; default model `claude-haiku-5-5` (cheap and quick; pick Sonnet or Opus from the menu for more capability) |
 | OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter | OpenAI-compatible Chat Completions |
+| Qwen, Zhipu GLM, Kimi, Doubao, ERNIE, Hunyuan, MiniMax, StepFun, SiliconFlow | Same. Services with separate China and international sites are listed twice; keys are not interchangeable between the two. Doubao, ERNIE and Hunyuan need the model enabled in their own console first |
 | Ollama | the same, at `localhost:11434` on your machine; no key |
 | Custom | the same, with an API URL you enter (ending in `/v1`) |
 

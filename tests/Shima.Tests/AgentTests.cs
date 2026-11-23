@@ -162,6 +162,12 @@ public class OpenAiBrainTests
         Assert.All(AiService.All.Where(s => s.Id is not ("claude" or AiService.Custom)), s => Assert.StartsWith("http", s.BaseUrl));
         Assert.False(AiService.Of("ollama").NeedsKey);
         Assert.Equal("claude", AiService.Of("沒有這一家").Id);
+        // 識別碼不能重複；中國站與國際站共用同一個環境變數
+        Assert.Equal(AiService.All.Length, AiService.All.Select(s => s.Id).Distinct().Count());
+        Assert.Equal("DASHSCOPE_API_KEY", AiService.Of("qwen-intl").Variable);
+        Assert.Equal("DEEPSEEK_API_KEY", AiService.Of("deepseek").Variable);
+        Assert.Equal("", AiService.Of("ollama").Variable);
+        Assert.All(AiService.All.Where(s => s.BaseUrl.Length > 0), s => Assert.False(s.BaseUrl.EndsWith('/')));
     }
 }
 
