@@ -9,6 +9,12 @@ public enum StatsPeriod { Week, Month, Year, All }
 /// <summary>排行榜的一列：名字（歌名／藝人／專輯）、副名（歌的藝人、專輯的藝人）、聽了多久、幾次。</summary>
 public sealed record Ranked(string Name, string Detail, TimeSpan Time, int Plays);
 
+/// <summary>熱力圖的一格：那天、聽了多久、深淺（0 沒聽、1–4）、是否還沒到。</summary>
+public readonly record struct HeatCell(DateTime Day, TimeSpan Time, int Level, bool Future);
+
+/// <summary>熱力圖：Cells[週, 列]，列 0 是一週的第一天；不在這一年裡的格子是 null。MonthWeeks 是每個月 1 號所在的欄。</summary>
+public sealed record HeatGrid(int Weeks, HeatCell?[,] Cells, IReadOnlyList<(int Month, int Week)> MonthWeeks);
+
 public sealed record StatsSummary(
     DateTime From,
     DateTime To,
@@ -146,6 +152,54 @@ public static class Stats
             filled.Add((period == StatsPeriod.Year ? last.AddMonths(1) : last.AddDays(1), TimeSpan.Zero));
         }
         return filled;
+    }
+
+    /// <summary>
+    /// 把某一年的每日資料排成「週 × 星期」的格子（像 GitHub 的貢獻圖）：一欄一週、從 firstDay 開始，
+    /// 一年從 1 月 1 日排到 12 月 31 日，前後補不到的格子是 null。today 之後的日子標成 Future。
+    /// </summary>
+    public static HeatGrid Heat(IEnumerable<(DateTime Day, TimeSpan Time)> daily, int year, DayOfWeek firstDay, DateTime today)
+    {
+        var byDay = new Dictionary<DateTime, TimeSpan>();
+        foreach (var (day, time) in daily) if (day.Year == year) byDay[day.Date] = byDay.GetValueOrDefault(day.Date) + time;
+
+        var jan1 = new DateTime(year, 1, 1);
+        var dec31 = new DateTime(year, 12, 31);
+        var start = jan1.AddDays(-(((int)jan1.DayOfWeek - (int)firstDay + 7) % 7));
+        int weeks = (dec31 - start).Days / 7 + 1;
+
+        var cutoffs = HeatCutoffs(byDay.Where(d => d.Key <= today.Date).Select(d => d.Value));
+        var cells = new HeatCell?[weeks, 7];
+        var months = new List<(int, int)>();
+        for (var d = jan1; d <= dec31; d = d.AddDays(1))
+        {
+            int offset = (d - start).Days, week = offset / 7;
+            bool future = d > today.Date;
+            var time = future ? TimeSpan.Zero : byDay.GetValueOrDefault(d);
+            cells[week, offset % 7] = new HeatCell(d, time, HeatLevel(time, cutoffs), future);
+            if (d.Day == 1) months.Add((d.Month, week));
+        }
+        return new HeatGrid(weeks, cells, months);
+    }
+
+    /// <summary>
+    /// 深淺的分界：把有聽的日子由短到長排好，取第 1／2／3 個四分位的那一天的時間。
+    /// 分界跟著這一年的分布走，不寫死幾分鐘。
+    /// </summary>
+    public static TimeSpan[] HeatCutoffs(IEnumerable<TimeSpan> times)
+    {
+        var sorted = times.Where(t => t > TimeSpan.Zero).OrderBy(t => t).ToList();
+        if (sorted.Count == 0) return [];
+        return [sorted[sorted.Count / 4], sorted[sorted.Count / 2], sorted[sorted.Count * 3 / 4]];
+    }
+
+    /// <summary>0 是沒聽；有聽就從 1 起，每達到一個分界加一級，最多 4。</summary>
+    public static int HeatLevel(TimeSpan time, IReadOnlyList<TimeSpan> cutoffs)
+    {
+        if (time <= TimeSpan.Zero) return 0;
+        int level = 1;
+        foreach (var c in cutoffs) if (time >= c) level++;
+        return level;
     }
 
     public static bool ByYear(IReadOnlyList<(DateTime Day, TimeSpan Time)> daily) =>

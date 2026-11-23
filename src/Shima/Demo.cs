@@ -149,7 +149,7 @@ public static class Demo
 
     public static float Level => 0.45f + 0.2f * (float)Math.Sin((DateTimeOffset.Now - Started).TotalSeconds * 2.1);
 
-    /// <summary>過去五個星期的聆聽紀錄：固定的亂數種子，每次產生的都一樣。</summary>
+    /// <summary>過去約十個月的聆聽紀錄：固定的亂數種子，每次產生的都一樣。</summary>
     private static IEnumerable<Listen> Listens(DateTime now)
     {
         (string Title, string Artist, string Album, int Seconds, int Weight)[] songs =
@@ -166,11 +166,11 @@ public static class Demo
         ];
         var random = new Random(20261123);
         int total = songs.Sum(s => s.Weight);
-        for (int day = 34; day >= 0; day--)
+        for (int day = 300; day >= 0; day--)
         {
             // 週末聽得多，有幾天沒聽；最近七天每天都有，「連續幾天」才有數字
             int plays = day < 7 ? 3 + random.Next(5) : random.Next(10) < 3 ? 0 : 1 + random.Next(now.AddDays(-day).DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? 9 : 5);
-            var at = now.Date.AddDays(-day).AddHours(8 + random.Next(4));
+            var at = now.Date.AddDays(-day).AddHours(random.Next(3) switch { 0 => 8, 1 => 13, _ => 20 } + random.Next(3));
             for (int i = 0; i < plays; i++)
             {
                 int pick = random.Next(total);
