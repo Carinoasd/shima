@@ -118,9 +118,19 @@ public partial class IslandWindow
     private void AskDeny_Click(object sender, RoutedEventArgs e) => Decide("deny");
     private void AskTerminal_Click(object sender, RoutedEventArgs e) => Decide(null);
 
+    private (bool Installed, bool Outdated)? _hooks;
+
+    private void ShowHookState() =>
+        AgentButton.Content = _hooks is not { } state ? "…" : !state.Installed ? L.T("連接") : state.Outdated ? L.T("更新連接") : L.T("中斷");
+
     private void RefreshAi()
     {
-        AgentButton.Content = !AgentHooks.Installed ? L.T("連接") : AgentHooks.Outdated ? L.T("更新連接") : L.T("中斷");
+        // 查 hook 的狀態要啟動 wsl.exe，放到背景做；畫面先用上次的結果，查完再更新
+        ShowHookState();
+        _ = Task.Run(AgentHooks.State).ContinueWith(done =>
+        {
+            if (done.IsCompletedSuccessfully) Dispatcher.BeginInvoke(() => { _hooks = done.Result; ShowHookState(); });
+        });
         RefreshUsage();
         PlanText.Text = _planLine;
 
@@ -215,10 +225,12 @@ public partial class IslandWindow
         AgentButton.IsEnabled = false;
         try
         {
-            bool installed = await Task.Run(() => AgentHooks.Installed && !AgentHooks.Outdated);
+            var before = await Task.Run(AgentHooks.State);
+            bool installed = before.Installed && !before.Outdated;
             var problem = await Task.Run(() => installed ? AgentHooks.Remove() : AgentHooks.Install());
             if (problem != null) Say(problem);
-            AgentButton.Content = !await Task.Run(() => AgentHooks.Installed) ? L.T("連接") : await Task.Run(() => AgentHooks.Outdated) ? L.T("更新連接") : L.T("中斷");
+            _hooks = await Task.Run(AgentHooks.State);
+            ShowHookState();
         }
         finally { AgentButton.IsEnabled = true; }
     }

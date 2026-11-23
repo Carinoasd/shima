@@ -32,7 +32,9 @@ public partial class IslandWindow
         double opacity = Math.Clamp(AppSettings.Current.Opacity, 0.55, 1);
         var brush = new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * opacity), 0, 0, 0));
         brush.Freeze();
-        Body.Background = brush;
+        // 底色畫在陰影那一層（它本來就是實心的黑），上面那層改成透明，不然兩層疊起來永遠是不透明的
+        Shadow.Background = brush;
+        Body.Background = Brushes.Transparent;
         _coverShown = null;   // 讓下一次 Refresh 重新套顏色
         Refresh();
     }

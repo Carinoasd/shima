@@ -127,8 +127,26 @@ public sealed class Mascot : FrameworkElement
             _gazeX += (tx - _gazeX) * 0.25;
             _gazeY += (ty - _gazeY) * 0.25;
         }
+
+        // 節拍在這裡判斷（每秒 30 次），畫面才不用為了偵測節拍而一直重畫
+        float bass = Dancing ? Bass?.Invoke() ?? 0 : 0;
+        if (bass > _bass + 0.07 && bass > 0.42 && now - _hopAt > 0.22) _hopAt = now;
+        _bass += (bass - _bass) * 0.5;
+
+        // 透明視窗每重畫一次都要整塊重新合成，所以只在畫出來的東西真的會不一樣時才重畫。
+        // 像素小 Claude 是一格一格動的（每秒 8 格），眼睛的位置也是整數像素；其他角色是平滑擺動，跳舞時每一格都不同。
+        bool pixel = Drawn == "claude";
+        var state = pixel
+            ? HashCode.Combine((int)(now * 8), Dancing, now < _happyUntil, now - _hopAt < 0.17, now - _blinkAt is > 0.035 and < 0.105, (int)Math.Round(_gazeX), (int)Math.Round(_gazeY * 0.6))
+            : Dancing || now < _happyUntil + 0.1 || now - _blinkAt < 0.2 || Drawn == Custom
+                ? HashCode.Combine(now)
+                : HashCode.Combine(Math.Round(_gazeX, 2), Math.Round(_gazeY, 2));
+        if (state == _drawnState) return;
+        _drawnState = state;
         InvalidateVisual();
     }
+
+    private int _drawnState;
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -137,9 +155,6 @@ public sealed class Mascot : FrameworkElement
         bool happy = now < _happyUntil;
         // 點頭：一秒兩下，聲音越大點得越用力
         float level = Dancing ? Level?.Invoke() ?? 0.35f : 0;
-        float bass = Dancing ? Bass?.Invoke() ?? 0 : 0;
-        if (bass > _bass + 0.07 && bass > 0.42 && now - _hopAt > 0.22) _hopAt = now;
-        _bass += (bass - _bass) * 0.5;
         bool hop = now - _hopAt < 0.17;
         double bob = Dancing ? Math.Sin(now * Math.PI * 4) * (0.5 + level * 2.4) : 0;
         double cx = w / 2, cy = h / 2 + bob;

@@ -54,15 +54,27 @@ public sealed class AudioMeter : IDisposable
     /// <summary>此刻的頻譜：低音到高音分成 count 段，每段 0…1。沒有在擷取、或已經安靜一陣子就全是 0。</summary>
     public float[] Bands(int count)
     {
-        if (_capture == null || Environment.TickCount64 - Interlocked.Read(ref _heardAt) > 1500) return new float[count];
-        var samples = new float[Spectrum.Size];
-        int rate;
+        if (_capture == null || Environment.TickCount64 - Interlocked.Read(ref _heardAt) > 1500) return Silence(count);
         lock (_recent)
         {
-            for (int i = 0; i < samples.Length; i++) samples[i] = _recent[(_write + i) % samples.Length];
-            rate = _rate;
+            // 膠囊、背景、角色、Stream Dock 各自來問，一秒加起來近百次；同一瞬間算過的直接給，不要每次都重跑一次 FFT
+            long now = Environment.TickCount64;
+            if (_cached.TryGetValue(count, out var hit) && now - hit.At < 16) return hit.Bands;
+            for (int i = 0; i < _samples.Length; i++) _samples[i] = _recent[(_write + i) % _samples.Length];
+            var bands = Spectrum.Bands(_samples, _rate, count, _re, _im);
+            _cached[count] = (now, bands);
+            return bands;
         }
-        return Spectrum.Bands(samples, rate, count);
+    }
+
+    private readonly float[] _samples = new float[Spectrum.Size];
+    private readonly double[] _re = new double[Spectrum.Size], _im = new double[Spectrum.Size];
+    private readonly Dictionary<int, (long At, float[] Bands)> _cached = [];
+    private static readonly Dictionary<int, float[]> Quiet = [];
+
+    private static float[] Silence(int count)
+    {
+        lock (Quiet) return Quiet.TryGetValue(count, out var zeros) ? zeros : Quiet[count] = new float[count];
     }
 
     private void Remember(byte[] buffer, int count, WaveFormat format)
@@ -118,10 +130,12 @@ public static class Spectrum
     public const int Size = 1024;
 
     /// <summary>samples 要剛好 Size 個。回傳 count 段，依對數間隔從 50 Hz 排到 14 kHz，每段 0…1（約 -60 dB 到 0 dB）。</summary>
-    public static float[] Bands(float[] samples, int sampleRate, int count)
+    public static float[] Bands(float[] samples, int sampleRate, int count, double[]? re = null, double[]? im = null)
     {
-        var re = new double[Size];
-        var im = new double[Size];
+        // 呼叫端可以給兩塊重複使用的工作區，省得每次配置
+        re ??= new double[Size];
+        im ??= new double[Size];
+        Array.Clear(im);
         for (int i = 0; i < Size; i++) re[i] = samples[i] * (0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (Size - 1)));   // Hann 窗
         Fft(re, im);
 

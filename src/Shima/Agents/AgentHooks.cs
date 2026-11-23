@@ -74,6 +74,15 @@ public static class AgentHooks
         return list;
     }
 
+    /// <summary>
+    /// 一次查完「裝了沒」與「是不是舊版」。要啟動 wsl.exe、讀 WSL 裡的檔案，可能花上一兩秒，不要在畫面的執行緒上呼叫。
+    /// </summary>
+    public static (bool Installed, bool Outdated) State()
+    {
+        var settings = Targets().Select(t => Read(t.SettingsPath)).ToList();
+        return (settings.Any(s => Has(s)), settings.Any(s => s is { } found && Has(found) && !Complete(found)));
+    }
+
     public static bool Installed => Targets().Any(t => Has(Read(t.SettingsPath)));
 
     /// <summary>連接過、但是是舊版 Shima 裝的（少了幾個 hook）：再按一次「連接」，或直接呼叫 Install() 就會升級。</summary>

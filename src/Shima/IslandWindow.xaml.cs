@@ -317,9 +317,13 @@ public partial class IslandWindow : Window
 
         var pos = track.Now;
         bool timed = track.Duration > TimeSpan.Zero;
-        Elapsed.Text = timed ? Clock(pos) : "";
-        Remaining.Text = timed ? "-" + Clock(track.Duration - pos) : "";
-        BarFill.Width = timed && Bar.ActualWidth > 0 ? Bar.ActualWidth * Math.Clamp(pos / track.Duration, 0, 1) : 0;
+        // 進度條每 0.1 秒都在變，改它會讓整個面板重新排版；島收著的時候看不到，就不用做
+        if (_expanded || _rendering)
+        {
+            Elapsed.Text = timed ? Clock(pos) : "";
+            Remaining.Text = timed ? "-" + Clock(track.Duration - pos) : "";
+            BarFill.Width = timed && Bar.ActualWidth > 0 ? Bar.ActualWidth * Math.Clamp(pos / track.Duration, 0, 1) : 0;
+        }
 
         var name = track.Artist.Length > 0 ? $"{track.Title} — {track.Artist}" : track.Title;
         if (_sheet is { Synced: true } sheet)
@@ -448,8 +452,23 @@ public partial class IslandWindow : Window
 
         if (_rendering || (_w.Settled && _h.Settled)) return;
         _rendering = true;
+        Lighten(true);
         _lastFrame = TimeSpan.Zero;
         CompositionTarget.Rendering += OnFrame;
+    }
+
+    private System.Windows.Media.Effects.Effect? _shadowEffect;
+
+    /// <summary>
+    /// 島在變大變小的那零點幾秒，每一格都要重算整塊的陰影模糊、重新放大背景圖，面板越高越吃力
+    /// （從工具、設定這種高的分頁切出去最明顯）。變形期間先拿掉陰影、背景用便宜的縮放，停下來再放回去。
+    /// </summary>
+    private void Lighten(bool moving)
+    {
+        _shadowEffect ??= Shadow.Effect;
+        bool large = Math.Max(Host.Height, _h.Target) > 120;
+        Shadow.Effect = moving && large ? null : _shadowEffect;
+        RenderOptions.SetBitmapScalingMode(BackdropImage, moving ? BitmapScalingMode.LowQuality : BitmapScalingMode.HighQuality);
     }
 
     private void SetActivatable(bool on)
@@ -475,6 +494,7 @@ public partial class IslandWindow : Window
         {
             CompositionTarget.Rendering -= OnFrame;
             _rendering = false;
+            Lighten(false);
             double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
             if (Math.Abs(Height - needed) > 1) Height = needed;
         }
