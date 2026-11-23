@@ -439,6 +439,26 @@ public class AgentRulesSecurityTests
     public void 冒號後面的每一段也要檢查(string command) => Assert.False(BashCovers("ls", command));
 
     [Fact]
+    public void 長旗標冒號後面的值整段檢查()
+    {
+        Assert.NotNull(AgentRules.ArgumentProblem("ls", ["--foo:D:secret.txt"], Win, Win));
+        Assert.NotNull(AgentRules.ArgumentProblem("ls", ["--foo:a.txt:stream"], Win, Win));
+        Assert.Null(AgentRules.ArgumentProblem("ls", ["--foo:C:/work/app/src/a.cs"], Win, Win));
+        Assert.Null(AgentRules.ArgumentProblem("ls", ["--foo:src/a.cs"], Win, Win));
+    }
+
+    [Fact]
+    public void 大括號展開()
+    {
+        Assert.Equal(["a/x", "b/x"], AgentRules.Braces("{a,b}/x")!.Order());
+        Assert.Equal(["ac", "ad", "b"], AgentRules.Braces("{a{c,d},b}")!.Order());
+        Assert.Equal(["plain"], AgentRules.Braces("plain")!);
+        Assert.Null(AgentRules.Braces("{a,b"));
+        Assert.Null(AgentRules.Braces("a}b"));
+        Assert.Null(AgentRules.Braces(string.Concat(Enumerable.Repeat("{a,b}", 8))));   // 256 種，太多
+    }
+
+    [Fact]
     public void 冒號前面的旗標字母才算旗標()
     {
         // dotnet 的 -l 是危險的（logger），但 -v:normal 裡的 l 是值的一部分。黏著東西的短旗標本來就會問，
@@ -456,6 +476,13 @@ public class AgentRulesSecurityTests
     [InlineData("{.env,.git}/**")]
     [InlineData("src/{a,.ssh}/x")]
     [InlineData("**/.e*")]
+    [InlineData("**/[.]env")]
+    [InlineData("**/{.,a}env")]
+    [InlineData("**/[!a]env")]
+    [InlineData("**/[^a]env")]
+    [InlineData("**/[--0]env")]
+    [InlineData("{a,{b,.git}}/config")]
+    [InlineData("src/{a,b")]
     public void 會比對到隱藏檔或敏感名稱的樣式不放行(string pattern)
     {
         foreach (var (tool, key) in new[] { ("Glob", "pattern"), ("Grep", "glob") })
@@ -469,6 +496,8 @@ public class AgentRulesSecurityTests
     [InlineData("**/*.cs")]
     [InlineData("src/{a,b}/*.ts")]
     [InlineData("docs/**")]
+    [InlineData("src/[a-c]*.cs")]
+    [InlineData("{src,tests}/**/*.{cs,xaml}")]
     public void 一般的樣式照常放行(string pattern) =>
         Assert.True(AgentRules.Covers(new AgentRule("Glob", null, Wsl), "Glob", new JsonObject { ["pattern"] = pattern }, Wsl));
 }

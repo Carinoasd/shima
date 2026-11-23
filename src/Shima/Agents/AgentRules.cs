@@ -409,11 +409,14 @@ public sealed class AgentRules
     /// </summary>
     private static IEnumerable<string> PathPieces(string arg)
     {
-        if (arg.Length == 0 || arg[0] == '-') 
+        if (arg.Length == 0) yield break;
+        if (arg[0] == '-')
         {
-            // 長旗標帶著 : 的值（dotnet 的 --logger:x）
-            foreach (var value in arg.Split(':').Skip(1)) if (value.Length > 0) yield return value;
-            yield break;
+            // 長旗標帶著 : 的值（dotnet 的 --logger:x）：冒號後面整段當成一個參數來看，
+            // 這樣 --foo:D:secret.txt 的 D:secret.txt 也是整段檢查，不會被切開
+            int colon = arg.IndexOf(':');
+            if (colon < 0 || colon == arg.Length - 1) yield break;
+            arg = arg[(colon + 1)..];
         }
         yield return arg;
         bool drive = arg.Length >= 2 && char.IsAsciiLetter(arg[0]) && arg[1] == ':';
@@ -462,15 +465,70 @@ public sealed class AgentRules
     {
         if (pattern.Length == 0) return null;
         if (pattern[0] is '/' or '\\' or '~' || (pattern.Length >= 2 && pattern[1] == ':')) return "樣式是絕對路徑";
-        var parts = pattern.Split('/', '\\');
-        if (parts.Contains("..")) return "樣式往上跳出資料夾";
-        if (Sensitive(parts)) return "樣式指到設定、hook 或金鑰";
-        // { } 裡的每個選項也都是名字：{.env,.git}/**
-        var names = pattern.Split('/', '\\', '{', '}', ',');
-        if (Sensitive(names)) return "樣式指到設定、hook 或金鑰";
-        // . 開頭又帶萬用字元的名字會比對到隱藏檔：**/.env*、.*、.?nv、.[e]nv
-        if (names.Any(n => n.StartsWith('.') && n.IndexOfAny(['*', '?', '[', ']']) >= 0)) return "樣式會比對到隱藏檔";
+        // { } 先展開成一個個實際的樣式再看：{.env,.git}/**、**/{.,a}env 展開後才看得出指到哪裡
+        if (Braces(pattern) is not { } expanded) return "樣式的 { } 太複雜";
+        foreach (var one in expanded)
+        {
+            var parts = one.Split('/', '\\');
+            if (parts.Contains("..")) return "樣式往上跳出資料夾";
+            if (Sensitive(parts)) return "樣式指到設定、hook 或金鑰";
+            // . 開頭又帶萬用字元的名字會比對到隱藏檔：**/.env*、.*、.?nv、.[e]nv
+            if (parts.Any(n => n.StartsWith('.') && n.IndexOfAny(['*', '?', '[', ']']) >= 0)) return "樣式會比對到隱藏檔";
+            // 名字開頭是 [ ]：裡面有 . 就等於 . 開頭（[.]env），排除式的（[!a]、[^a]）也包含 .
+            if (parts.Any(DotClass)) return "樣式會比對到隱藏檔";
+        }
         return null;
+    }
+
+    /// <summary>名字是不是以一個「可能是 .」的字元類別開頭：[.]env、[!a]env、[^a]env、[--0]env（範圍裡剛好有 .）。</summary>
+    private static bool DotClass(string name)
+    {
+        if (name.Length < 2 || name[0] != '[') return false;
+        int close = name.IndexOf(']', 2);
+        if (close < 0) return false;
+        var body = name[1..close];
+        if (body[0] is '!' or '^' || body.Contains('.')) return true;
+        for (int i = 1; i + 1 < body.Length; i++)
+            if (body[i] == '-' && body[i - 1] <= '.' && body[i + 1] >= '.') return true;
+        return false;
+    }
+
+    /// <summary>把 {a,b} 展開成每一種寫法（可以巢狀）。超過 64 種、或括號不成對，就是 null（不放行）。</summary>
+    public static List<string>? Braces(string pattern)
+    {
+        var done = new List<string>();
+        var todo = new Stack<string>();
+        todo.Push(pattern);
+        while (todo.Count > 0)
+        {
+            var one = todo.Pop();
+            int open = one.IndexOf('{');
+            if (open < 0)
+            {
+                if (one.Contains('}')) return null;
+                done.Add(one);
+                if (done.Count > 64) return null;
+                continue;
+            }
+            // 找到跟它成對的 }，同時記下最外層的逗號
+            int depth = 0, close = -1;
+            var commas = new List<int>();
+            for (int i = open; i < one.Length; i++)
+            {
+                if (one[i] == '{') depth++;
+                else if (one[i] == '}' && --depth == 0) { close = i; break; }
+                else if (one[i] == ',' && depth == 1) commas.Add(i);
+            }
+            if (close < 0) return null;
+            int from = open + 1;
+            foreach (int end in commas.Append(close))
+            {
+                todo.Push(one[..open] + one[from..end] + one[(close + 1)..]);
+                from = end + 1;
+            }
+            if (todo.Count > 256) return null;
+        }
+        return done;
     }
 
     private static bool PathKey(string key)
