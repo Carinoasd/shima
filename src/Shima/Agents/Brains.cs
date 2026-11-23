@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -9,6 +10,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Anthropic;
 using Anthropic.Exceptions;
+using Anthropic.Helpers;
 using Anthropic.Models.Messages;
 
 namespace Shima.Agents;
@@ -16,7 +18,12 @@ namespace Shima.Agents;
 /// <summary>回答問題的那個 AI。一個物件就是一段對話，會記得前面聊過什麼。</summary>
 public interface IBrain
 {
-    Task<string> ThinkAsync(string said, CancellationToken stop);
+    /// <param name="progress">
+    /// 給了就用串流：回答邊產生邊收到「這一輪目前為止的全文」（不是增量，晚到或漏掉一次都不要緊）。
+    /// 在背景執行緒呼叫。用了工具的話，新的一輪從頭開始累積，所以畫面上的「我查一下」會被之後的回答換掉。
+    /// 回傳值跟不串流時一樣，只有最後一輪的回答。
+    /// </param>
+    Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null);
     /// <summary>出錯時給人看的一句話。</summary>
     string Explain(Exception e);
     /// <summary>這把金鑰能用的模型。</summary>
@@ -179,8 +186,13 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
     /// </remarks>
     public const string DefaultModel = "claude-haiku-5-5";
 
-    private readonly AnthropicClient _client = new() { ApiKey = apiKey };
+    private AnthropicClient? _made;
     private readonly List<MessageParam> _messages = [];
+
+    /// <summary>SDK 送請求用的 HttpClient；不給就用 SDK 自己的。測試用來換成假的，不經過真的網路。</summary>
+    public HttpClient? Http { get; init; }
+
+    private AnthropicClient Client => _made ??= Http == null ? new() { ApiKey = apiKey } : new() { ApiKey = apiKey, HttpClient = Http };
 
     private static readonly ToolUnion[] Tools = AssistantTool.All.Select(t => (ToolUnion)new Tool
     {
@@ -193,11 +205,11 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         },
     }).ToArray();
 
-    public async Task<string> ThinkAsync(string said, CancellationToken stop)
+    public async Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null)
     {
-        // 這一輪失敗（API 錯誤、按了停止、工具出錯、拒絕回答）就整段退回，下一句從乾淨的對話接著聊
+        // 這一輪失敗（API 錯誤、按了停止、工具出錯、拒絕回答、串流到一半斷線）就整段退回，下一句從乾淨的對話接著聊
         int start = _messages.Count;
-        try { return await Converse(said, start, stop); }
+        try { return await Converse(said, start, stop, progress); }
         catch
         {
             Brain.Rewind(_messages, start);
@@ -205,12 +217,12 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         }
     }
 
-    private async Task<string> Converse(string said, int start, CancellationToken stop)
+    private async Task<string> Converse(string said, int start, CancellationToken stop, Action<string>? progress)
     {
         _messages.Add(new UserMessageParam { Content = said });
         for (int round = 0; round < 4; round++)
         {
-            var response = await _client.Messages.Create(new MessageCreateParams
+            var response = await Send(new MessageCreateParams
             {
                 Model = model.Length > 0 ? model : DefaultModel,
                 MaxTokens = 16000,
@@ -218,7 +230,7 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
                 OutputConfig = new OutputConfig { Effort = Effort.Low },
                 Tools = Tools,
                 Messages = _messages,
-            }, stop);
+            }, stop, progress);
 
             if (response.StopReason == "refusal")
             {
@@ -252,6 +264,50 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 
+    /// <summary>
+    /// 送出一輪。有 progress 就用串流，邊收邊把文字交出去；收完由 SDK 的 MessageContentAggregator 拼回整則 Message
+    /// （思考區塊的簽章、分段送來的工具參數都由它拼好），後面的處理跟不串流時完全一樣。
+    /// </summary>
+    private async Task<Message> Send(MessageCreateParams request, CancellationToken stop, Action<string>? progress)
+    {
+        if (progress == null) return await Client.Messages.Create(request, stop);
+        var text = new StringBuilder();
+        bool started = false;
+        var whole = new MessageContentAggregator();
+        try
+        {
+            await foreach (var e in whole.CollectAsync(Client.Messages.CreateStreaming(request, stop)).WithCancellation(stop))
+            {
+                started = true;
+                // 一則回答有好幾個文字區塊時，不串流的做法是用空格接起來，這裡也一樣
+                if (e.TryPickContentBlockStart(out var begin) && begin.ContentBlock.TryPickText(out _) && text.Length > 0) text.Append(' ');
+                else if (e.TryPickContentBlockDelta(out var delta) && delta.Delta.TryPickText(out var piece) && piece.Text.Length > 0)
+                {
+                    text.Append(piece.Text);
+                    progress(text.ToString());
+                }
+                // 串流中途的錯誤（例如 overloaded）SDK 平常會丟 AnthropicSseException；萬一當成一般事件交出來也要擋下
+                else if (e.Type.Raw() == "error")
+                    throw new HttpRequestException("Claude 串流錯誤：" + (e.Json.TryGetProperty("error", out var error) ? error.GetRawText() : e.Json.GetRawText()));
+            }
+            // 沒收到 message_stop 就結束（斷線）時，這裡會丟 AnthropicInvalidDataException
+            return whole.Message();
+        }
+        // 請求本身被拒（還沒收到任何事件）：可能是這個環境不給串流，改用一般的請求再問一次，使用者不會看到失敗。
+        // 真的是請求有問題的話，一般的請求也會回一樣的錯誤，照常往外丟
+        catch (Exception e) when (!started && !stop.IsCancellationRequested && e is AnthropicBadRequestException or AnthropicUnprocessableEntityException or AnthropicNotImplementedException)
+        {
+            Log.Write($"ai: Claude 串流被拒（{e.GetType().Name}），改用一般請求");
+            return await Client.Messages.Create(request, stop);
+        }
+        // 中途斷線、伺服器在串流裡送 error 事件（SDK 丟 AnthropicSseException）：包成 HttpRequestException，
+        // 語音助手才認得出是連線或服務的問題，不會說成「無法啟動」
+        catch (Exception e) when (!stop.IsCancellationRequested && e is IOException or AnthropicInvalidDataException or AnthropicIOException or AnthropicSseException)
+        {
+            throw new HttpRequestException("Claude 串流中斷：" + e.Message, e);
+        }
+    }
+
     public string Explain(Exception e) => e switch
     {
         AnthropicUnauthorizedException => L.T("API 金鑰無效"),
@@ -262,7 +318,7 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
 
     public async Task<List<string>> ModelsAsync()
     {
-        var page = await _client.Models.List();
+        var page = await Client.Models.List();
         return page.Items.Select(m => m.ID).ToList();
     }
 }
@@ -276,7 +332,10 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
     public HttpClient Http { get; init; } = Shared;
 
     private readonly JsonArray _messages = [];
-    private bool _noTools;
+    private bool _noTools, _noStream;
+
+    /// <summary>串流這麼久都沒有新的一行，就當作斷線。本機的大模型第一個字可能要等很久，所以給寬一點。</summary>
+    private static readonly TimeSpan Idle = TimeSpan.FromSeconds(90);
 
     private sealed class ApiError(HttpStatusCode status, string body) : Exception($"HTTP {(int)status}")
     {
@@ -317,12 +376,12 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         return body;
     }
 
-    public async Task<string> ThinkAsync(string said, CancellationToken stop)
+    public async Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null)
     {
         // 這一輪失敗就整段退回：工具呼叫的第二輪才失敗時，助手那則帶 tool_calls 的訊息也要拿掉，
         // 不然它沒有對應的 tool 回覆，同一段對話之後每次請求都會被回 400
         int start = _messages.Count;
-        try { return await Converse(said, start, stop); }
+        try { return await Converse(said, start, stop, progress); }
         catch
         {
             Brain.Rewind(_messages, start);
@@ -330,21 +389,41 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         }
     }
 
-    private async Task<string> Converse(string said, int start, CancellationToken stop)
+    private async Task<string> Converse(string said, int start, CancellationToken stop, Action<string>? progress)
     {
         _messages.Add(new JsonObject { ["role"] = "user", ["content"] = said });
         for (int round = 0; round < 4; round++)
         {
-            using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", Body(model, Brain.Prompt(language), _messages, !_noTools)), stop);
-            var text = await response.Content.ReadAsStringAsync(stop);
+            bool streaming = progress != null && !_noStream;
+            var body = Body(model, Brain.Prompt(language), _messages, !_noTools);
+            // 只加 stream，不加 stream_options：有幾家看到不認得的欄位會回 400
+            if (streaming) body["stream"] = true;
+            // 串流要在標頭一到就開始讀；預設會先把整段回應收完才交回來，等於沒有串流。
+            // 這樣 HttpClient 的逾時只管到標頭為止，之後由 ChatStream 的 idle 接手
+            using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), streaming ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead, stop);
             if (!response.IsSuccessStatusCode)
             {
-                // 有些模型（尤其本機的）不支援工具：拿掉工具再試一次
-                if (response.StatusCode == HttpStatusCode.BadRequest && !_noTools && !text.Contains("key", StringComparison.OrdinalIgnoreCase)) { _noTools = true; round--; continue; }
-                throw new ApiError(response.StatusCode, text);   // 由 ThinkAsync 退回對話
+                var error = await response.Content.ReadAsStringAsync(stop);
+                if (Retry(response.StatusCode, error, streaming)) { round--; continue; }
+                throw new ApiError(response.StatusCode, error);   // 由 ThinkAsync 退回對話
             }
 
-            var message = JsonNode.Parse(text)?["choices"]?[0]?["message"] as JsonObject;
+            JsonObject? message;
+            // 有的服務不理 stream: true，直接回一般的 JSON：照不串流的方式讀
+            if (!streaming || response.Content.Headers.ContentType?.MediaType == "application/json")
+                message = JsonNode.Parse(await response.Content.ReadAsStringAsync(stop))?["choices"]?[0]?["message"] as JsonObject;
+            else
+            {
+                var chat = await Read(response, progress!, stop);
+                if (chat.Error is { } failure)
+                {
+                    var status = failure["code"] is JsonValue code && code.TryGetValue(out int number) && number is >= 400 and < 600 ? (HttpStatusCode)number : HttpStatusCode.InternalServerError;
+                    if (!chat.Started && Retry(status, failure.ToJsonString(), streaming)) { round--; continue; }
+                    throw new ApiError(status, failure.ToJsonString());
+                }
+                if (!chat.Finished) throw new HttpRequestException("串流沒有結束就斷了");
+                message = chat.Message();
+            }
             if (message == null)
             {
                 // 回應看不懂：當作這一輪沒發生
@@ -370,6 +449,38 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
         Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
+    }
+
+    /// <summary>
+    /// 請求被拒時能不能換個方式再試：有些服務或模型（尤其本機的）不支援串流或工具。
+    /// 錯誤提到 stream 就先關串流；不然先拿掉工具（跟以前一樣）；工具已經拿掉了還是不行，再關串流。
+    /// 金鑰、用量、伺服器錯誤都不重試。
+    /// </summary>
+    private bool Retry(HttpStatusCode status, string error, bool streaming)
+    {
+        if (error.Contains("key", StringComparison.OrdinalIgnoreCase)) return false;
+        bool rejected = status is HttpStatusCode.BadRequest or HttpStatusCode.UnsupportedMediaType or HttpStatusCode.UnprocessableEntity or HttpStatusCode.NotImplemented;
+        if (!rejected) return false;
+        if (streaming && error.Contains("stream", StringComparison.OrdinalIgnoreCase)) _noStream = true;
+        else if (!_noTools && status == HttpStatusCode.BadRequest) _noTools = true;
+        else if (streaming) _noStream = true;
+        else return false;
+        Log.Write($"ai: {baseUrl} 回 {(int)status}，改用{(_noStream ? "不串流" : "")}{(_noTools ? "不帶工具" : "")}的請求");
+        return true;
+    }
+
+    private static async Task<ChatStream> Read(HttpResponseMessage response, Action<string> progress, CancellationToken stop)
+    {
+        try
+        {
+            using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(stop), Encoding.UTF8);
+            return await ChatStream.ReadAsync(reader, progress, stop, Idle);
+        }
+        // 中途斷線、太久沒資料：包成 HttpRequestException，畫面說「連不上」，語音助手也認得出是連線的問題
+        catch (Exception e) when (!stop.IsCancellationRequested && e is IOException or TimeoutException)
+        {
+            throw new HttpRequestException("串流中斷：" + e.Message, e);
+        }
     }
 
     public string Explain(Exception e)

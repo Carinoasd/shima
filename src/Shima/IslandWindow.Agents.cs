@@ -297,15 +297,19 @@ public partial class IslandWindow
         AskBox.IsEnabled = false;
         AskBox.Text = question;
         Say("…");
+        var trickle = Streamed();
         try
         {
-            // 在背景問：工具可能要上網（查天氣），不能卡住畫面
+            // 在背景問：工具可能要上網（查天氣），不能卡住畫面。回答邊產生邊顯示
             var asker = _asker;
-            Say(await Task.Run(() => asker.AskAsync(question)));
+            var reply = await Task.Run(() => asker.AskAsync(question, trickle.Put));
+            trickle.Close();   // 晚到的片段不能蓋掉整段答案
+            Say(reply);
         }
         catch (Exception x) { Log.Write("ask: " + x.Message); Say(x.Message); }
         finally
         {
+            trickle.Close();
             // 不管成功失敗都要把輸入框還回去，不然之後就再也問不了
             AskBox.Text = "";
             AskBox.IsEnabled = true;
@@ -318,7 +322,29 @@ public partial class IslandWindow
         VoiceText.Text = text;
         VoiceText.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (_tab == Tab.Ai && _expanded) Morph();
+        _voiceHeight = VoiceText.DesiredSize.Height;
     }
+
+    private double _voiceHeight;
+
+    /// <summary>串流中的回答，每一個片段都要更新：只有字多到換行、高度變了才讓島重新變形，不要每個字都重排整個面板。</summary>
+    /// <remarks>
+    /// 超過 MaxHeight 的部分維持截斷、顯示開頭：答案是從頭讀的，而且整段完成後畫面本來就是開頭加刪節號，
+    /// 串流途中改成跟著最新的字捲動的話，結束那一刻會整段跳回開頭。
+    /// </remarks>
+    private void SayPartial(string text)
+    {
+        VoiceText.Text = text;
+        VoiceText.Visibility = Visibility.Visible;
+        if (_tab != Tab.Ai || !_expanded) return;
+        VoiceText.Measure(new Size(AiPage.ActualWidth, double.PositiveInfinity));
+        if (Math.Abs(VoiceText.DesiredSize.Height - _voiceHeight) < 0.5) return;
+        Morph();
+        _voiceHeight = VoiceText.DesiredSize.Height;
+    }
+
+    /// <summary>把串流的片段節流後顯示在 VoiceText：最多每 66 毫秒換一次。</summary>
+    private Trickle Streamed() => new(TimeSpan.FromMilliseconds(66), work => Dispatcher.BeginInvoke(work), SayPartial);
 
     /// <summary>快速鍵：問一句就好，問答顯示在膠囊上。</summary>
     private void AskOnce() => StartVoice(once: true);
@@ -335,8 +361,11 @@ public partial class IslandWindow
         _wake?.Stop();   // 麥克風讓給語音助手
         var voice = _voice = new VoiceAssistant(brain, language, _ears) { Once = once || !AppSettings.Current.VoiceContinuous };
         _resumeMusic = false;
-        // 聽到的話、回答都顯示在膠囊上，島收著也看得到
-        voice.Said += text => Dispatcher.BeginInvoke(() => { Say(text); _voiceLine = text; UpdateTexts(); });
+        // 聽到的話、回答都顯示在膠囊上，島收著也看得到。
+        // 回答產生中的片段只串流到面板上的文字：膠囊換字會淡入淡出、寬度也跟著變，每幾十毫秒換一次會一直閃
+        var trickle = Streamed();
+        voice.Partial += trickle.Put;
+        voice.Said += text => Dispatcher.BeginInvoke(() => { trickle.Drop(); Say(text); _voiceLine = text; UpdateTexts(); });
         voice.Listening += on => Dispatcher.BeginInvoke(() =>
         {
             _micOpen = on;
@@ -352,6 +381,7 @@ public partial class IslandWindow
         voice.Stopped += () => Dispatcher.BeginInvoke(() =>
         {
             if (_voice == voice) _voice = null;
+            trickle.Close();
             ApplyWakeWord();
             _micOpen = false;
             // 最後那句回答在膠囊上多留一下再換回歌詞
