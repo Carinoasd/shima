@@ -16,8 +16,9 @@ namespace Shima.Playback;
 /// 在 Discord 個人狀態顯示「正在聽」：歌名、藝人、專輯、封面、進度。
 /// 走 Discord 桌面版的本機管線，Discord 重開會自動重連。Discord 限制每 20 秒最多 5 次更新，
 /// 所以兩次送出至少隔 4.5 秒，中間只留最新的一筆。
+/// 程式結束或換 Application ID 時呼叫 Stop()（或 Dispose()，兩者相同）：馬上關掉管線，Discord 上的狀態跟著消失。
 /// </summary>
-public sealed class DiscordPresence
+public sealed class DiscordPresence : IDisposable
 {
     private const int Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4;
     private static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(4.5);
@@ -29,6 +30,7 @@ public sealed class DiscordPresence
     private NamedPipeClientStream? _pipe;
     private bool _ready, _started, _hasPending;
     private volatile bool _stopped;
+    private readonly CancellationTokenSource _stopping = new();
     private JsonObject? _pending;
     private DateTime _sentAt;
     private string _shownKey = "";
@@ -46,8 +48,20 @@ public sealed class DiscordPresence
         _ = Task.Run(RunAsync);
     }
 
-    /// <summary>不再使用（換了 Application ID）：關掉連線，Discord 上的狀態會跟著消失。</summary>
-    public void Stop() => _stopped = true;
+    /// <summary>
+    /// 不再使用（換了 Application ID、程式要結束）：關掉連線，Discord 上的狀態會跟著消失。
+    /// 直接關掉管線、打斷重連前的等待，不用等背景迴圈下一輪才發現。呼叫幾次都可以。
+    /// </summary>
+    public void Stop()
+    {
+        _stopped = true;
+        NamedPipeClientStream? pipe;
+        lock (_lock) { pipe = _pipe; _pipe = null; }
+        try { _stopping.Cancel(); } catch (ObjectDisposedException) { }
+        try { pipe?.Dispose(); } catch { /* 已經斷了 */ }
+    }
+
+    public void Dispose() => Stop();
 
     /// <summary>正在播的歌變了（或暫停、拖了進度）。沒在播就清掉狀態。</summary>
     public void Update(Track? track)
@@ -55,7 +69,7 @@ public sealed class DiscordPresence
         if (!_started) return;
         if (track is not { Playing: true } || track.Title.Length == 0)
         {
-            if (_shownKey.Length > 0) { _shownKey = ""; _revision++; Queue(null); }
+            if (_shownKey.Length > 0) { _shownKey = ""; Interlocked.Increment(ref _revision); Queue(null); }
             return;
         }
 
@@ -64,11 +78,12 @@ public sealed class DiscordPresence
         if (track.Key == _shownKey && Math.Abs(start - _shownStart) < 3000) return;
         _shownKey = track.Key;
         _shownStart = start;
-        int revision = ++_revision;
+        // Update 在畫面的執行緒，查封面在背景：查完時歌已經又換了就丟掉這筆，所以兩邊要看到同一個 _revision
+        int revision = Interlocked.Increment(ref _revision);
         _ = Task.Run(async () =>
         {
             var cover = AppSettings.Current.DiscordCover ? await CoverAsync(track) : null;
-            if (revision == _revision) Queue(Activity(track.Title, track.Artist, track.Album, start, track.Duration, cover));
+            if (revision == Volatile.Read(ref _revision)) Queue(Activity(track.Title, track.Artist, track.Album, start, track.Duration, cover));
         });
     }
 
@@ -161,37 +176,51 @@ public sealed class DiscordPresence
                 var pipe = await ConnectAsync();
                 if (pipe != null)
                 {
-                    lock (_lock) { _pipe = pipe; _ready = false; }
-                    await WriteAsync(pipe, Handshake, new JsonObject { ["v"] = 1, ["client_id"] = _clientId });
-                    var reader = ReadAsync(pipe);
-                    while (pipe.IsConnected && !reader.IsCompleted && !_stopped)
+                    // 送狀態（這個迴圈）和回 Pong（ReadAsync）會同時寫同一條管線；不排隊的話兩個封包的位元組會交錯，
+                    // Discord 讀到壞掉的封包就斷線。每條連線一把，斷線重連就換新的，不會被上一條卡住的寫入拖累。
+                    // 沒用到 AvailableWaitHandle，不 Dispose 也不會留下系統資源，所以不必等 ReadAsync 真的結束。
+                    var gate = new SemaphoreSlim(1, 1);
+                    lock (_lock)
                     {
-                        JsonObject? activity = null;
-                        bool send = false;
-                        lock (_lock)
-                        {
-                            if (_ready && _hasPending && DateTime.Now - _sentAt >= MinInterval)
-                            {
-                                activity = _pending; _hasPending = false; _sentAt = DateTime.Now; send = true;
-                            }
-                        }
-                        if (send)
-                            await WriteAsync(pipe, Frame, new JsonObject
-                            {
-                                ["cmd"] = "SET_ACTIVITY",
-                                ["args"] = new JsonObject { ["pid"] = Environment.ProcessId, ["activity"] = activity?.DeepClone() },
-                                ["nonce"] = (++_nonce).ToString(),
-                            });
-                        await Task.Delay(300);
+                        if (_stopped) { pipe.Dispose(); break; }
+                        _pipe = pipe; _ready = false;
                     }
-                    pipe.Dispose();
+                    // 寫到一半斷線會丟例外，也要把這條管線關掉
+                    try
+                    {
+                        await WriteAsync(pipe, gate, Handshake, new JsonObject { ["v"] = 1, ["client_id"] = _clientId });
+                        var reader = ReadAsync(pipe, gate);
+                        while (pipe.IsConnected && !reader.IsCompleted && !_stopped)
+                        {
+                            JsonObject? activity = null;
+                            bool send = false;
+                            lock (_lock)
+                            {
+                                if (_ready && _hasPending && DateTime.Now - _sentAt >= MinInterval)
+                                {
+                                    activity = _pending; _hasPending = false; _sentAt = DateTime.Now; send = true;
+                                }
+                            }
+                            if (send)
+                                await WriteAsync(pipe, gate, Frame, new JsonObject
+                                {
+                                    ["cmd"] = "SET_ACTIVITY",
+                                    ["args"] = new JsonObject { ["pid"] = Environment.ProcessId, ["activity"] = activity?.DeepClone() },
+                                    ["nonce"] = (++_nonce).ToString(),
+                                });
+                            await Task.Delay(300);
+                        }
+                    }
+                    finally { pipe.Dispose(); }
                 }
             }
             catch (Exception e) { Log.Write("discord: " + e.Message); }
 
             // 斷線後重連時把目前的狀態再送一次
             lock (_lock) { _pipe = null; _ready = false; _hasPending = _pending != null; }
-            if (!_stopped) await Task.Delay(10000);
+            if (_stopped) break;
+            try { await Task.Delay(10000, _stopping.Token); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -206,18 +235,24 @@ public sealed class DiscordPresence
         return null;
     }
 
-    private static async Task WriteAsync(Stream pipe, int op, JsonObject payload)
+    /// <summary>送一個封包。同一條連線的寫入一定要經過同一把 gate，封包才不會互相插隊。</summary>
+    public static async Task WriteAsync(Stream pipe, SemaphoreSlim gate, int op, JsonObject payload)
     {
         var json = Encoding.UTF8.GetBytes(payload.ToJsonString());
         var frame = new byte[8 + json.Length];
         BinaryPrimitives.WriteInt32LittleEndian(frame, op);
         BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(4), json.Length);
         json.CopyTo(frame, 8);
-        await pipe.WriteAsync(frame);
-        await pipe.FlushAsync();
+        await gate.WaitAsync();
+        try
+        {
+            await pipe.WriteAsync(frame);
+            await pipe.FlushAsync();
+        }
+        finally { gate.Release(); }
     }
 
-    private async Task ReadAsync(NamedPipeClientStream pipe)
+    private async Task ReadAsync(NamedPipeClientStream pipe, SemaphoreSlim gate)
     {
         var header = new byte[8];
         try
@@ -230,7 +265,7 @@ public sealed class DiscordPresence
                 var body = new byte[length];
                 await pipe.ReadExactlyAsync(body);
                 if (op == Close) return;
-                if (op == Ping) { await WriteAsync(pipe, Pong, JsonNode.Parse(body) as JsonObject ?? []); continue; }
+                if (op == Ping) { await WriteAsync(pipe, gate, Pong, JsonNode.Parse(body) as JsonObject ?? []); continue; }
                 if (op == Frame && JsonNode.Parse(body)?["evt"]?.ToString() == "READY")
                 {
                     lock (_lock) _ready = true;

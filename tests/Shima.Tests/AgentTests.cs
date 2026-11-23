@@ -62,6 +62,82 @@ public class AgentHooksTests
     }
 }
 
+/// <summary>真的寫檔的部分。只碰暫存資料夾，絕不碰使用者的 ~/.claude。</summary>
+public sealed class AgentHooksFileTests : IDisposable
+{
+    private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "shima-hooks-" + Guid.NewGuid().ToString("N"));
+    private string Settings => System.IO.Path.Combine(_root, ".claude", "settings.json");
+    private AgentHooks.Target[] Targets => [new(Settings, "curl.exe")];
+
+    public AgentHooksFileTests() => System.IO.Directory.CreateDirectory(System.IO.Path.Combine(_root, ".claude"));
+    public void Dispose() { try { System.IO.Directory.Delete(_root, true); } catch { } }
+
+    private string[] Leftovers() => System.IO.Directory.GetFiles(System.IO.Path.GetDirectoryName(Settings)!, "*.tmp");
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void 拿不到_token_就不安裝_也不建檔(string token)
+    {
+        Assert.NotNull(AgentHooks.Install(Targets, token));
+        Assert.False(System.IO.File.Exists(Settings));
+    }
+
+    [Fact]
+    public void 拿不到_token_時原本的設定原封不動()
+    {
+        System.IO.File.WriteAllText(Settings, """{ "model": "opus" }""");
+        Assert.NotNull(AgentHooks.Install(Targets, ""));
+        Assert.Equal("""{ "model": "opus" }""", System.IO.File.ReadAllText(Settings));
+        Assert.False(System.IO.File.Exists(Settings + ".before-shima.bak"));
+    }
+
+    [Fact]
+    public void 安裝寫進設定_第一次留備份_不留暫存檔()
+    {
+        System.IO.File.WriteAllText(Settings, """{ "model": "opus" }""");
+        Assert.Null(AgentHooks.Install(Targets, "TOKEN"));
+        var s = (JsonObject)JsonNode.Parse(System.IO.File.ReadAllText(Settings))!;
+        Assert.True(AgentHooks.Complete(s));
+        Assert.Equal("opus", s["model"]!.ToString());
+        Assert.Equal("""{ "model": "opus" }""", System.IO.File.ReadAllText(Settings + ".before-shima.bak"));
+
+        // 第二次不蓋掉備份：備份要一直是 Shima 動手之前的樣子
+        Assert.Null(AgentHooks.Install(Targets, "NEWER"));
+        Assert.Equal("""{ "model": "opus" }""", System.IO.File.ReadAllText(Settings + ".before-shima.bak"));
+        Assert.Contains("X-Shima-Token: NEWER", System.IO.File.ReadAllText(Settings));
+        Assert.Empty(Leftovers());
+    }
+
+    [Fact]
+    public void 壞掉的設定檔不動()
+    {
+        System.IO.File.WriteAllText(Settings, "{ 壞掉");
+        Assert.NotNull(AgentHooks.Install(Targets, "TOKEN"));
+        Assert.Equal("{ 壞掉", System.IO.File.ReadAllText(Settings));
+    }
+
+    [Fact]
+    public void 存檔是整個換掉_沒有_BOM()
+    {
+        System.IO.File.WriteAllText(Settings, """{ "old": true, "padding": "很長很長很長很長很長很長很長很長很長很長很長很長" }""");
+        AgentHooks.Save(Settings, "{ \"new\": 1 }\n");
+        Assert.Equal("{ \"new\": 1 }\n", System.IO.File.ReadAllText(Settings));
+        Assert.Equal((byte)'{', System.IO.File.ReadAllBytes(Settings)[0]);
+        Assert.Empty(Leftovers());
+    }
+
+    [Fact]
+    public void 要存的內容不是_JSON_就不換掉原本的檔()
+    {
+        System.IO.File.WriteAllText(Settings, """{ "model": "opus" }""");
+        Assert.Throws<System.IO.IOException>(() => AgentHooks.Save(Settings, "{ \"cut\": "));
+        Assert.Throws<System.IO.IOException>(() => AgentHooks.Save(Settings, "[1, 2]"));
+        Assert.Equal("""{ "model": "opus" }""", System.IO.File.ReadAllText(Settings));
+        Assert.Empty(Leftovers());
+    }
+}
+
 public class AgentBridgeTests
 {
     [Fact]

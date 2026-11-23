@@ -111,6 +111,7 @@ public sealed class UsageLedger
     {
         public string Session = "", Project = "", Model = "";
         public string? Speed, Geo;
+        /// <summary>UTC。紀錄裡沒有 timestamp（或看不懂）時維持 default，見 Summarize 的說明。</summary>
         public DateTime Time;
         public long Input, Output, Write5m, Write1h, Read;
         /// <summary>模型備援時，先失敗的那個模型另外算的部分（usage.iterations 裡別的模型）。</summary>
@@ -202,7 +203,23 @@ public sealed class UsageLedger
         foreach (var key in _entries.Where(p => last[p.Value.Session] < before).Select(p => p.Key).ToList()) _entries.Remove(key);
     }
 
-    /// <summary>某一天（本地時間）的用量。zone 預設是這台電腦的時區。</summary>
+    /// <summary>
+    /// UTC 時間換成 zone 的日期。沒有時間（default）或貼著 DateTime 上下限的值一律當成「不知道是哪一天」。
+    /// .NET 10 的 ConvertTimeFromUtc 遇到超出範圍會夾在 MinValue／MaxValue 而不丟例外（實測過），
+    /// 但夾出來的 0001-01-01 只是碰巧不等於今天；這裡明確說「不知道」，不靠這個巧合，也擋住其他平台或版本可能的例外。
+    /// </summary>
+    public static DateOnly? DayOf(DateTime utc, TimeZoneInfo zone)
+    {
+        if (utc <= DateTime.MinValue.AddDays(2) || utc >= DateTime.MaxValue.AddDays(-2)) return null;
+        try { return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone)); }
+        catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>
+    /// 某一天（本地時間）的用量。zone 預設是這台電腦的時區。
+    /// 不知道時間的紀錄（沒有 timestamp）確實花了 token，所以照樣算進工作階段的總量（SessionUsage.Tokens／Cost）；
+    /// 但說不出是不是今天，就不算進「今天」，也不拿來當工作階段最後使用的時間。Forget 也因此會把只剩這種紀錄的工作階段清掉。
+    /// </summary>
     public UsageSummary Summarize(DateOnly day, TimeZoneInfo? zone = null)
     {
         zone ??= TimeZoneInfo.Local;
@@ -210,12 +227,13 @@ public sealed class UsageLedger
         var sessions = new Dictionary<string, (string Project, TokenCount Today, decimal TodayCost, TokenCount All, decimal AllCost, bool Known, bool Used, DateTime Last)>();
         foreach (var e in _entries.Values)
         {
-            bool today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(e.Time, zone)) == day;
+            var known = DayOf(e.Time, zone);
+            bool today = known == day;
             var parts = new List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> { (e.Model, e.Input, e.Output, e.Write5m, e.Write1h, e.Read) };
             parts.AddRange(e.Extra);
             var s = sessions.GetValueOrDefault(e.Session, ("", default, 0m, default, 0m, true, false, DateTime.MinValue));
             if (e.Project.Length > 0) s.Project = e.Project;
-            if (e.Time > s.Last) s.Last = e.Time;
+            if (known != null && e.Time > s.Last) s.Last = e.Time;
             foreach (var p in parts)
             {
                 var tokens = new TokenCount(p.Input, p.Output, p.Write5m + p.Write1h, p.Read);
