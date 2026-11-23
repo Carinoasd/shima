@@ -164,8 +164,10 @@ public class MarkdownTests
     [InlineData("***都有***", "<bi>都有</>")]
     [InlineData("`code`", "<c>code</>")]
     [InlineData("用 ``a`b`` 吧", "用 <c>a`b</> 吧")]
-    [InlineData("看 [官網](https://lovelive-anime.jp) 吧", "看 <a>官網</> 吧")]
-    [InlineData("[**粗的連結**](https://x.y)", "<ba>粗的連結</>")]
+    [InlineData("看 [官網](https://lovelive-anime.jp) 吧", "看 <a>官網</> (https://lovelive-anime.jp) 吧")]
+    [InlineData("[**粗的連結**](https://x.y)", "<ba>粗的連結</> (https://x.y)")]
+    [InlineData("[https://x.y](https://x.y)", "<a>https://x.y</>")]      // 文字就是網址：不重複
+    [InlineData("[第二節](#section-2)", "<a>第二節</>")]                 // 不是網頁的連結不附
     public void InlineStyles(string text, string expected) => Assert.Equal(expected, Inline(text));
 
     [Theory]
@@ -316,5 +318,22 @@ public class MarkdownTests
     {
         Assert.Equal(Markdown.Parse("- **a**")[0], Markdown.Parse("- **a**")[0]);
         Assert.NotEqual(Markdown.Parse("- a")[0], Markdown.Parse("1. a")[0]);
+    }
+
+    [Fact]
+    public void 套得太深的標記當普通文字_不會無止盡遞迴()
+    {
+        // 幾千層的巢狀連結：以前每一層都會再往下走一層
+        var deep = string.Concat(Enumerable.Repeat("[", 5000)) + "x" + string.Concat(Enumerable.Repeat("](u)", 5000));
+        var spans = Markdown.Inline(deep);
+        Assert.Contains("x", string.Concat(spans.Select(s => s.Text)));
+    }
+
+    [Fact]
+    public void 長到不像話的一段不做行內排版()
+    {
+        var huge = string.Concat(Enumerable.Repeat("[ *x ", Markdown.MaxInline / 5 + 10));
+        var span = Assert.Single(Markdown.Inline(huge));
+        Assert.Equal((huge, MdStyle.None), (span.Text, span.Style));
     }
 }

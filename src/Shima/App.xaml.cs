@@ -13,6 +13,7 @@ public partial class App : Application
     /// <summary>換語言要重新啟動：先放掉「只開一個」的鎖，新的那個才起得來。</summary>
     public void Restart()
     {
+        if (Demo.On) { Log.Write("示範模式不重新啟動"); return; }
         try
         {
             _single?.ReleaseMutex();

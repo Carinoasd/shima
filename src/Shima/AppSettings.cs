@@ -190,6 +190,9 @@ public sealed class AppSettings
     /// <summary>設了這個環境變數就把設定與資料放在那個資料夾（測試用暫存資料夾，不碰平常的那一份）。</summary>
     public const string FolderVariable = "SHIMA_DATA";
 
+    /// <summary>資料夾被 <see cref="FolderVariable"/> 換掉了：這一份用的金鑰不是平常那一把，不要拿去更新別的程式裡的設定。</summary>
+    public static bool Redirected => Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 };
+
     public static string Folder => Environment.GetEnvironmentVariable(FolderVariable) is { Length: > 0 } custom ? custom
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Shima");
     private static string FilePath => Path.Combine(Folder, "settings.json");

@@ -193,8 +193,11 @@ public static partial class Markdown
     {
         var spans = new List<MdSpan>();
         if (string.IsNullOrEmpty(text)) return spans;
+        // 沒收尾的 [ 或 * 每一個都要往後掃到這一塊的結尾：單一段落長到不像話時就不排版了，
+        // 不然串流時每次更新都在畫面的執行緒上花掉幾百毫秒
+        if (text.Length > MaxInline) { spans.Add(new MdSpan(text, MdStyle.None)); return spans; }
         var code = CodeSpans(text);
-        Walk(text, 0, text.Length, MdStyle.None, code, spans);
+        Walk(text, 0, text.Length, MdStyle.None, code, spans, 0);
         return spans;
     }
 
@@ -236,7 +239,12 @@ public static partial class Markdown
         return j - i;
     }
 
-    private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans)
+    /// <summary>一個區塊超過這麼多字就不做行內排版。</summary>
+    public const int MaxInline = 20_000;
+    /// <summary>標記最多套幾層（連結裡的連結、粗體裡的斜體…）：再深就當普通文字，不讓遞迴沒有上限。</summary>
+    private const int MaxDepth = 12;
+
+    private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth)
     {
         var plain = new StringBuilder();
         void Add(string text, MdStyle st)
@@ -260,21 +268,27 @@ public static partial class Markdown
             }
             if (c == '\\' && i + 1 < to && Escapable.Contains(s[i + 1])) { plain.Append(s[i + 1]); i += 2; continue; }
             if (c == '`') { int n = Run(s, i, to); plain.Append(s, i, n); i += n; continue; }   // 沒收尾的反引號
-            if (c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code) is { } link)
+            if (depth < MaxDepth && c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code) is { } link)
             {
                 Flush();
-                Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans);
+                int before = spans.Count;
+                Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans, depth + 1);
+                // 網址留在後面：只顯示文字的話，「參考某頁」看不出連到哪裡，也沒辦法從畫面上選取複製
+                string url = s[(link.TextEnd + 2)..(link.End - 1)];
+                string shown = string.Concat(spans.Skip(before).Select(x => x.Text));
+                if ((url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) && !shown.Contains(url, StringComparison.OrdinalIgnoreCase))
+                    spans.Add(new MdSpan($" ({url})", style));
                 i = link.End;
                 continue;
             }
             if (c is '*' or '_')
             {
                 int n = Run(s, i, to);
-                if (Closer(s, i, n, to, code) is { } close)
+                if (depth < MaxDepth && Closer(s, i, n, to, code) is { } close)
                 {
                     Flush();
                     var add = c == '_' || n == 1 ? MdStyle.Italic : n == 2 ? MdStyle.Bold : MdStyle.Bold | MdStyle.Italic;
-                    Walk(s, i + n, close, style | add, code, spans);
+                    Walk(s, i + n, close, style | add, code, spans, depth + 1);
                     i = close + n;
                     continue;
                 }

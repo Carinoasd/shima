@@ -13,6 +13,7 @@ public enum SleepMode { Off, After, EndOfTrack }
 public sealed class SleepTimer
 {
     private DateTime _endsAt;
+    private DateTime? _goneSince;
     private string? _track;
     private TimeSpan _last;
 
@@ -40,6 +41,7 @@ public sealed class SleepTimer
         Total = TimeSpan.Zero;
         _track = track;
         _last = position;
+        _goneSince = null;
         return true;
     }
 
@@ -66,8 +68,18 @@ public sealed class SleepTimer
                 due = now >= _endsAt;
                 break;
             case SleepMode.EndOfTrack:
-                // 歌換了（或沒歌了）就是播完了；同一首從尾巴跳回開頭是重播
-                due = track != _track || Replayed(position, duration);
+                if (track == null)
+                {
+                    // 換歌的那一瞬間播放器可能短暫沒有曲目：等幾秒，真的沒歌了才算結束（那時也沒有東西要暫停）
+                    _goneSince ??= now;
+                    due = now - _goneSince.Value >= Gone;
+                    break;
+                }
+                _goneSince = null;
+                // 歌換了就是播完了；同一首從尾巴跳回開頭是重播。
+                // 播到底自己停下來（清單的最後一首、沒有自動播下一部的影片）也算結束：
+                // 不然定時會一直留著，幾個小時後再播任何東西都會被馬上暫停
+                due = track != _track || Replayed(position, duration) || Finished(position, duration, playing);
                 if (!due) _last = position;
                 break;
         }
@@ -80,8 +92,15 @@ public sealed class SleepTimer
     {
         if (position >= _last) return false;
         // 有長度：上次已經在最後幾秒；沒長度：上次還在中段，這次回到開頭附近。拖進度條往回不算
-        return duration > TimeSpan.Zero
-            ? _last >= duration - TimeSpan.FromSeconds(5) && position < _last - TimeSpan.FromSeconds(3)
-            : _last > TimeSpan.FromSeconds(10) && position < TimeSpan.FromSeconds(3);
+        // 都要回到開頭附近才算：在最後幾秒往回拖一小段不是重播
+        return position < TimeSpan.FromSeconds(3) &&
+            (duration > TimeSpan.Zero ? _last >= duration - TimeSpan.FromSeconds(5) : _last > TimeSpan.FromSeconds(10));
     }
+
+    /// <summary>沒有曲目多久才當成真的沒歌了。</summary>
+    public static readonly TimeSpan Gone = TimeSpan.FromSeconds(3);
+
+    /// <summary>停在這首的結尾：播完了，後面沒有東西接著播。</summary>
+    private static bool Finished(TimeSpan position, TimeSpan duration, bool playing) =>
+        !playing && duration > TimeSpan.Zero && position >= duration - TimeSpan.FromSeconds(2);
 }

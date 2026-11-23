@@ -109,7 +109,7 @@ public partial class IslandWindow
         switch (action)
         {
             case "start":
-                if (minutes <= 0) return "沒有給分鐘數";
+                if (!double.IsFinite(minutes) || minutes <= 0) return "沒有給分鐘數";
                 StartSleep(TimeSpan.FromMinutes(Math.Clamp(minutes, 1, 600)));
                 return $"睡眠定時已設定，{Math.Round(Math.Clamp(minutes, 1, 600))} 分鐘後暫停播放";
             case "end_of_track":

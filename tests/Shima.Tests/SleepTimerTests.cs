@@ -96,11 +96,47 @@ public class SleepTimerTests
     }
 
     [Fact]
-    public void 這首播完_沒歌了也算()
+    public void 這首播完_沒歌了等幾秒才算_那時沒有東西要暫停()
     {
         var timer = new SleepTimer();
         timer.AfterTrack("a\nb", S(30));
-        Assert.True(timer.Tick(T0, null, default, default, true));
+        Assert.False(timer.Tick(T0, null, default, default, false));
+        Assert.Equal(SleepMode.EndOfTrack, timer.Mode);   // 可能只是換歌的空檔
+        Assert.False(timer.Tick(T0 + SleepTimer.Gone, null, default, default, false));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
+
+    [Fact]
+    public void 這首播完_換歌中間短暫沒有曲目_下一首出來就暫停()
+    {
+        var timer = new SleepTimer();
+        timer.AfterTrack("a\nb", S(230));
+        Assert.False(timer.Tick(T0, null, default, default, false));
+        Assert.True(timer.Tick(T0.AddSeconds(1), "c\nd", S(0), Len, true));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
+
+    [Fact]
+    public void 這首播完_播到底自己停了就結束_之後再播不會被暫停()
+    {
+        var timer = new SleepTimer();
+        timer.AfterTrack("a\nb", S(200));
+        Assert.False(timer.Tick(T0, "a\nb", S(239), Len, true));
+        // 清單的最後一首：停在結尾，沒有下一首
+        Assert.False(timer.Tick(T0.AddSeconds(2), "a\nb", Len, Len, false));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+        // 幾個小時後重播同一首
+        Assert.False(timer.Tick(T0.AddHours(3), "a\nb", S(0), Len, true));
+    }
+
+    [Fact]
+    public void 這首播完_在最後幾秒往回拖一小段不算重播()
+    {
+        var timer = new SleepTimer();
+        timer.AfterTrack("a\nb", S(200));
+        Assert.False(timer.Tick(T0, "a\nb", S(238), Len, true));
+        Assert.False(timer.Tick(T0, "a\nb", S(200), Len, true));
+        Assert.Equal(SleepMode.EndOfTrack, timer.Mode);
     }
 
     [Fact]
