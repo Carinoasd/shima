@@ -34,7 +34,7 @@ public partial class IslandWindow
                 _expanded = true;
                 (tab switch { Tab.Tools => TabTools, Tab.Ai => TabAi, _ => TabMusic }).IsChecked = true;
                 _tab = tab;
-                if (tab == Tab.Ai) RefreshAi();
+                if (tab == Tab.Ai) { RefreshAi(); if (Demo.On) Say(Demo.Answer); }
                 if (tab == Tab.Tools) RefreshTools();
                 Snap();
                 UpdateTexts();

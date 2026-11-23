@@ -44,7 +44,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 - **聊天**：把 Claude、Gemini、ChatGPT 的網頁版放進島裡，登入一次就好
 - **Claude Code**：權限請求顯示在島上，按「允許／拒絕／回終端機」，常用的指令可以「以後都允許」，記住的規則在 AI 分頁可以逐筆刪除；同時開好幾個工作階段時每個各一列（狀態、待辦進度），並顯示今天用了多少 token 與估計花費
 - **Codex CLI、Gemini CLI**：電腦上找得到它們的設定時，AI 分頁各多一列「連接」。Codex 的權限請求可以在島上允許或拒絕；Gemini CLI 只顯示工作階段狀態與完成通知
-- **問 AI**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來，回答邊產生邊顯示；可以幫忙切歌、查天氣、設提醒、開網站或常用程式、算數、讀剪貼簿的文字；按 Ctrl+Alt+V 隨時問一句，也可以在設定打開「說 Shima 就開始聽」。可以接 Claude、OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter、本機的 Ollama，或任何 OpenAI 相容的服務
+- **問 AI**：在 AI 分頁打字問，或對麥克風說話讓它回答並唸出來，回答邊產生邊顯示，會排版粗體、清單與程式碼，太長可以捲動、滑鼠移上去可以複製；可以幫忙切歌、查天氣、設提醒、開網站或常用程式、算數、讀剪貼簿的文字；按 Ctrl+Alt+V 隨時問一句，也可以在設定打開「說 Shima 就開始聽」。可以接 Claude、OpenAI、Gemini、DeepSeek、xAI、Mistral、Groq、OpenRouter、本機的 Ollama，或任何 OpenAI 相容的服務
 - **訊息通知**：Discord、LINE、Telegram 等通訊軟體的通知在島上閃一下（設定頁開啟）
 - **Stream Dock**：把島搬到 Stream Dock 的觸控長條或按鍵上：封面、唱到哪一句、小 Claude、進度；按一下暫停或換歌（設定頁開啟）
 - **膠囊上的手勢**：滾輪調音量，按住 Shift 滾是上一首／下一首，滑鼠中鍵播放／暫停

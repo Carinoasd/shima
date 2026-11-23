@@ -97,6 +97,14 @@ public static class Demo
         return new LyricsHit(sheet, true, "local");
     }
 
+    /// <summary>AI 分頁示範用的回答：有粗體、清單與行內程式碼，看得出排版。</summary>
+    public const string Answer =
+        "**ひかりは水面でほどけていく**\n\n" +
+        "- **ひかり**（hikari）：光\n" +
+        "- **水面**（minamo）：水面，比「すいめん」更有詩意的唸法\n" +
+        "- **ほどける**：鬆開、散開；接 `〜ていく` 表示慢慢變成那樣\n\n" +
+        "整句是「光在水面上慢慢散開」。";
+
     /// <summary>畫一張封面：河海交界的顏色，幾道光。</summary>
     private static BitmapSource Cover()
     {
