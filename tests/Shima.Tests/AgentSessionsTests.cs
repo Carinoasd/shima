@@ -621,6 +621,45 @@ public class AgentUsageTests
     }
 
     [Fact]
+    public void 沒有時間的紀錄在負時區也不會讓整份用量失敗_只算進工作階段總量()
+    {
+        // UTC-5：沒有時間的紀錄換算後會落到 DateTime.MinValue 之前（.NET 會夾住而不丟例外）；不管怎樣都不能算進今天或最後使用時間
+        var newYork = TimeZoneInfo.CreateCustomTimeZone("UTC-5", TimeSpan.FromHours(-5), "UTC-5", "UTC-5");
+        var ledger = new UsageLedger();
+        Assert.True(ledger.Feed("""{"type":"assistant","sessionId":"s1","cwd":"/home/someone/alpha","message":{"id":"no-time","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":0}}}"""));
+        Assert.True(ledger.Feed("""{"type":"assistant","sessionId":"s1","timestamp":"不是時間","message":{"id":"bad-time","model":"claude-opus-5-5","usage":{"input_tokens":1000,"output_tokens":0}}}"""));
+        ledger.Feed(Line("timed", "claude-opus-5-5", 10, 0, time: "2026-05-01T15:00:00Z"));   // UTC-5 的 5/1 10:00
+
+        var s = ledger.Summarize(Day, newYork);
+        Assert.Equal(10, s.Tokens.Input);
+        var one = s.Sessions.Single();
+        Assert.Equal((10L, 1110L), (one.Today.Input, one.Tokens.Input));
+        Assert.Equal(new DateTime(2026, 5, 1, 15, 0, 0, DateTimeKind.Utc), one.LastUsed);
+    }
+
+    [Fact]
+    public void 只有沒時間的紀錄的工作階段不算今天有用到()
+    {
+        var newYork = TimeZoneInfo.CreateCustomTimeZone("UTC-5", TimeSpan.FromHours(-5), "UTC-5", "UTC-5");
+        var ledger = new UsageLedger();
+        ledger.Feed("""{"type":"assistant","sessionId":"s9","message":{"id":"x","model":"claude-opus-5-5","usage":{"input_tokens":5,"output_tokens":0}}}""");
+        var s = ledger.Summarize(Day, newYork);
+        Assert.Empty(s.Sessions);
+        Assert.Equal(0, s.Tokens.Total);
+    }
+
+    [Fact]
+    public void 日期換算對極端值是安全的()
+    {
+        var minus = TimeZoneInfo.CreateCustomTimeZone("UTC-12", TimeSpan.FromHours(-12), "UTC-12", "UTC-12");
+        var plus = TimeZoneInfo.CreateCustomTimeZone("UTC+14", TimeSpan.FromHours(14), "UTC+14", "UTC+14");
+        Assert.Null(UsageLedger.DayOf(default, minus));
+        Assert.Null(UsageLedger.DayOf(DateTime.MinValue, plus));
+        Assert.Null(UsageLedger.DayOf(DateTime.MaxValue, plus));
+        Assert.Equal(new DateOnly(2026, 4, 30), UsageLedger.DayOf(new DateTime(2026, 5, 1, 3, 0, 0, DateTimeKind.Utc), minus));
+    }
+
+    [Fact]
     public void 不算的紀錄()
     {
         var ledger = new UsageLedger();

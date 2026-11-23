@@ -11,6 +11,8 @@ namespace Shima;
 /// <summary>
 /// 盯著電腦的狀態：音量、亮度、電量、網路、播放裝置（耳機接上或拔掉）。有變化就回報一行字給島顯示。
 /// 桌上型電腦沒有電池、外接螢幕也多半不回報亮度，那兩項就不會出現。
+/// Changed 不保證在哪條執行緒觸發：音量來自音訊裝置的回呼執行緒、網路來自執行緒集區、亮度在背景查，
+/// 只有電量與播放裝置是在呼叫 Poll() 的執行緒。訂閱的人要自己切回畫面的執行緒（島是用 Dispatcher.BeginInvoke）。
 /// </summary>
 public sealed class SystemWatch : IDisposable
 {
@@ -18,8 +20,12 @@ public sealed class SystemWatch : IDisposable
     private MMDevice? _output;
     private int _volume = -1, _brightness = -1, _battery = -1;
     private string _outputId = "";
-    private bool _muted, _plugged, _online, _hasBrightness = true, _started;
+    private bool _muted, _plugged, _online, _started;
+    private volatile bool _hasBrightness = true, _disposed;
     private long _quietUntil;
+    /// <summary>亮度查詢還在跑（1）就不再發起新的，WMI 卡住時也不會越堆越多。</summary>
+    private int _askingBrightness;
+    private NetworkAvailabilityChangedEventHandler? _network;
 
     /// <summary>要顯示在島上的一行字。</summary>
     public event Action<string>? Changed;
@@ -36,17 +42,20 @@ public sealed class SystemWatch : IDisposable
         catch (Exception e) { Log.Write("system (audio): " + e.Message); }
 
         _online = NetworkInterface.GetIsNetworkAvailable();
-        NetworkChange.NetworkAvailabilityChanged += (_, e) =>
+        // 靜態事件：不退訂的話 NetworkChange 會一直抓著這個物件，Dispose 之後還會觸發
+        _network = (_, e) =>
         {
-            if (e.IsAvailable == _online) return;
+            if (_disposed || e.IsAvailable == _online) return;
             _online = e.IsAvailable;
             Changed?.Invoke(_online ? Line("online", NetworkName()) : Line("offline", ""));
         };
+        NetworkChange.NetworkAvailabilityChanged += _network;
 
         var power = System.Windows.Forms.SystemInformation.PowerStatus;
         _plugged = power.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online;
         _battery = Percent(power);
-        _brightness = Brightness();
+        // 第一次查到的亮度只當基準（_brightness 還是 -1，不會觸發 Changed）
+        AskBrightness();
         // 剛啟動時裝置會自己回報一輪，那不是使用者調的
         _quietUntil = Environment.TickCount64 + 3000;
     }
@@ -80,9 +89,29 @@ public sealed class SystemWatch : IDisposable
         }
         catch { /* 沒有任何播放裝置 */ }
 
-        int brightness = Brightness();
-        if (brightness >= 0 && brightness != _brightness && _brightness >= 0) Changed?.Invoke(Line("brightness", brightness.ToString()));
-        if (brightness >= 0) _brightness = brightness;
+        AskBrightness();
+    }
+
+    /// <summary>
+    /// 亮度要問 WMI，同步查詢可能卡上好一陣子；Poll() 是在畫面的執行緒上呼叫的，所以丟到背景查。
+    /// 上一次還沒回來就不再發起；查到了才跟上次比較，變了就在背景執行緒觸發 Changed（跟音量、網路一樣）。
+    /// _brightness 只在這個背景工作裡讀寫，而同一時間只會有一個在跑。
+    /// </summary>
+    private void AskBrightness()
+    {
+        if (!_hasBrightness || _disposed || Interlocked.CompareExchange(ref _askingBrightness, 1, 0) != 0) return;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                int brightness = Brightness();
+                if (_disposed) return;
+                if (brightness >= 0 && brightness != _brightness && _brightness >= 0) Changed?.Invoke(Line("brightness", brightness.ToString()));
+                if (brightness >= 0) _brightness = brightness;
+            }
+            catch (Exception e) { Log.Write("system (brightness): " + e.Message); }
+            finally { Volatile.Write(ref _askingBrightness, 0); }
+        });
     }
 
     /// <summary>系統音量加減幾個百分點。回傳調整後的音量；沒有播放裝置就是 null。</summary>
@@ -135,14 +164,19 @@ public sealed class SystemWatch : IDisposable
     private int Brightness()
     {
         if (!_hasBrightness) return -1;
+        int found = -1;
         try
         {
+            // 搜尋器、結果集合、每一筆都是 COM 物件，全部要釋放；多螢幕時只取第一台，其他的也要釋放
             using var search = new ManagementObjectSearcher(@"root\wmi", "SELECT CurrentBrightness FROM WmiMonitorBrightness");
-            foreach (var o in search.Get()) return Convert.ToInt32(o["CurrentBrightness"]);
+            using var results = search.Get();
+            foreach (var o in results)
+                using (o)
+                    if (found < 0) found = Convert.ToInt32(o["CurrentBrightness"]);
         }
         catch { /* 這台螢幕不回報亮度 */ }
-        _hasBrightness = false;
-        return -1;
+        if (found < 0) _hasBrightness = false;
+        return found;
     }
 
     private static string NetworkName()
@@ -155,7 +189,14 @@ public sealed class SystemWatch : IDisposable
     {
         try
         {
-            if (_output != null) _output.AudioEndpointVolume.OnVolumeNotification -= OnVolume;
+            // 換裝置時舊的 MMDevice 也是 COM 物件，先退訂再釋放
+            var old = _output;
+            _output = null;
+            if (old != null)
+            {
+                try { old.AudioEndpointVolume.OnVolumeNotification -= OnVolume; } catch { }
+                try { old.Dispose(); } catch { }
+            }
             _output = _devices?.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
             if (_output == null) return;
             _outputId = _output.ID;
@@ -178,11 +219,18 @@ public sealed class SystemWatch : IDisposable
 
     public void Dispose()
     {
-        try
+        if (_disposed) return;
+        _disposed = true;
+        if (_network != null) NetworkChange.NetworkAvailabilityChanged -= _network;
+        _network = null;
+        var output = _output;
+        _output = null;
+        if (output != null)
         {
-            if (_output != null) _output.AudioEndpointVolume.OnVolumeNotification -= OnVolume;
-            _devices?.Dispose();
+            try { output.AudioEndpointVolume.OnVolumeNotification -= OnVolume; } catch { }
+            try { output.Dispose(); } catch { }
         }
-        catch { }
+        try { _devices?.Dispose(); } catch { }
+        _devices = null;
     }
 }
