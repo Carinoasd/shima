@@ -210,8 +210,9 @@ public partial class IslandWindow : Window
         else
         {
             TitleText.Text = L.T("沒有正在播放的音樂");
-            ArtistText.Text = SourceText.Text = Elapsed.Text = Remaining.Text = "";
-            BarFill.Width = 0;
+            ArtistText.Text = SourceText.Text = "";
+            ShowClock(TimeSpan.Zero, TimeSpan.Zero);
+            ShowBar(0);
             Cover.Background = NoCover;
             _coverBrushFor = null;   // 同一張封面的歌再回來時要重新套上
         }
@@ -348,12 +349,11 @@ public partial class IslandWindow : Window
 
         var pos = track.Now;
         bool timed = track.Duration > TimeSpan.Zero;
-        // 進度條每 0.1 秒都在變，改它會讓整個面板重新排版；島收著的時候看不到，就不用做
+        // 進度條每 0.1 秒都在變；島收著的時候看不到，就不用做（改的是裁切與秒數變了的字，不會讓面板重新排版）
         if (_expanded && _tab == Tab.Music || _rendering)
         {
-            Elapsed.Text = timed ? Clock(pos) : "";
-            Remaining.Text = timed ? "-" + Clock(track.Duration - pos) : "";
-            BarFill.Width = timed && Bar.ActualWidth > 0 ? Bar.ActualWidth * Math.Clamp(pos / track.Duration, 0, 1) : 0;
+            ShowClock(pos, timed ? track.Duration : TimeSpan.Zero);
+            ShowBar(timed ? pos / track.Duration : 0);
         }
 
         var name = track.Artist.Length > 0 ? $"{track.Title} — {track.Artist}" : track.Title;
