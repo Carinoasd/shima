@@ -27,9 +27,11 @@ public static class Demo
     /// <summary>要在讀設定之前呼叫：把資料夾換成暫存的，放進編好的內容。</summary>
     public static void Prepare()
     {
-        var folder = Path.Combine(Path.GetTempPath(), "Shima-demo");
-        try { if (Directory.Exists(folder)) Directory.Delete(folder, true); } catch { /* 上一次的還開著：照用 */ }
+        // 每次執行一個自己的資料夾：好幾份同時截圖（各自不同的原始碼）也不會互相踩到
+        var folder = Path.Combine(Path.GetTempPath(), "Shima-demo-" + Environment.ProcessId);
+        try { if (Directory.Exists(folder)) Directory.Delete(folder, true); } catch { }
         Directory.CreateDirectory(folder);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => { try { Directory.Delete(folder, true); } catch { } };
         Environment.SetEnvironmentVariable(AppSettings.FolderVariable, folder);
         On = true;
 
