@@ -238,7 +238,8 @@ internal sealed class GeminiInstaller : HookFileInstaller
     public override AgentKind Agent => AgentKind.Gemini;
     protected override string Folder => ".gemini";
     protected override string FileName => "settings.json";
-    protected override IReadOnlyList<string> Markers => ["settings.json", "installation_id", "oauth_creds.json", "google_accounts.json"];
+    // installation_id、google_accounts.json 不能拿來認：Antigravity 也會在 ~/.gemini 建立這兩個
+    protected override IReadOnlyList<string> Markers => ["settings.json", "oauth_creds.json"];
     protected override bool Milliseconds => true;
     /// <summary>名字讓使用者在 /hooks 認得出來，也能用 hooksConfig.disabled 單獨關掉。</summary>
     protected override void Decorate(JsonObject hook) => hook["name"] = "shima";
