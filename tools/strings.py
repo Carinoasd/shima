@@ -10,6 +10,7 @@ ROWS = """
 角色 | 角色 | Character | キャラクター | 캐릭터 | Personaje | Personnage | Figur | Personagem | Personaggio | Персонаж
 歌詞第二行 | 歌词第二行 | Second lyrics line | 歌詞の2行目 | 가사 둘째 줄 | Segunda línea de la letra | Deuxième ligne des paroles | Zweite Textzeile | Segunda linha da letra | Seconda riga del testo | Вторая строка текста
 這首歌的歌詞 | 这首歌的歌词 | Lyrics for this song | この曲の歌詞 | 이 곡의 가사 | Letra de esta canción | Paroles de ce titre | Text dieses Titels | Letra desta música | Testo di questo brano | Текст этой песни
+勿擾（1 小時） | 勿扰（1 小时） | Do not disturb (1 hour) | 通知を止める（1時間） | 방해 금지 (1시간) | No molestar (1 hora) | Ne pas déranger (1 heure) | Nicht stören (1 Stunde) | Não incomodar (1 hora) | Non disturbare (1 ora) | Не беспокоить (1 час)
 展開／收起 | 展开／收起 | Expand / collapse | 展開／折りたたみ | 펼치기/접기 | Expandir / contraer | Déployer / replier | Aufklappen / Zuklappen | Expandir / recolher | Espandi / comprimi | Развернуть / свернуть
 問 AI | 问 AI | Ask AI | AI に質問 | AI에게 질문 | Preguntar a la IA | Demander à l'IA | KI fragen | Perguntar à IA | Chiedi all'IA | Спросить ИИ
 按下新的組合 | 按下新的组合 | Press new keys | 新しいキーを押す | 새 키를 누르세요 | Pulsa las teclas | Appuyez sur les touches | Neue Tasten drücken | Prima as teclas | Premi i tasti | Нажмите сочетание

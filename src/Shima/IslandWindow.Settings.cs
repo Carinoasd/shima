@@ -55,13 +55,16 @@ public partial class IslandWindow
         Closed += (_, _) => { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); } };
         if (_smoke) return;
         InitUpdates();
-        _notifications.Arrived += (app, title, body) => Dispatcher.BeginInvoke(() => Toast(NotificationMirror.Line(app, title, body), 7));
+        _notifications.Arrived += (app, title, body) => Dispatcher.BeginInvoke(() => { if (!InDoNotDisturb) Toast(NotificationMirror.Line(app, title, body), 7); });
         if (AppSettings.Current.Notifications) _ = _notifications.StartAsync();
         try
         {
             var menu = new System.Windows.Forms.ContextMenuStrip();
             _trayMenu = menu;
             menu.Items.Add(L.T("顯示／隱藏"), null, (_, _) => ToggleHidden());
+            var quiet = new System.Windows.Forms.ToolStripMenuItem(L.T("勿擾（1 小時）"), null, (_, _) => ToggleDoNotDisturb());
+            menu.Items.Add(quiet);
+            menu.Opening += (_, _) => quiet.Checked = InDoNotDisturb;
             menu.Items.Add(L.T("結束"), null, (_, _) => Close());
             _tray = new System.Windows.Forms.NotifyIcon
             {
@@ -73,6 +76,15 @@ public partial class IslandWindow
             _tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) ToggleHidden(); };
         }
         catch (Exception e) { Log.Write("tray: " + e.Message); }
+    }
+
+    /// <summary>勿擾中：喝水、通訊軟體通知、系統狀態先不顯示。權限請求、提醒、番茄鐘、換歌照常。</summary>
+    private bool InDoNotDisturb => DoNotDisturb.IsActive(AppSettings.Current.DoNotDisturbUntil, DateTime.Now);
+
+    private void ToggleDoNotDisturb()
+    {
+        AppSettings.Current.DoNotDisturbUntil = InDoNotDisturb ? null : DoNotDisturb.EndFrom(DateTime.Now);
+        AppSettings.Current.Save();
     }
 
     private void ToggleHidden()
@@ -295,7 +307,7 @@ public partial class IslandWindow
     private void InitStatus()
     {
         if (_smoke) return;
-        _system.Changed += line => Dispatcher.BeginInvoke(() => { if (AppSettings.Current.SystemStatus) Toast(line, 2.5, cheer: false); });
+        _system.Changed += line => Dispatcher.BeginInvoke(() => { if (AppSettings.Current.SystemStatus && !InDoNotDisturb) Toast(line, 2.5, cheer: false); });
         _system.Start();
         Closed += (_, _) => _system.Dispose();
     }
@@ -307,6 +319,7 @@ public partial class IslandWindow
         var s = AppSettings.Current;
         if (!s.Water || DateTime.Now < _waterAt) return;
         _waterAt = DateTime.Now.AddMinutes(Math.Clamp(s.WaterMinutes, 5, 480));
+        if (InDoNotDisturb) return; // 勿擾期間到期的直接略過，結束後不補發
         System.Media.SystemSounds.Asterisk.Play();
         Toast(L.T("該喝水了"), 10);
     }
