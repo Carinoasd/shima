@@ -216,7 +216,6 @@ public class AgentRulesTests
     [InlineData("gitx status")]
     [InlineData("/usr/bin/git status")]
     [InlineData("./git status")]
-    [InlineData("GIT status")]
     [InlineData("FOO=1 git status")]
     [InlineData("sudo git status")]
     [InlineData("env git status")]
@@ -296,7 +295,7 @@ public class AgentRulesTests
     [InlineData(@"C:\Users\someone\proj", @"c:\users\someone\PROJ\", true)]
     [InlineData(@"C:\Users\someone\proj", "", false)]
     public void 專案限定只比完全一樣的資料夾(string ruleCwd, string cwd, bool allowed) =>
-        Assert.Equal(allowed, AgentRules.Covers(new AgentRule("Edit", null, ruleCwd), "Edit", new JsonObject(), cwd));
+        Assert.Equal(allowed, AgentRules.Covers(new AgentRule("Edit", null, ruleCwd), "Edit", new JsonObject { ["file_path"] = "a.cs" }, cwd));
 
     [Fact]
     public void 規則存檔_列出_刪除()
@@ -309,13 +308,13 @@ public class AgentRulesTests
             Assert.True(rules.Add(new AgentRule("Bash", "git status", "/home/someone/p/")));
             Assert.False(rules.Add(new AgentRule("Bash", "git status", "/home/someone/p")));   // 一樣的不重複
             Assert.False(rules.Add(new AgentRule("Bash", "sudo")));                              // 不合理的規則不收
-            Assert.True(rules.Add(new AgentRule("Read")));
+            Assert.True(rules.Add(new AgentRule("WebSearch")));
 
             var again = new AgentRules(path);
-            Assert.Equal([new AgentRule("Bash", "git status", "/home/someone/p"), new AgentRule("Read")], again.List());
-            Assert.Equal(new AgentRule("Read"), again.Match("Read", new JsonObject(), "/anywhere"));
+            Assert.Equal([new AgentRule("Bash", "git status", "/home/someone/p"), new AgentRule("WebSearch")], again.List());
+            Assert.Equal(new AgentRule("WebSearch"), again.Match("WebSearch", new JsonObject { ["query"] = "x" }, "/anywhere"));
             Assert.Null(again.Match("Bash", Bash("git status"), "/elsewhere"));
-            Assert.True(again.Remove(new AgentRule("Read")));
+            Assert.True(again.Remove(new AgentRule("WebSearch")));
             Assert.Single(new AgentRules(path).List());
         }
         finally { File.Delete(path); }
