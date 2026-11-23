@@ -233,6 +233,49 @@ public class DiscordPresenceTests
     [InlineData("12345", false)]
     [InlineData("12345678901234567x9", false)]
     public void 認得_Application_ID(string id, bool valid) => Assert.Equal(valid, DiscordPresence.ValidId(id));
+
+    /// <summary>每次寫入只寫一半就讓出執行緒，模擬管線寫到一半時另一邊也來寫。</summary>
+    private sealed class SlowStream : System.IO.MemoryStream
+    {
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancel = default)
+        {
+            int half = buffer.Length / 2;
+            base.Write(buffer.Span[..half]);
+            await Task.Delay(5, cancel);
+            base.Write(buffer.Span[half..]);
+        }
+    }
+
+    [Fact]
+    public async Task 同時送狀態和回_Pong_封包不會交錯()
+    {
+        using var pipe = new SlowStream();
+        var gate = new SemaphoreSlim(1, 1);
+        var writes = Enumerable.Range(0, 20).Select(i => Task.Run(() =>
+            DiscordPresence.WriteAsync(pipe, gate, i % 2 == 0 ? 1 : 4, new JsonObject { ["n"] = i, ["pad"] = new string('x', 50 + i) }))).ToArray();
+        await Task.WhenAll(writes);
+
+        // 從頭一個一個封包讀回來：每個都要是完整、看得懂的 JSON，而且剛好 20 個
+        var bytes = pipe.ToArray();
+        var seen = new HashSet<int>();
+        int at = 0;
+        while (at < bytes.Length)
+        {
+            int length = BitConverter.ToInt32(bytes, at + 4);
+            var json = JsonNode.Parse(Encoding.UTF8.GetString(bytes, at + 8, length))!;
+            Assert.True(seen.Add((int)json["n"]!));
+            at += 8 + length;
+        }
+        Assert.Equal(20, seen.Count);
+    }
+
+    [Fact]
+    public void 沒開始過也可以停_停兩次也沒事()
+    {
+        var presence = new DiscordPresence("1234567890123456789");
+        presence.Stop();
+        presence.Dispose();
+    }
 }
 
 public class PomodoroTests
@@ -432,6 +475,80 @@ public class SpectrumTests
     [Fact]
     public void 小聲的比大聲的矮() =>
         Assert.True(Spectrum.Bands(Tone(1000, 0.05), 48000, 24).Max() < Spectrum.Bands(Tone(1000, 0.8), 48000, 24).Max() - 0.2f);
+
+    /// <summary>改成查表與快取之前的寫法，原封不動抄過來：重構後的結果要跟它每一個位元都一樣。</summary>
+    private static float[] Original(float[] samples, int sampleRate, int count)
+    {
+        const int Size = Spectrum.Size;
+        var re = new double[Size];
+        var im = new double[Size];
+        for (int i = 0; i < Size; i++) re[i] = samples[i] * (0.5 - 0.5 * Math.Cos(2 * Math.PI * i / (Size - 1)));
+        int n = Size;
+        for (int i = 1, j = 0; i < n; i++)
+        {
+            int bit = n >> 1;
+            for (; (j & bit) != 0; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j) { (re[i], re[j]) = (re[j], re[i]); (im[i], im[j]) = (im[j], im[i]); }
+        }
+        for (int len = 2; len <= n; len <<= 1)
+        {
+            double angle = -2 * Math.PI / len, wr = Math.Cos(angle), wi = Math.Sin(angle);
+            for (int i = 0; i < n; i += len)
+            {
+                double cr = 1, ci = 0;
+                for (int k = 0; k < len / 2; k++)
+                {
+                    int a = i + k, b = a + len / 2;
+                    double tr = re[b] * cr - im[b] * ci, ti = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - tr; im[b] = im[a] - ti;
+                    re[a] += tr; im[a] += ti;
+                    (cr, ci) = (cr * wr - ci * wi, cr * wi + ci * wr);
+                }
+            }
+        }
+        var bands = new float[count];
+        double low = 50, high = Math.Min(14000, sampleRate / 2.0 - 1), perBin = (double)sampleRate / Size;
+        for (int b = 0; b < count; b++)
+        {
+            double from = low * Math.Pow(high / low, (double)b / count), to = low * Math.Pow(high / low, (double)(b + 1) / count);
+            int first = Math.Clamp((int)Math.Floor(from / perBin), 1, Size / 2 - 1), last = Math.Clamp((int)Math.Ceiling(to / perBin), first + 1, Size / 2);
+            double peak = 0;
+            for (int k = first; k < last; k++) peak = Math.Max(peak, Math.Sqrt(re[k] * re[k] + im[k] * im[k]));
+            double db = 20 * Math.Log10(peak / (Size / 4.0) + 1e-9);
+            db += 9.0 * b / count;
+            bands[b] = (float)Math.Clamp((db + 60) / 60, 0, 1);
+        }
+        return bands;
+    }
+
+    [Theory]
+    [InlineData(48000)]
+    [InlineData(44100)]
+    [InlineData(96000)]
+    [InlineData(16000)]
+    public void 查表與快取不改變結果(int rate)
+    {
+        var random = new Random(7);
+        var noise = Enumerable.Range(0, Spectrum.Size).Select(_ => (float)(random.NextDouble() * 2 - 1) * 0.3f).ToArray();
+        var mixed = Tone(220).Zip(Tone(5000, 0.2), (a, b) => a + b).ToArray();
+        double[] re = new double[Spectrum.Size], im = new double[Spectrum.Size];
+        foreach (var samples in new[] { noise, mixed, Tone(60), new float[Spectrum.Size] })
+            foreach (int count in new[] { 1, 4, 24, 56, 64, 96 })
+            {
+                var expected = Original(samples, rate, count);
+                Assert.Equal(expected, Spectrum.Bands(samples, rate, count));
+                Assert.Equal(expected, Spectrum.Bands(samples, rate, count, re, im));   // 第二次走快取的頻段邊界、重複用工作區
+            }
+    }
+
+    [Fact]
+    public void 每次回傳新的陣列()
+    {
+        var a = Spectrum.Bands(Tone(1000), 48000, 24);
+        var b = Spectrum.Bands(Tone(1000), 48000, 24);
+        Assert.NotSame(a, b);
+    }
 }
 
 public class UpdaterTests
@@ -450,4 +567,65 @@ public class UpdaterTests
     [InlineData("")]
     [InlineData(null)]
     public void 一樣_比較舊_或看不懂的都不算(string? tag) => Assert.Null(Shima.Updater.Newer(tag, new Version(0, 5, 0, 0)));
+
+    [Theory]
+    [InlineData("https://github.com/Carinoasd/shima/releases/download/v0.6.1/Shima.exe", true)]
+    [InlineData("http://github.com/Carinoasd/shima/releases/download/v0.6.1/Shima.exe", false)]
+    [InlineData("https://github.com/Carinoasd/shima/archive/main.zip", false)]
+    [InlineData("https://github.com/Someone/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://github.com.evil.example/Carinoasd/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://user@github.com/Carinoasd/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://github.com:8443/Carinoasd/shima/releases/download/v9/Shima.exe", false)]
+    [InlineData("https://github.com/Carinoasd/shima/releases/download/../../../evil/x.exe", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void 只認這個專案發佈頁的下載連結(string? url, bool ok) => Assert.Equal(ok, Shima.Updater.ValidUrl(url));
+
+    [Fact]
+    public void 雜湊的格式()
+    {
+        var hex = new string('a', 64);
+        Assert.Equal(hex, Shima.Updater.Sha256Of("sha256:" + hex.ToUpperInvariant()));
+        Assert.Null(Shima.Updater.Sha256Of("sha1:" + hex));
+        Assert.Null(Shima.Updater.Sha256Of("sha256:abc"));
+        Assert.Null(Shima.Updater.Sha256Of(null));
+    }
+
+    private static JsonObject Latest(string tag, string? digest, string url = "https://github.com/Carinoasd/shima/releases/download/v9.0.0/Shima.exe") => new()
+    {
+        ["tag_name"] = tag,
+        ["assets"] = new JsonArray(new JsonObject { ["name"] = "Shima.exe", ["browser_download_url"] = url, ["size"] = 88000000, ["digest"] = digest }),
+    };
+
+    [Fact]
+    public void 沒有雜湊或網址不對的新版不裝()
+    {
+        var sha = "sha256:" + new string('b', 64);
+        var now = new Version(0, 6, 0, 0);
+        Assert.Equal(88000000, Shima.Updater.Pick(Latest("v9.0.0", sha), now)!.Size);
+        Assert.Null(Shima.Updater.Pick(Latest("v9.0.0", null), now));
+        Assert.Null(Shima.Updater.Pick(Latest("v9.0.0", sha, "https://example.com/Shima.exe"), now));
+        Assert.Null(Shima.Updater.Pick(Latest("v0.6.0", sha), now));
+    }
+
+    [Fact]
+    public void 下載的檔案要跟發佈的大小與雜湊都一樣()
+    {
+        var folder = System.IO.Path.Combine(AppContext.BaseDirectory, "update-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(folder);
+        try
+        {
+            var path = System.IO.Path.Combine(folder, "Shima.exe.new");
+            var bytes = new byte[6 * 1024 * 1024];
+            bytes[0] = (byte)'M'; bytes[1] = (byte)'Z'; bytes[100] = 7;
+            System.IO.File.WriteAllBytes(path, bytes);
+            var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+            Assert.True(Shima.Updater.Matches(path, bytes.Length, sha));
+            Assert.False(Shima.Updater.Matches(path, bytes.Length + 1, sha));                       // 大小不對（下載斷掉）
+            Assert.False(Shima.Updater.Matches(path, bytes.Length, new string('0', 64)));           // 內容不對
+            bytes[100] = 8; System.IO.File.WriteAllBytes(path, bytes);
+            Assert.False(Shima.Updater.Matches(path, bytes.Length, sha));                           // 被改過一個位元組
+        }
+        finally { System.IO.Directory.Delete(folder, true); }
+    }
 }

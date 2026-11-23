@@ -32,7 +32,9 @@ public partial class IslandWindow
         double opacity = Math.Clamp(AppSettings.Current.Opacity, 0.55, 1);
         var brush = new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * opacity), 0, 0, 0));
         brush.Freeze();
-        Body.Background = brush;
+        // 底色畫在陰影那一層（它本來就是實心的黑），上面那層改成透明，不然兩層疊起來永遠是不透明的
+        Shadow.Background = brush;
+        Body.Background = Brushes.Transparent;
         _coverShown = null;   // 讓下一次 Refresh 重新套顏色
         Refresh();
     }
@@ -82,9 +84,13 @@ public partial class IslandWindow
     private async void ExplainLine_Click(object sender, RoutedEventArgs e)
     {
         if (_track is not { } track || CurrentLine().Line is not { Length: > 0 } line) { Toast(L.T("現在沒有歌詞"), 3, false); return; }
-        TabAi.IsChecked = true;
-        SetExpanded(true);
-        await AskAsync(L.F("解釋這句歌詞的讀音、單字與文法：「{0}」（{1} — {2}）", line, track.Title, track.Artist));
+        try
+        {
+            TabAi.IsChecked = true;
+            SetExpanded(true);
+            await AskAsync(L.F("解釋這句歌詞的讀音、單字與文法：「{0}」（{1} — {2}）", line, track.Title, track.Artist));
+        }
+        catch (Exception x) { Log.Write("解釋歌詞: " + x.Message); }
     }
 
     // ---------------------------------------------------------------- 設定頁下半部
@@ -167,9 +173,6 @@ public partial class IslandWindow
         rows.Add(Toggle("一直對話到再按一次", s.VoiceContinuous, v => s.VoiceContinuous = v));
         rows.Add(Toggle("說「Shima」就開始聽", s.WakeWord, v => { s.WakeWord = v; ApplyWakeWord(); }));
 
-        rows.Add(Heading("番茄鐘"));
-        rows.Add(Entry("專注", s.FocusMinutes.ToString(CultureInfo.InvariantCulture), 52, v => { if (int.TryParse(v, out int m) && m is >= 1 and <= 180) s.FocusMinutes = m; }));
-        rows.Add(Entry("休息", s.BreakMinutes.ToString(CultureInfo.InvariantCulture), 52, v => { if (int.TryParse(v, out int m) && m is >= 1 and <= 60) s.BreakMinutes = m; }));
     }
 
     /// <summary>自己的圖當角色：選一張 GIF 或 PNG。</summary>
@@ -197,6 +200,7 @@ public partial class IslandWindow
     private async void RemindRoon()
     {
         await Task.Delay(TimeSpan.FromSeconds(15));
+        if (_closed) return;   // 這 15 秒內程式已經關了
         if (!AppSettings.Current.RoonSearch || AppSettings.Current.RoonHost.Length == 0 || _media.Roon.Registered) return;
         Log.Write("roon: 還沒連上，可能在等 Roon「設定 → 擴充功能」啟用 Shima");
         Toast(L.T("到 Roon「設定 → 擴充功能」啟用 Shima"), 12, false);

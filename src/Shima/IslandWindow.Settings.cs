@@ -28,6 +28,7 @@ public partial class IslandWindow
         {
             _updateTimer.Interval = TimeSpan.FromHours(24);
             if (!AppSettings.Current.CheckUpdates || _updateItem != null || await Updater.CheckAsync() is not { } found) return;
+            if (_closed) return;   // 查的時候視窗已經關了，系統匣的選單也釋放了
             string version = found.Version.ToString(3);
             Log.Write("update: 有新版 " + version);
             Toast(L.F("有新版 {0}", version), 8);
@@ -37,7 +38,7 @@ public partial class IslandWindow
                 if (_updating) return;
                 _updating = true;
                 Toast(L.T("正在下載新版…"), 120, false);
-                if (await Updater.ApplyAsync(found.Url)) { ((App)Application.Current).Restart(); Close(); }
+                if (await Updater.ApplyAsync(found)) { ((App)Application.Current).Restart(); Close(); }
                 else { _updating = false; Toast(L.T("更新失敗"), 6, false); }
             });
             _trayMenu.Items.Insert(0, _updateItem);

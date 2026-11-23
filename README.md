@@ -82,6 +82,8 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 **Claude Code**：按「連接」會在 Claude Code 的 `settings.json`（Windows 與預設的 WSL 發行版各一份）加上四個 hook，只是用 `curl.exe` 把事件送到 Shima 開在本機的 `localhost:47813`；按「中斷」會拿掉，其他設定不動。第一次更動前會留一份 `settings.json.before-shima.bak`。Shima 沒開、或島因為全螢幕藏起來時，Claude Code 照常在終端機詢問。
 
+**以後都允許**：權限請求上的這顆按鈕會記住「工具＋指令的前兩個字」（例如 `git status`），之後在同一個專案資料夾裡相同的請求自動允許。它是省掉重複點按的便利功能，**不是安全邊界**：Shima 會擋掉看得出危險的寫法（串接指令、`=`、危險旗標、跑出專案或指到 `.claude`／`.git`／`.env` 的路徑；`bash`、`python`、`sed` 這類指令不給記），但沒辦法保證擋得完，也看不出專案裡指向外面的捷徑。不信任的專案請不要用，同時記住 `Edit` 與 `npm run`、`make` 這類會執行專案檔案的指令時尤其要小心。規則存在 `%APPDATA%\Shima\agent-rules.json`，刪掉就全部重來。
+
 **問 AI**：先選服務，貼上那一家的 API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），再按模型的按鈕從那一家實際提供的清單裡選一個。之後在輸入框打字，或按麥克風用說的：問一句，它回答完就結束；它反過來問你問題時會再聽一次。對話內容送到你選的那一家，費用由那一家計算。
 
 語音辨識預設在你的電腦上用 [Whisper](https://github.com/ggerganov/whisper.cpp) 進行：不用開任何 Windows 設定、不用裝語言套件，聲音不會離開這台電腦，中文、日文、英文等都認得。第一次使用會下載模型（約 150 MB）到 `%LOCALAPPDATA%\Shima\models`，並在執行檔旁邊建立 `runtimes` 資料夾放辨識用的函式庫。想改用 Windows 的聽寫可以在設定頁切換，那需要先在 Windows 開啟「線上語音辨識」並安裝該語言的語音套件。朗讀用 Windows 內建的語音。

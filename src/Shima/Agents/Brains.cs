@@ -141,6 +141,15 @@ public static class Brain
         "使用者說的話可能來自語音辨識，會有同音錯字，請依上下文理解。" +
         "你可以用工具替使用者操作這座島：控制音樂、讀現在這首歌的歌詞、管理待辦、番茄鐘、音量、校正歌詞。做完動作後用一句話說你做了什麼。";
 
+    /// <summary>
+    /// 把對話退回到這一輪開始前的長度。一輪裡會加好幾則（使用者的話、助手要用工具、工具的結果），
+    /// 中途失敗只刪最後一則的話，會留下沒有對應結果的工具呼叫，之後每一次請求都會被 API 拒絕。
+    /// </summary>
+    public static void Rewind<T>(IList<T> messages, int count)
+    {
+        while (messages.Count > count) messages.RemoveAt(messages.Count - 1);
+    }
+
     /// <summary>執行一個工具：名稱、參數 → 給 AI 看的結果。</summary>
     public delegate string Run(string tool, JsonObject arguments);
 
@@ -186,6 +195,18 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
 
     public async Task<string> ThinkAsync(string said, CancellationToken stop)
     {
+        // 這一輪失敗（API 錯誤、按了停止、工具出錯、拒絕回答）就整段退回，下一句從乾淨的對話接著聊
+        int start = _messages.Count;
+        try { return await Converse(said, start, stop); }
+        catch
+        {
+            Brain.Rewind(_messages, start);
+            throw;
+        }
+    }
+
+    private async Task<string> Converse(string said, int start, CancellationToken stop)
+    {
         _messages.Add(new UserMessageParam { Content = said });
         for (int round = 0; round < 4; round++)
         {
@@ -201,7 +222,8 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
 
             if (response.StopReason == "refusal")
             {
-                _messages.RemoveAt(_messages.Count - 1);
+                // 用過工具之後才拒絕的話，最後一則是工具結果：只刪它會留下沒有結果的工具呼叫
+                Brain.Rewind(_messages, start);
                 return L.T("這個我沒辦法幫忙。");
             }
 
@@ -225,6 +247,8 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
             if (results.Count == 0) return string.Join(" ", spoken).Trim() is { Length: > 0 } reply ? reply : L.T("嗯。");
             _messages.Add(new UserMessageParam { Content = results });
         }
+        // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
+        Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 
@@ -246,7 +270,10 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
 /// <summary>OpenAI 相容的 Chat Completions：OpenAI、Gemini、DeepSeek、Ollama 等等。</summary>
 public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, string language, Brain.Run run) : IBrain
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
+    private static readonly HttpClient Shared = new() { Timeout = TimeSpan.FromSeconds(90) };
+
+    /// <summary>送請求用的 HttpClient；不給就用共用的那一個。測試用來換成假的，不經過真的網路。</summary>
+    public HttpClient Http { get; init; } = Shared;
 
     private readonly JsonArray _messages = [];
     private bool _noTools;
@@ -292,6 +319,19 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
 
     public async Task<string> ThinkAsync(string said, CancellationToken stop)
     {
+        // 這一輪失敗就整段退回：工具呼叫的第二輪才失敗時，助手那則帶 tool_calls 的訊息也要拿掉，
+        // 不然它沒有對應的 tool 回覆，同一段對話之後每次請求都會被回 400
+        int start = _messages.Count;
+        try { return await Converse(said, start, stop); }
+        catch
+        {
+            Brain.Rewind(_messages, start);
+            throw;
+        }
+    }
+
+    private async Task<string> Converse(string said, int start, CancellationToken stop)
+    {
         _messages.Add(new JsonObject { ["role"] = "user", ["content"] = said });
         for (int round = 0; round < 4; round++)
         {
@@ -301,12 +341,16 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             {
                 // 有些模型（尤其本機的）不支援工具：拿掉工具再試一次
                 if (response.StatusCode == HttpStatusCode.BadRequest && !_noTools && !text.Contains("key", StringComparison.OrdinalIgnoreCase)) { _noTools = true; round--; continue; }
-                _messages.RemoveAt(_messages.Count - 1);
-                throw new ApiError(response.StatusCode, text);
+                throw new ApiError(response.StatusCode, text);   // 由 ThinkAsync 退回對話
             }
 
             var message = JsonNode.Parse(text)?["choices"]?[0]?["message"] as JsonObject;
-            if (message == null) return L.T("嗯。");
+            if (message == null)
+            {
+                // 回應看不懂：當作這一輪沒發生
+                Brain.Rewind(_messages, start);
+                return L.T("嗯。");
+            }
             var calls = message["tool_calls"] as JsonArray;
             if (calls is not { Count: > 0 })
             {
@@ -323,6 +367,8 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
                 _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = run(call?["function"]?["name"]?.ToString() ?? "", arguments) });
             }
         }
+        // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
+        Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 

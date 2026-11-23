@@ -189,15 +189,33 @@ public sealed class AppSettings
         return fresh;
     }
 
+    private static readonly object Saving = new();
+
     public void Save()
     {
-        try
+        // 一次只讓一個存檔在跑：兩邊同時寫同一個暫存檔會撞在一起
+        lock (Saving)
         {
-            Directory.CreateDirectory(Folder);
-            var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmp, FilePath, overwrite: true);
+            try
+            {
+                Directory.CreateDirectory(Folder);
+                var tmp = FilePath + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(tmp, FilePath, overwrite: true);
+            }
+            catch (Exception e) { Log.Write("settings save: " + e.Message); }
         }
-        catch (Exception e) { Log.Write("settings save: " + e.Message); }
+    }
+
+    /// <summary>
+    /// 從背景執行緒改設定並存檔（例如 Roon 連線那條執行緒）。設定裡的清單與字典不是給多條執行緒同時用的，
+    /// 存檔時又要把它們整個走過一遍，所以一律排回畫面的執行緒去做；沒有畫面（跑測試）就直接做。
+    /// </summary>
+    /// <param name="change">回傳 true 表示真的改了、要存檔；沒改就不寫磁碟（Roon 每次重連都會走到這裡）。</param>
+    public static void Change(Func<AppSettings, bool> change)
+    {
+        void Run() { if (change(Current)) Current.Save(); }
+        var ui = System.Windows.Application.Current?.Dispatcher;
+        if (ui == null || ui.CheckAccess()) Run(); else ui.BeginInvoke(Run);
     }
 }

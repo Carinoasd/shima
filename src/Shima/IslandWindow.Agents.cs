@@ -100,7 +100,7 @@ public partial class IslandWindow
         AskTool.Text = ask.Tool;
         AskDetails.Text = ask.Details;
         AskAlways.Visibility = ask.RememberText != null ? Visibility.Visible : Visibility.Collapsed;
-        AskAlways.Content = ask.RememberText != null ? L.F("以後都允許 {0}", ask.RememberText) : "";
+        AskAlways.Content = ask.RememberText ?? "";
         _tab = Tab.Ask;
         _expanded = true;
         Buddy.Cheer();
@@ -118,9 +118,19 @@ public partial class IslandWindow
     private void AskDeny_Click(object sender, RoutedEventArgs e) => Decide("deny");
     private void AskTerminal_Click(object sender, RoutedEventArgs e) => Decide(null);
 
+    private (bool Installed, bool Outdated)? _hooks;
+
+    private void ShowHookState() =>
+        AgentButton.Content = _hooks is not { } state ? "…" : !state.Installed ? L.T("連接") : state.Outdated ? L.T("更新連接") : L.T("中斷");
+
     private void RefreshAi()
     {
-        AgentButton.Content = !AgentHooks.Installed ? L.T("連接") : AgentHooks.Outdated ? L.T("更新連接") : L.T("中斷");
+        // 查 hook 的狀態要啟動 wsl.exe，放到背景做；畫面先用上次的結果，查完再更新
+        ShowHookState();
+        _ = Task.Run(AgentHooks.State).ContinueWith(done =>
+        {
+            if (done.IsCompletedSuccessfully) Dispatcher.BeginInvoke(() => { _hooks = done.Result; ShowHookState(); });
+        });
         RefreshUsage();
         PlanText.Text = _planLine;
 
@@ -215,10 +225,12 @@ public partial class IslandWindow
         AgentButton.IsEnabled = false;
         try
         {
-            bool installed = await Task.Run(() => AgentHooks.Installed && !AgentHooks.Outdated);
+            var before = await Task.Run(AgentHooks.State);
+            bool installed = before.Installed && !before.Outdated;
             var problem = await Task.Run(() => installed ? AgentHooks.Remove() : AgentHooks.Install());
             if (problem != null) Say(problem);
-            AgentButton.Content = !await Task.Run(() => AgentHooks.Installed) ? L.T("連接") : await Task.Run(() => AgentHooks.Outdated) ? L.T("更新連接") : L.T("中斷");
+            _hooks = await Task.Run(AgentHooks.State);
+            ShowHookState();
         }
         finally { AgentButton.IsEnabled = true; }
     }
@@ -274,12 +286,19 @@ public partial class IslandWindow
         AskBox.IsEnabled = false;
         AskBox.Text = question;
         Say("…");
-        // 在背景問：工具可能要上網（查天氣），不能卡住畫面
-        var asker = _asker;
-        var answer = await Task.Run(() => asker.AskAsync(question));
-        AskBox.Text = "";
-        AskBox.IsEnabled = true;
-        Say(answer);
+        try
+        {
+            // 在背景問：工具可能要上網（查天氣），不能卡住畫面
+            var asker = _asker;
+            Say(await Task.Run(() => asker.AskAsync(question)));
+        }
+        catch (Exception x) { Log.Write("ask: " + x.Message); Say(x.Message); }
+        finally
+        {
+            // 不管成功失敗都要把輸入框還回去，不然之後就再也問不了
+            AskBox.Text = "";
+            AskBox.IsEnabled = true;
+        }
     }
 
     /// <summary>AI 分頁下方那塊文字；面板的高度跟著它長。</summary>
@@ -332,7 +351,9 @@ public partial class IslandWindow
             VoiceButton.Content = "";
         });
         VoiceButton.Content = "";   // 停止
-        _ = Task.Run(voice.RunAsync);
+        // 等喚醒詞那一輪真的收尾（放掉麥克風、辨識結束）再開始聽，兩邊才不會同時開著麥克風
+        var wake = _wake;
+        _ = Task.Run(async () => { if (wake != null) await wake.StopAsync(); await voice.RunAsync(); });
     }
 
     /// <summary>助手要用某個工具：做完之後回一句話讓它知道結果。（給 AI 看的，所以不翻譯。）</summary>

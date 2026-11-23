@@ -20,7 +20,7 @@ namespace Shima.Agents;
 public sealed class WakeWord : IDisposable
 {
     private readonly Ears _ears;
-    private readonly string _language;
+    private string _language;
     private readonly object _gate = new();
     private CancellationTokenSource? _stop;
     private Task _loop = Task.CompletedTask;
@@ -51,6 +51,16 @@ public sealed class WakeWord : IDisposable
 
     public bool Running { get { lock (_gate) return _stop != null; } }
 
+    /// <summary>
+    /// 辨識的語言（zh-TW 等）。設定改了語言就改這裡：下一次 <see cref="Start"/> 才會套用
+    /// （正在聽的這一輪已經照舊的語言準備好了）。共用 Ears 時要跟語音助手一樣。
+    /// </summary>
+    public string Language
+    {
+        get { lock (_gate) return _language; }
+        set { lock (_gate) _language = value; }
+    }
+
     /// <summary>判斷規則與冷卻；重開之後還會記得剛剛的狀態。</summary>
     public WakeGate Gate { get; } = new();
 
@@ -61,25 +71,50 @@ public sealed class WakeWord : IDisposable
         {
             if (_stop != null) return;
             var stop = _stop = new CancellationTokenSource();
+            var language = _language;
             Gate.Resumed(DateTime.Now);
             var previous = _loop;
             _loop = Task.Run(async () =>
             {
                 // 上一輪的麥克風要先放掉
                 try { await previous.ConfigureAwait(false); } catch { }
-                await LoopAsync(stop).ConfigureAwait(false);
+                // 這一輪用的 token 只有迴圈自己在讀，結束了才釋放（Stop 只取消、不釋放，迴圈可能還在用）。
+                // 走到這裡時 _stop 一定已經不是它了：每條結束的路都先經過 Finish 或 Cancel。
+                // 取消時的後續可能直接在 Cancel 裡面接著跑：先離開那個呼叫，再在鎖裡釋放，確定 Cancel 已經做完
+                try { await LoopAsync(stop, language).ConfigureAwait(false); }
+                finally
+                {
+                    await Task.Yield();
+                    lock (_gate) stop.Dispose();
+                }
             });
         }
     }
 
-    /// <summary>不聽了。已經停了就什麼都不做。麥克風在背景關掉，不用等。</summary>
-    public void Stop()
+    /// <summary>不聽了。已經停了就什麼都不做。麥克風在背景關掉，不用等；要等它真的放掉就用 <see cref="StopAsync"/>。</summary>
+    public void Stop() => Cancel();
+
+    /// <summary>
+    /// 不聽了，並等背景那一輪真的結束：麥克風關掉、辨識做完。之後才把同一個 Ears 交給語音助手最穩。
+    /// 已經停了也可以呼叫（等的是最後那一輪）。迴圈不需要回到 UI 執行緒，在 UI 執行緒上 await 不會卡死；
+    /// 但不要用 .Wait() 同步等，Heard／Problem 的處理常常要回 UI 執行緒。
+    /// </summary>
+    public async Task StopAsync()
+    {
+        var loop = Cancel();
+        try { await loop.ConfigureAwait(false); } catch { }
+    }
+
+    private Task Cancel()
     {
         lock (_gate)
         {
-            if (_stop == null) return;
-            _stop.Cancel();
-            _stop = null;
+            if (_stop is { } stop)
+            {
+                _stop = null;
+                stop.Cancel();
+            }
+            return _loop;
         }
     }
 
@@ -106,12 +141,12 @@ public sealed class WakeWord : IDisposable
 
     private bool Music() { try { return MusicPlaying?.Invoke() == true; } catch { return false; } }
 
-    private async Task LoopAsync(CancellationTokenSource stop)
+    private async Task LoopAsync(CancellationTokenSource stop, string language)
     {
         bool heard = false;
         try
         {
-            await _ears.PrepareAsync(_language, stop.Token).ConfigureAwait(false);
+            await _ears.PrepareAsync(language, stop.Token).ConfigureAwait(false);
 
             // 辨識中最多再排一段（最新的蓋掉舊的），不會越積越多
             var segments = Channel.CreateBounded<Segment>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest });

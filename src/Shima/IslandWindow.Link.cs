@@ -250,6 +250,7 @@ public partial class IslandWindow
         });
         Skills.Alarms = alarms;
         alarms.Start();
+        Closed += (_, _) => alarms.Dispose();
     }
 
     /// <summary>喚醒詞：設定開著、而且語音助手沒在用麥克風的時候才聽。</summary>
@@ -264,6 +265,8 @@ public partial class IslandWindow
             _wake.Problem += problem => Dispatcher.BeginInvoke(() => Toast(problem, 6, false));
             Closed += (_, _) => _wake.Stop();
         }
+        // 語言設定可能改過；下一次開始聽的時候才會套用
+        _wake.Language = AppSettings.Current.VoiceLanguage is { Length: > 0 } now ? now : Loc.Speech;
         _wake.Start();
     }
 }

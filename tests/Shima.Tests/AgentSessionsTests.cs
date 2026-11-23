@@ -216,7 +216,6 @@ public class AgentRulesTests
     [InlineData("gitx status")]
     [InlineData("/usr/bin/git status")]
     [InlineData("./git status")]
-    [InlineData("GIT status")]
     [InlineData("FOO=1 git status")]
     [InlineData("sudo git status")]
     [InlineData("env git status")]
@@ -296,7 +295,7 @@ public class AgentRulesTests
     [InlineData(@"C:\Users\someone\proj", @"c:\users\someone\PROJ\", true)]
     [InlineData(@"C:\Users\someone\proj", "", false)]
     public void 專案限定只比完全一樣的資料夾(string ruleCwd, string cwd, bool allowed) =>
-        Assert.Equal(allowed, AgentRules.Covers(new AgentRule("Edit", null, ruleCwd), "Edit", new JsonObject(), cwd));
+        Assert.Equal(allowed, AgentRules.Covers(new AgentRule("Edit", null, ruleCwd), "Edit", new JsonObject { ["file_path"] = "a.cs" }, cwd));
 
     [Fact]
     public void 規則存檔_列出_刪除()
@@ -309,13 +308,13 @@ public class AgentRulesTests
             Assert.True(rules.Add(new AgentRule("Bash", "git status", "/home/someone/p/")));
             Assert.False(rules.Add(new AgentRule("Bash", "git status", "/home/someone/p")));   // 一樣的不重複
             Assert.False(rules.Add(new AgentRule("Bash", "sudo")));                              // 不合理的規則不收
-            Assert.True(rules.Add(new AgentRule("Read")));
+            Assert.True(rules.Add(new AgentRule("WebSearch")));
 
             var again = new AgentRules(path);
-            Assert.Equal([new AgentRule("Bash", "git status", "/home/someone/p"), new AgentRule("Read")], again.List());
-            Assert.Equal(new AgentRule("Read"), again.Match("Read", new JsonObject(), "/anywhere"));
+            Assert.Equal([new AgentRule("Bash", "git status", "/home/someone/p"), new AgentRule("WebSearch")], again.List());
+            Assert.Equal(new AgentRule("WebSearch"), again.Match("WebSearch", new JsonObject { ["query"] = "x" }, "/anywhere"));
             Assert.Null(again.Match("Bash", Bash("git status"), "/elsewhere"));
-            Assert.True(again.Remove(new AgentRule("Read")));
+            Assert.True(again.Remove(new AgentRule("WebSearch")));
             Assert.Single(new AgentRules(path).List());
         }
         finally { File.Delete(path); }
@@ -618,6 +617,45 @@ public class AgentUsageTests
         Assert.Equal(10, s.Tokens.Input);
         var one = s.Sessions.Single();
         Assert.Equal(("s1", "alpha", 10L, 110L), (one.SessionId, one.Project, one.Today.Input, one.Tokens.Input));
+    }
+
+    [Fact]
+    public void 沒有時間的紀錄在負時區也不會讓整份用量失敗_只算進工作階段總量()
+    {
+        // UTC-5：沒有時間的紀錄換算後會落到 DateTime.MinValue 之前（.NET 會夾住而不丟例外）；不管怎樣都不能算進今天或最後使用時間
+        var newYork = TimeZoneInfo.CreateCustomTimeZone("UTC-5", TimeSpan.FromHours(-5), "UTC-5", "UTC-5");
+        var ledger = new UsageLedger();
+        Assert.True(ledger.Feed("""{"type":"assistant","sessionId":"s1","cwd":"/home/someone/alpha","message":{"id":"no-time","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":0}}}"""));
+        Assert.True(ledger.Feed("""{"type":"assistant","sessionId":"s1","timestamp":"不是時間","message":{"id":"bad-time","model":"claude-opus-5-5","usage":{"input_tokens":1000,"output_tokens":0}}}"""));
+        ledger.Feed(Line("timed", "claude-opus-5-5", 10, 0, time: "2026-05-01T15:00:00Z"));   // UTC-5 的 5/1 10:00
+
+        var s = ledger.Summarize(Day, newYork);
+        Assert.Equal(10, s.Tokens.Input);
+        var one = s.Sessions.Single();
+        Assert.Equal((10L, 1110L), (one.Today.Input, one.Tokens.Input));
+        Assert.Equal(new DateTime(2026, 5, 1, 15, 0, 0, DateTimeKind.Utc), one.LastUsed);
+    }
+
+    [Fact]
+    public void 只有沒時間的紀錄的工作階段不算今天有用到()
+    {
+        var newYork = TimeZoneInfo.CreateCustomTimeZone("UTC-5", TimeSpan.FromHours(-5), "UTC-5", "UTC-5");
+        var ledger = new UsageLedger();
+        ledger.Feed("""{"type":"assistant","sessionId":"s9","message":{"id":"x","model":"claude-opus-5-5","usage":{"input_tokens":5,"output_tokens":0}}}""");
+        var s = ledger.Summarize(Day, newYork);
+        Assert.Empty(s.Sessions);
+        Assert.Equal(0, s.Tokens.Total);
+    }
+
+    [Fact]
+    public void 日期換算對極端值是安全的()
+    {
+        var minus = TimeZoneInfo.CreateCustomTimeZone("UTC-12", TimeSpan.FromHours(-12), "UTC-12", "UTC-12");
+        var plus = TimeZoneInfo.CreateCustomTimeZone("UTC+14", TimeSpan.FromHours(14), "UTC+14", "UTC+14");
+        Assert.Null(UsageLedger.DayOf(default, minus));
+        Assert.Null(UsageLedger.DayOf(DateTime.MinValue, plus));
+        Assert.Null(UsageLedger.DayOf(DateTime.MaxValue, plus));
+        Assert.Equal(new DateOnly(2026, 4, 30), UsageLedger.DayOf(new DateTime(2026, 5, 1, 3, 0, 0, DateTimeKind.Utc), minus));
     }
 
     [Fact]

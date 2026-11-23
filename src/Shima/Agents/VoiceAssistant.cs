@@ -21,6 +21,9 @@ public sealed class VoiceAssistant
     private readonly IBrain _brain;
     private readonly string _language;
     private readonly CancellationTokenSource _stop = new();
+    /// <summary>_stop 已經釋放了（RunAsync 結束時）。Stop 在那之後還可能被按到，要先看這個。</summary>
+    private bool _released;
+    private readonly object _gate = new();
     private MediaPlayer? _player;
 
     /// <summary>目前的狀態或剛才說的話，給畫面顯示。</summary>
@@ -54,9 +57,30 @@ public sealed class VoiceAssistant
 
     public void Stop()
     {
-        if (_stop.IsCancellationRequested) return;
-        _stop.Cancel();
+        lock (_gate)
+        {
+            // 視窗收到 Stopped 之前還可能再按一次停止：那時 _stop 已經釋放了
+            if (_released || _stop.IsCancellationRequested) return;
+            _stop.Cancel();
+        }
         try { _player?.Pause(); } catch { }
+    }
+
+    /// <summary>這一輪做完了：沒有人會再用 _stop 的 token，釋放它。</summary>
+    private void Release()
+    {
+        lock (_gate)
+        {
+            if (_released) return;
+            _released = true;
+            _stop.Dispose();
+        }
+    }
+
+    /// <summary>給還沒結束的工作用的 token；已經釋放了就當作已經按了停止。</summary>
+    private CancellationToken Token
+    {
+        get { lock (_gate) return _released ? new CancellationToken(canceled: true) : _stop.Token; }
     }
 
     public Task RunAsync() => AppSettings.Current.SpeechEngine == "windows" ? RunWindowsAsync() : RunLocalAsync();
@@ -104,7 +128,8 @@ public sealed class VoiceAssistant
                 if (Once && !AsksBack(reply, rounds++)) break;
             }
         }
-        catch (Exception e) when (!_stop.IsCancellationRequested && e is Anthropic.Exceptions.AnthropicApiException or System.Net.Http.HttpRequestException || e.Message.StartsWith("HTTP ", StringComparison.Ordinal))
+        // 整個「是不是 API 的錯」要括起來：&& 比 || 先算，少了括號的話按了停止之後 HTTP 開頭的錯誤還是會進來、蓋掉畫面
+        catch (Exception e) when (!_stop.IsCancellationRequested && (e is Anthropic.Exceptions.AnthropicApiException or System.Net.Http.HttpRequestException || e.Message.StartsWith("HTTP ", StringComparison.Ordinal)))
         {
             Said?.Invoke(_brain.Explain(e));
             Log.Write("voice api: " + e.Message);
@@ -123,6 +148,7 @@ public sealed class VoiceAssistant
             ears.Recognizing -= Working;
             if (_ears == null) ears.Dispose();
             try { _player?.Dispose(); } catch { }
+            Release();
             Stopped?.Invoke();
         }
     }
@@ -170,7 +196,8 @@ public sealed class VoiceAssistant
                 if (Once && !AsksBack(reply, winRounds++)) break;
             }
         }
-        catch (Exception e) when (!_stop.IsCancellationRequested && e is Anthropic.Exceptions.AnthropicApiException or System.Net.Http.HttpRequestException || e.Message.StartsWith("HTTP ", StringComparison.Ordinal))
+        // 整個「是不是 API 的錯」要括起來：&& 比 || 先算，少了括號的話按了停止之後 HTTP 開頭的錯誤還是會進來、蓋掉畫面
+        catch (Exception e) when (!_stop.IsCancellationRequested && (e is Anthropic.Exceptions.AnthropicApiException or System.Net.Http.HttpRequestException || e.Message.StartsWith("HTTP ", StringComparison.Ordinal)))
         {
             Said?.Invoke(_brain.Explain(e));
             Log.Write("voice api: " + e.Message);
@@ -189,6 +216,7 @@ public sealed class VoiceAssistant
         finally
         {
             try { _player?.Dispose(); } catch { }
+            Release();
             Stopped?.Invoke();
         }
     }
@@ -205,7 +233,7 @@ public sealed class VoiceAssistant
     /// <summary>打字問一句（不聽也不唸）。API 的錯誤轉成給人看的一句話。</summary>
     public async Task<string> AskAsync(string question)
     {
-        try { return await _brain.ThinkAsync(question, _stop.Token); }
+        try { return await _brain.ThinkAsync(question, Token); }
         catch (Exception e) { Log.Write("ask: " + e.Message); return _brain.Explain(e); }
     }
 
@@ -240,9 +268,11 @@ public sealed class VoiceAssistant
         void Failed(MediaPlayer p, MediaPlayerFailedEventArgs e) => ended.TrySetResult();
         _player.MediaEnded += Done;
         _player.MediaFailed += Failed;
+        MediaSource? source = null;
         try
         {
-            _player.Source = MediaSource.CreateFromStream(stream, stream.ContentType);
+            source = MediaSource.CreateFromStream(stream, stream.ContentType);
+            _player.Source = source;
             _player.Play();
             using (_stop.Token.Register(() => ended.TrySetResult())) await ended.Task;
         }
@@ -250,6 +280,9 @@ public sealed class VoiceAssistant
         {
             _player.MediaEnded -= Done;
             _player.MediaFailed -= Failed;
+            // 先讓播放器放開這段聲音，再釋放它；串流由上面的 using 在最後釋放
+            try { _player.Source = null; } catch { }
+            source?.Dispose();
         }
     }
 }

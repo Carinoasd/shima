@@ -36,15 +36,24 @@ public sealed class KaraokeLine : FrameworkElement
     /// <summary>歌現在唱到哪、是不是正在播。</summary>
     public Func<(TimeSpan Position, bool Playing)>? Clock { get; set; }
 
+    private string? _widthOf;
+    private double _width = -1;
+
     /// <summary>這一行字實際的寬度（島用它決定自己要多寬）。</summary>
     public double TextWidth
     {
         get
         {
+            // 量的是整行字本來的寬度，不是被目前的寬度截斷之後的。同一行字只量一次：
+            // 每次都去改排版的寬度，畫的時候又改回來，等於每 0.1 秒把文字排版的快取打掉一次
+            if (_widthOf == _text && _width >= 0) return _width;
             if (Layout(ref _layout, _text) is not { } layout) return 0;
-            // 量的是整行字本來的寬度，不是被目前的寬度截斷之後的
+            double max = layout.MaxTextWidth;
             layout.MaxTextWidth = 0;
-            return layout.WidthIncludingTrailingWhitespace;
+            _width = layout.WidthIncludingTrailingWhitespace;
+            layout.MaxTextWidth = max;
+            _widthOf = _text;
+            return _width;
         }
     }
 
@@ -75,7 +84,8 @@ public sealed class KaraokeLine : FrameworkElement
     /// <summary>播放狀態可能變了（暫停後繼續）：需要的話重新開始逐幀更新。</summary>
     public void Wake()
     {
-        if (_frames || !Moving) { InvalidateVisual(); return; }
+        // 已經在逐幀重畫、或根本沒有東西在動，就不用再多畫一次（呼叫的人自己改了內容時會自己要求重畫）
+        if (_frames || !Moving) return;
         _frames = true;
         CompositionTarget.Rendering += OnFrame;
     }

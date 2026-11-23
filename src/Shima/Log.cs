@@ -12,8 +12,12 @@ public static class Log
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "log.txt");
     private static readonly object Gate = new();
 
+    /// <summary>跑測試時不寫檔：測試會故意餵壞資料，那些訊息不該混進使用者真正的記錄檔。</summary>
+    private static readonly bool Testing = AppDomain.CurrentDomain.FriendlyName.StartsWith("testhost", StringComparison.OrdinalIgnoreCase);
+
     public static void Write(string message)
     {
+        if (Testing) return;
         try
         {
             lock (Gate)

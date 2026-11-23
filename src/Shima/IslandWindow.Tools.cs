@@ -108,6 +108,10 @@ public partial class IslandWindow
     private void TimerReset_Click(object sender, RoutedEventArgs e) { _pomodoro.Reset(); UpdateTimer(); }
 
     /// <summary>每個 tick 呼叫：時間到了就提醒並換段。</summary>
+    private (int, int, bool, bool) _timerShown = (-1, -1, false, false);
+    private static readonly Brush RestGreen = Frozen(Color.FromRgb(0x7D, 0xE0, 0xA8));
+    private static Brush Frozen(Color color) { var brush = new SolidColorBrush(color); brush.Freeze(); return brush; }
+
     private void UpdateTimer()
     {
         if (_pomodoro.Tick(DateTime.Now))
@@ -115,9 +119,13 @@ public partial class IslandWindow
             System.Media.SystemSounds.Asterisk.Play();
             Toast(_pomodoro.Resting ? L.T("休息一下") : L.T("回來專注"), 8);
         }
+        // 這裡每 0.1 秒跑一次：畫面上的字沒變就不要碰控制項
         var left = _pomodoro.Left(DateTime.Now);
+        var shown = ((int)left.TotalMinutes, left.Seconds, _pomodoro.Resting, _pomodoro.Running);
+        if (shown == _timerShown) return;
+        _timerShown = shown;
         TimerText.Text = $"{(int)left.TotalMinutes}:{left.Seconds:00}";
-        TimerText.Foreground = _pomodoro.Resting ? new SolidColorBrush(Color.FromRgb(0x7D, 0xE0, 0xA8)) : Brushes.White;
+        TimerText.Foreground = _pomodoro.Resting ? RestGreen : Brushes.White;
         TimerButton.Content = _pomodoro.Running ? "" : "";
     }
 

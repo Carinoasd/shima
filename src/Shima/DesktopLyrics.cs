@@ -237,8 +237,11 @@ public sealed class DesktopLyrics : Window
             // 暫停時變淡
             _stage.BeginAnimation(OpacityProperty, new DoubleAnimation(playing ? 1 : 0.4, TimeSpan.FromMilliseconds(300)));
         }
-        _stage.Set(DesktopLyricsLayout.Pick(_sheet, _second, position, _title, _artist));
-        if (playing || _stage.Animating) StartFrames(); else StopFrames();
+        var line = DesktopLyricsLayout.Pick(_sheet, _second, position, _title, _artist);
+        _stage.Set(line);
+        // 只有光在掃、或換句的動畫還沒跑完，才需要每一格都重畫；只顯示歌名時（沒有同步歌詞、前奏間奏）靠 0.25 秒一次的檢查就夠了
+        bool sweeping = playing && line.Sweep && position < line.Start + line.Length + TimeSpan.FromMilliseconds(300);
+        if (sweeping || _stage.Animating) StartFrames(); else StopFrames();
     }
 
     private void StartFrames()

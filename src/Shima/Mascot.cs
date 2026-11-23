@@ -127,7 +127,46 @@ public sealed class Mascot : FrameworkElement
             _gazeX += (tx - _gazeX) * 0.25;
             _gazeY += (ty - _gazeY) * 0.25;
         }
+
+        // 節拍在這裡判斷（每秒 30 次），畫面才不用為了偵測節拍而一直重畫
+        float bass = Dancing ? Bass?.Invoke() ?? 0 : 0;
+        if (bass > _bass + 0.07 && bass > 0.42 && now - _hopAt > 0.22) _hopAt = now;
+        _bass += (bass - _bass) * 0.5;
+
+        // 透明視窗每重畫一次都要整塊重新合成，所以只在畫出來的東西真的會不一樣時才重畫。
+        // 像素小 Claude 是一格一格動的（每秒 8 格），眼睛的位置也是整數像素；其他角色是平滑擺動，跳舞時每一格都不同。
+        var state = Signature(Drawn, now, Dancing, now < _happyUntil, now - _hopAt < 0.17, now - _blinkAt, _gazeX, _gazeY,
+            _image?.Frames.Count ?? 0, _image != null ? MascotImage.FrameAt(_image.Delays, _clock.Elapsed - _imageStart) : 0);
+        if (state == _drawnState) return;
+        _drawnState = state;
         InvalidateVisual();
+    }
+
+    private int _drawnState;
+
+    /// <summary>
+    /// 畫出來的樣子的指紋：兩次一樣就不用重畫。
+    /// 小 Claude 一格一格動：跳舞時四格一輪，閒著時十六格裡只有兩格在吸氣；眼睛的位置是整數像素。
+    /// 幽靈不管有沒有在播歌都在飄，所以每一格都不同。自己的圖：有很多格的照它的格數走，只有一格的平常不會變。
+    /// 其他角色跳舞時平滑擺動，閒著時只有眼睛跟著游標動。
+    /// </summary>
+    public static int Signature(string kind, double now, bool dancing, bool happy, bool hop, double sinceBlink, double gazeX, double gazeY, int frames, int frame)
+    {
+        bool blinking = sinceBlink is >= 0 and < 0.2;
+        switch (kind)
+        {
+            case "claude":
+                int tick = (int)(now * 8);
+                int pose = happy ? tick : dancing ? tick % 4 : tick % 16 < 2 ? 1 : 0;
+                return HashCode.Combine(pose, dancing, happy, hop, sinceBlink is > 0.035 and < 0.105, (int)Math.Round(gazeX), (int)Math.Round(gazeY * 0.6));
+            case "ghost":
+                return HashCode.Combine(now);
+            case Custom:
+                // 跳舞與開心時整張圖會上下動
+                return dancing || happy || hop ? HashCode.Combine(now) : HashCode.Combine(frames > 1 ? frame : 0);
+            default:
+                return dancing || happy || blinking ? HashCode.Combine(now) : HashCode.Combine(Math.Round(gazeX, 2), Math.Round(gazeY, 2));
+        }
     }
 
     protected override void OnRender(DrawingContext dc)
@@ -137,9 +176,6 @@ public sealed class Mascot : FrameworkElement
         bool happy = now < _happyUntil;
         // 點頭：一秒兩下，聲音越大點得越用力
         float level = Dancing ? Level?.Invoke() ?? 0.35f : 0;
-        float bass = Dancing ? Bass?.Invoke() ?? 0 : 0;
-        if (bass > _bass + 0.07 && bass > 0.42 && now - _hopAt > 0.22) _hopAt = now;
-        _bass += (bass - _bass) * 0.5;
         bool hop = now - _hopAt < 0.17;
         double bob = Dancing ? Math.Sin(now * Math.PI * 4) * (0.5 + level * 2.4) : 0;
         double cx = w / 2, cy = h / 2 + bob;
