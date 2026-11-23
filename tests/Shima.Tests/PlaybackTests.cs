@@ -433,3 +433,21 @@ public class SpectrumTests
     public void 小聲的比大聲的矮() =>
         Assert.True(Spectrum.Bands(Tone(1000, 0.05), 48000, 24).Max() < Spectrum.Bands(Tone(1000, 0.8), 48000, 24).Max() - 0.2f);
 }
+
+public class UpdaterTests
+{
+    [Theory]
+    [InlineData("v0.6.0", "0.6.0")]
+    [InlineData("0.5.1", "0.5.1")]
+    [InlineData("v1.0.0", "1.0.0")]
+    public void 比較新的版本(string tag, string expected) =>
+        Assert.Equal(Version.Parse(expected), Shima.Updater.Newer(tag, new Version(0, 5, 0, 0)));
+
+    [Theory]
+    [InlineData("v0.5.0")]
+    [InlineData("v0.4.9")]
+    [InlineData("nightly")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void 一樣_比較舊_或看不懂的都不算(string? tag) => Assert.Null(Shima.Updater.Newer(tag, new Version(0, 5, 0, 0)));
+}

@@ -26,6 +26,7 @@ public partial class IslandWindow
             _expanded = false;
             Snap();
             await Save(folder, "1-pill");
+            if (_track is { } playing) File.Move(LyricCard.Save(MakeCard(playing), folder, "card"), Path.Combine(folder, "7-card.png"), true);
             await Zoom(folder, "0-mascot", Buddy, 12);
 
             foreach (var (tab, name) in new[] { (Tab.Music, "2-music"), (Tab.Tools, "3-tools"), (Tab.Ai, "4-ai"), (Tab.Settings, "5-settings") })

@@ -64,6 +64,8 @@ public sealed class AppSettings
     public int WaterMinutes { get; set; } = 60;
     /// <summary>音量、亮度、電量、網路、播放裝置有變化時在島上顯示。</summary>
     public bool SystemStatus { get; set; } = true;
+    /// <summary>啟動後與每天一次，到 GitHub 看有沒有新版。</summary>
+    public bool CheckUpdates { get; set; } = true;
 
     /// <summary>歌詞下面多一行：translation（中文翻譯）、romaji（羅馬拼音）或 none。</summary>
     public string LyricsSecondLine { get; set; } = "translation";

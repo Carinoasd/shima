@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -101,6 +102,9 @@ public partial class IslandWindow : Window
         Buddy.Kind = AppSettings.Current.Character;
         Buddy.Level = () => _meter.Running ? _meter.Level : 0.35f;
         Meter.Level = () => _micOpen ? Agents.Ears.Level : _meter.Running ? _meter.Level : 0.35f;
+        Meter.Bands = () => !_micOpen && _meter.Running ? _meter.Bands(4) : null;
+        Spectrum.Bands = () => _meter.Running && _track?.Playing == true ? _meter.Bands(SpectrumView.Count) : null;
+        Buddy.Bass = () => _meter.Running ? (float)_meter.Bands(64).Take(7).Average(b => SpectrumView.Scale(b)) : 0;
         _bridge.Level = () => _meter.Running ? _meter.Level : -1;
         _bridge.Bands = count => _meter.Bands(count);
         Closed += (_, _) => _meter.Dispose();
@@ -178,7 +182,7 @@ public partial class IslandWindow : Window
         {
             _coverShown = track?.Cover;
             var accent = Accent.From(_coverShown);
-            PillLine.Light = LyricsList.Light = Meter.Color = accent;
+            PillLine.Light = LyricsList.Light = Meter.Color = Spectrum.Color = accent;
             BarFill.Background = new SolidColorBrush(accent);
             BackdropImage.Background = Accent.Blurred(_coverShown) is { } blur ? new ImageBrush(blur) { Stretch = Stretch.UniformToFill } : null;
         }
@@ -278,6 +282,7 @@ public partial class IslandWindow : Window
         if (track == null)
         {
             if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
+            Spectrum.Active = false;
             PillLine.Say(TimerLine() ?? DateTime.Now.ToString("HH:mm"));
             double idle = Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
             if (Math.Abs(idle - _pillWidth) > 0.5) { _pillWidth = idle; Morph(); }
@@ -319,6 +324,7 @@ public partial class IslandWindow : Window
         if (!ReferenceEquals(deck.Track, track) || !ReferenceEquals(deck.Sheet, shown) || !ReferenceEquals(deck.Second, second) || deck.Shift != LyricLead + _lyricShift)
             _bridge.Deck = new Agents.DeckState(track, shown, second, LyricLead + _lyricShift);
         LyricsList.Active = _expanded && _tab == Tab.Music;
+        Spectrum.Active = LyricsList.Active;
         LyricsList.Wake();
 
         // 膠囊跟著這一行字的長短伸縮
@@ -529,6 +535,37 @@ public partial class IslandWindow : Window
         if (total == 0) AppSettings.Current.LyricsShift.Remove(id); else AppSettings.Current.LyricsShift[id] = total;
         AppSettings.Current.Save();
         Toast(total == 0 ? L.T("歌詞時間：原本") : L.F(total > 0 ? "歌詞提早 {0} 秒" : "歌詞延後 {0} 秒", (Math.Abs(total) / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)), 2);
+    }
+
+    /// <summary>現在這句歌詞（沒有歌詞就是歌名）做成一張圖：放進剪貼簿，同時存到「圖片\Shima」。</summary>
+    private void LyricCard_Click(object sender, RoutedEventArgs e)
+    {
+        if (_track is not { } track) return;
+        try
+        {
+            var card = MakeCard(track);
+            LyricCard.Save(card, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Shima"), track.Title);
+            Clipboard.SetImage(card);
+            Toast(L.T("歌詞卡片已複製"), 4);
+        }
+        catch (Exception x) { Log.Write("歌詞卡片: " + x.Message); }
+    }
+
+    private System.Windows.Media.Imaging.BitmapSource MakeCard(Track track)
+    {
+        string line = "", second = "";
+        if (_sheet is { Synced: true } sheet && Lrc.LineAt(sheet.Lines, track.Now + LyricLead + _lyricShift) is >= 0 and var i)
+        {
+            line = sheet.Lines[i].Text;
+            var extra = AppSettings.Current.LyricsSecondLine switch
+            {
+                "translation" => sheet.Translation ?? sheet.Romaji,
+                "romaji" => sheet.Romaji ?? sheet.Translation,
+                _ => null,
+            };
+            if (line.Length > 0 && extra != null && i < extra.Count) second = extra[i];
+        }
+        return LyricCard.Render(track, line, second);
     }
 
     private void LyricsReset_Click(object sender, RoutedEventArgs e)

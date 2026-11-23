@@ -35,6 +35,9 @@ public sealed class Mascot : FrameworkElement
 
     /// <summary>現在的聲音有多大聲（0…1）；沒給就照固定節拍點頭。</summary>
     public Func<float>? Level { get; set; }
+    /// <summary>低音有多強（0…1）。突然變大就算一拍，小 Claude 會跟著跳一下。</summary>
+    public Func<float>? Bass { get; set; }
+    private double _bass, _hopAt = -10;
 
     public string Kind
     {
@@ -86,6 +89,10 @@ public sealed class Mascot : FrameworkElement
         bool happy = now < _happyUntil;
         // 點頭：一秒兩下，聲音越大點得越用力
         float level = Dancing ? Level?.Invoke() ?? 0.35f : 0;
+        float bass = Dancing ? Bass?.Invoke() ?? 0 : 0;
+        if (bass > _bass + 0.07 && bass > 0.42 && now - _hopAt > 0.22) _hopAt = now;
+        _bass += (bass - _bass) * 0.5;
+        bool hop = now - _hopAt < 0.17;
         double bob = Dancing ? Math.Sin(now * Math.PI * 4) * (0.5 + level * 2.4) : 0;
         double cx = w / 2, cy = h / 2 + bob;
 
@@ -108,7 +115,7 @@ public sealed class Mascot : FrameworkElement
                 {
                     // 踏步：兩組腳輪流抬，身體跟著一上一下；聲音大就跳高一點
                     int beat = frame % 4;
-                    lift = beat == 1 ? (level > 0.6 ? 2 : 1) : 0;
+                    lift = hop ? 3 : beat == 1 ? (level > 0.6 ? 2 : 1) : 0;
                     stepA = beat == 1;
                     stepB = beat == 3;
                     arms = beat == 1 ? -1 : 0;

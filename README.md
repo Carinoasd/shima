@@ -27,7 +27,8 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 - **歌詞校正**：抓錯時換一份來源、提早或延後 0.1 秒，每首歌各自記住（右鍵 → 這首歌的歌詞）
 - **歌詞第二行**：日文歌下方多一行中文翻譯或羅馬拼音（右鍵 → 歌詞第二行）
 - **小角色**：住在膠囊裡，跟著實際的聲音跳（右鍵 → 角色）。預設是向 Claude Code 吉祥物致敬的像素小 Claude，像 GIF 一樣一格一格動
-- **跟著聲音動**：音量條與角色依電腦實際播出的聲音起伏，掃光與進度條的顏色取自封面
+- **跟著聲音動**：音量條與展開時背景的頻譜是電腦實際播出的聲音（低音在左、高音在右），角色會跟著低音的拍子跳；掃光與進度條的顏色取自封面
+- **歌詞卡片**：把正在唱的那句配上封面做成一張圖，放進剪貼簿並存到「圖片\Shima」（右鍵 → 複製歌詞卡片）
 - **Discord 狀態**：在個人狀態顯示正在聽的歌、封面與進度
 - **工具**：番茄鐘、檔案暫存架（把檔案拖到島上暫放，再拖出去）、待辦清單、月曆、喝水提醒
 - **系統狀態**：音量、亮度、電量、網路、播放裝置（接上或拔掉耳機）有變化時在島上顯示
@@ -128,6 +129,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `Language` | 空 | 介面語言：`zh-TW`、`zh-CN`、`en`、`ja`、`ko`、`es`、`fr`、`de`、`pt`、`it`、`ru`；留空跟著 Windows |
 | `Water` / `WaterMinutes` | `false` / `60` | 喝水提醒 |
 | `SystemStatus` | `true` | 顯示音量、電量、網路等變化 |
+| `CheckUpdates` | `true` | 啟動後與每天一次到 GitHub 看有沒有新版；有的話在島上提示，系統匣選單多一項「更新到 x」，按下會下載並換成新版 |
 | `Character` | `claude` | `claude`、`eyes`、`cat`、`ghost`、`none` |
 | `AudioReactive` | `true` | 擷取電腦播出的聲音讓角色與音量條跟著跳 |
 | `LyricsSecondLine` | `translation` | `translation`、`romaji`、`none` |
@@ -146,7 +148,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 自己的歌詞放在 `%APPDATA%\Shima\lyrics`，檔名用 `歌名.lrc`、`藝人 - 歌名.lrc` 或 `01 歌名.lrc`。
 
-查歌詞時，歌名與藝人會送到 lrclib.net、music.163.com、y.qq.com 與 kugou.com（看開了哪些來源）；開啟 Discord 封面時，歌名、藝人、專輯會送到 itunes.apple.com。
+檢查新版時只會向 api.github.com 詢問這個專案最新的版本號，不帶任何資料。查歌詞時，歌名與藝人會送到 lrclib.net、music.163.com、y.qq.com 與 kugou.com（看開了哪些來源）；開啟 Discord 封面時，歌名、藝人、專輯會送到 itunes.apple.com。
 
 Discord 狀態要先到 [Developer Portal](https://discord.com/developers/applications) 建立一個應用程式（名稱就是「正在聽 ___」顯示的字），把 Application ID 填進 `DiscordClientId`。
 

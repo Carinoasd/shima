@@ -155,6 +155,7 @@
             <MenuItem Header="延後 0.1 秒" Click="LyricsLater_Click"/>
             <MenuItem Header="還原" Click="LyricsReset_Click"/>
           </MenuItem>
+          <MenuItem Header="複製歌詞卡片" Click="LyricCard_Click"/>
           <MenuItem Header="開啟歌詞資料夾" Click="LyricsFolder_Click"/>
           <MenuItem Header="回到螢幕正中間" Click="ResetPlace_Click"/>
           <MenuItem Header="結束" Click="Quit_Click"/>
@@ -175,6 +176,7 @@
           <Grid x:Name="Backdrop" Opacity="0" IsHitTestVisible="False">
             <Border x:Name="BackdropImage" RenderOptions.BitmapScalingMode="HighQuality"/>
             <Border Background="#B4000000"/>
+            <s:SpectrumView x:Name="Spectrum" Height="110" VerticalAlignment="Bottom"/>
           </Grid>
 
           <!-- 收合：封面 + 一行字 -->
@@ -342,6 +344,7 @@
               <CheckBox x:Name="NotifySwitch" Style="{StaticResource Switch}" Content="顯示訊息通知" Click="Notify_Click"/>
               <CheckBox x:Name="DeckSwitch" Style="{StaticResource Switch}" Content="Stream Dock" Click="Deck_Click"/>
               <CheckBox x:Name="SystemSwitch" Style="{StaticResource Switch}" Content="顯示音量、電量、網路的變化" Click="Switch_Click"/>
+              <CheckBox x:Name="UpdateSwitch" Style="{StaticResource Switch}" Content="檢查新版" Click="Switch_Click"/>
               <CheckBox x:Name="DictationSwitch" Style="{StaticResource Switch}" Content="語音辨識用 Windows 的聽寫" Click="Switch_Click"/>
               <DockPanel Height="32">
                 <TextBox x:Name="WaterBox" DockPanel.Dock="Right" Style="{StaticResource Input}" Height="26" Width="52" Margin="8,0,0,0" LostFocus="SettingsText_LostFocus" ToolTip="每隔幾分鐘"/>

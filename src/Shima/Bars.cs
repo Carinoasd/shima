@@ -17,6 +17,8 @@ public sealed class Bars : FrameworkElement
     private Brush _brush = Brushes.White;
 
     public Func<float>? Level { get; set; }
+    /// <summary>四段頻譜（低音到高音，每段 0…1）；有的話四根條子各看各的頻段，沒有就用 Level 加一點抖動。</summary>
+    public Func<float[]?>? Bands { get; set; }
 
     public Color Color
     {
@@ -30,10 +32,11 @@ public sealed class Bars : FrameworkElement
         _timer.Tick += (_, _) =>
         {
             float level = Level?.Invoke() ?? 0;
+            var bands = Bands?.Invoke();
             for (int i = 0; i < _heights.Length; i++)
             {
-                // 每根條子各自抖一點，才不會四根一樣高
-                double target = level * (0.55 + _random.NextDouble() * 0.45);
+                // 沒有頻譜時每根條子各自抖一點，才不會四根一樣高
+                double target = bands != null && i < bands.Length ? SpectrumView.Scale(bands[i]) : level * (0.55 + _random.NextDouble() * 0.45);
                 _heights[i] += (target - _heights[i]) * (target > _heights[i] ? 0.6 : 0.25);
             }
             InvalidateVisual();

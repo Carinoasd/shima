@@ -5,6 +5,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Shima.Lyrics;
 using Shima.Playback;
 
@@ -14,6 +15,36 @@ namespace Shima;
 public partial class IslandWindow
 {
     private System.Windows.Forms.NotifyIcon? _tray;
+    private System.Windows.Forms.ContextMenuStrip? _trayMenu;
+    private System.Windows.Forms.ToolStripItem? _updateItem;
+    private readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromSeconds(40) };
+    private bool _updating;
+
+    /// <summary>啟動後不久查一次，之後每天一次。有新版就提示，並在系統匣的選單多一項「更新到 x」。</summary>
+    private void InitUpdates()
+    {
+        Updater.Cleanup();
+        _updateTimer.Tick += async (_, _) =>
+        {
+            _updateTimer.Interval = TimeSpan.FromHours(24);
+            if (!AppSettings.Current.CheckUpdates || _updateItem != null || await Updater.CheckAsync() is not { } found) return;
+            string version = found.Version.ToString(3);
+            Log.Write("update: 有新版 " + version);
+            Toast(L.F("有新版 {0}", version), 8);
+            if (_trayMenu == null || !Updater.CanApply) return;
+            _updateItem = new System.Windows.Forms.ToolStripMenuItem(L.F("更新到 {0}", version), null, async (_, _) =>
+            {
+                if (_updating) return;
+                _updating = true;
+                Toast(L.T("正在下載新版…"), 120, false);
+                if (await Updater.ApplyAsync(found.Url)) { ((App)Application.Current).Restart(); Close(); }
+                else { _updating = false; Toast(L.T("更新失敗"), 6, false); }
+            });
+            _trayMenu.Items.Insert(0, _updateItem);
+        };
+        _updateTimer.Start();
+        Closed += (_, _) => _updateTimer.Stop();
+    }
     private readonly NotificationMirror _notifications = new();
     private bool _userHidden, _loadingSettings;
 
@@ -21,11 +52,13 @@ public partial class IslandWindow
     {
         Closed += (_, _) => { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); } };
         if (_smoke) return;
+        InitUpdates();
         _notifications.Arrived += (app, title, body) => Dispatcher.BeginInvoke(() => Toast(NotificationMirror.Line(app, title, body), 7));
         if (AppSettings.Current.Notifications) _ = _notifications.StartAsync();
         try
         {
             var menu = new System.Windows.Forms.ContextMenuStrip();
+            _trayMenu = menu;
             menu.Items.Add(L.T("顯示／隱藏"), null, (_, _) => ToggleHidden());
             menu.Items.Add(L.T("結束"), null, (_, _) => Close());
             _tray = new System.Windows.Forms.NotifyIcon
@@ -57,6 +90,7 @@ public partial class IslandWindow
         AudioSwitch.IsChecked = s.AudioReactive;
         NotifySwitch.IsChecked = s.Notifications;
         SystemSwitch.IsChecked = s.SystemStatus;
+        UpdateSwitch.IsChecked = s.CheckUpdates;
         DictationSwitch.IsChecked = s.SpeechEngine == "windows";
         WaterSwitch.IsChecked = s.Water;
         WaterBox.Text = s.WaterMinutes.ToString();
@@ -119,6 +153,7 @@ public partial class IslandWindow
         s.HideInFullscreen = FullscreenSwitch.IsChecked == true;
         s.AudioReactive = AudioSwitch.IsChecked == true;
         s.SystemStatus = SystemSwitch.IsChecked == true;
+        s.CheckUpdates = UpdateSwitch.IsChecked == true;
         s.SpeechEngine = DictationSwitch.IsChecked == true ? "windows" : "whisper";
         if (s.Water != (WaterSwitch.IsChecked == true)) { s.Water = WaterSwitch.IsChecked == true; _waterAt = DateTime.Now.AddMinutes(s.WaterMinutes); }
         s.Save();

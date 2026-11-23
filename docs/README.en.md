@@ -36,6 +36,8 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
 - **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
 - **Message notifications**: Discord, LINE, Telegram and other messengers flash on the island (turn it on in Settings)
+- **Lyric card**: the line being sung, set against the cover, as an image on the clipboard and in `Pictures\Shima` (right-click → Copy lyric card)
+- **Updates**: checks GitHub for a new release after startup and once a day; a tray menu item downloads it and swaps it in (`CheckUpdates`, on by default; only the latest version number of this project is requested from api.github.com)
 - **Stream Dock**: puts the island on a Stream Dock touch strip or keys: cover, the line being sung, little Claude, progress; press to pause or skip (turn it on in Settings)
 - **Draggable**: hold the pill and drag it anywhere, on any monitor; the place is remembered. Right-click to send it back to the centre
 - Hides itself while a full-screen app (a game, a video) is in front
