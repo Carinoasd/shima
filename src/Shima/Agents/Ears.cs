@@ -38,12 +38,17 @@ public sealed class Ears : IDisposable
     public static string ModelFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "models");
 
-    private static GgmlType Size => AppSettings.Current.WhisperModel switch
+    private readonly string? _model;
+
+    /// <param name="model">指定模型大小（tiny、base、small、medium）；不給就照設定。喚醒詞只要聽一個詞，可以用最小的 tiny。</param>
+    public Ears(string? model = null) => _model = model;
+
+    private GgmlType Size => (_model ?? AppSettings.Current.WhisperModel) switch
     {
         "tiny" => GgmlType.Tiny, "small" => GgmlType.Small, "medium" => GgmlType.Medium, _ => GgmlType.Base,
     };
 
-    private static string ModelPath => Path.Combine(ModelFolder, $"ggml-{Size.ToString().ToLowerInvariant()}.bin");
+    private string ModelPath => Path.Combine(ModelFolder, $"ggml-{Size.ToString().ToLowerInvariant()}.bin");
 
     /// <summary>模型還沒有就下載。先寫到暫存檔，下載完整才改名，中斷了不會留下壞檔。</summary>
     public async Task PrepareAsync(string language, CancellationToken stop)
@@ -281,12 +286,17 @@ public sealed class SpeechDetector
     private const int Frame = Ears.Rate * 30 / 1000;   // 30 毫秒一格
     private readonly List<float> _all = [];
     private double _noise = 0.004;
-    private int _loud, _quiet, _start = -1, _end;
+    private int _loud, _quiet, _start = -1, _end, _first, _last;
 
     public TimeSpan Patience { get; init; } = TimeSpan.FromSeconds(10);
     /// <summary>安靜多久算講完。太短會在換氣時把人打斷，太長會讓人覺得反應慢。</summary>
     public TimeSpan Silence { get; init; } = TimeSpan.FromSeconds(0.65);
     public TimeSpan Longest { get; init; } = TimeSpan.FromSeconds(25);
+    /// <summary>多大聲才可能是人聲（RMS）。喚醒詞在放音樂時會調高。</summary>
+    public double Floor { get; init; } = 0.012;
+
+    /// <summary>真正有聲音的長度：從第一格大聲到最後一格大聲（不含前後留的餘裕）。沒人說話是 0。</summary>
+    public TimeSpan Spoken => _start < 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Max(0, Math.Max(_end, _last) - _first) / (double)Ears.Rate);
 
     /// <summary>餵一段取樣。回傳 true：說完了（或等太久都沒人說話）。</summary>
     public bool Feed(float[] samples)
@@ -298,14 +308,14 @@ public sealed class SpeechDetector
             double sum = 0;
             for (int i = f * Frame; i < (f + 1) * Frame; i++) sum += _all[i] * _all[i];
             double level = Math.Sqrt(sum / Frame);
-            bool loud = level > Math.Max(0.012, _noise * 3.5);
+            bool loud = level > Math.Max(Floor, _noise * 3.5);
 
             if (_start < 0)
             {
                 if (!loud) _noise = _noise * 0.95 + level * 0.05;
                 _loud = loud ? _loud + 1 : 0;
                 // 連續三格（90 毫秒）才算有人說話；往前留 300 毫秒，免得第一個字被切掉
-                if (_loud >= 3) { _start = Math.Max(0, (f - 12) * Frame); _quiet = 0; }
+                if (_loud >= 3) { _start = Math.Max(0, (f - 12) * Frame); _first = (f - 2) * Frame; _last = (f + 1) * Frame; _quiet = 0; }
                 else if (f * Frame > Patience.TotalSeconds * Ears.Rate) return true;
                 continue;
             }
