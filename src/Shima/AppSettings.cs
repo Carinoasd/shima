@@ -67,6 +67,11 @@ public sealed class AppSettings
     public bool SystemStatus { get; set; } = true;
     /// <summary>啟動後與每天一次，到 GitHub 看有沒有新版。</summary>
     public bool CheckUpdates { get; set; } = true;
+    /// <summary>全域快捷鍵（如 "Ctrl+Alt+Space"）；空字串：用預設（展開有備援順序）。</summary>
+    public string HotkeyToggle { get; set; } = "";
+    public string HotkeyAsk { get; set; } = "";
+    /// <summary>勿擾模式的結束時間；null 或已過就是沒開。</summary>
+    public DateTime? DoNotDisturbUntil { get; set; }
 
     /// <summary>歌詞下面多一行：translation（中文翻譯）、romaji（羅馬拼音）或 none。</summary>
     public string LyricsSecondLine { get; set; } = "translation";
