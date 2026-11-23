@@ -31,6 +31,8 @@ ROWS = """
 設定 | 设置 | Settings | 設定 | 설정 | Ajustes | Réglages | Einstellungen | Definições | Impostazioni | Настройки
 語音助手 | 语音助手 | Voice assistant | 音声アシスタント | 음성 비서 | Asistente de voz | Assistant vocal | Sprachassistent | Assistente de voz | Assistente vocale | Голосовой помощник
 連接 | 连接 | Connect | 接続 | 연결 | Conectar | Connecter | Verbinden | Ligar | Collega | Подключить
+讀取中… | 读取中… | Loading… | 読み込み中… | 불러오는 중… | Cargando… | Chargement… | Wird geladen… | A carregar… | Caricamento… | Загрузка…
+近 {0} 天 {1} | 近 {0} 天 {1} | Last {0} days {1} | 直近 {0} 日 {1} | 최근 {0}일 {1} | Últimos {0} días {1} | {0} derniers jours {1} | Letzte {0} Tage {1} | Últimos {0} dias {1} | Ultimi {0} giorni {1} | За {0} дн. {1}
 以後都允許 | 以后都允许 | Always allow | 常に許可 | 항상 허용 | Permitir siempre | Toujours autoriser | Immer erlauben | Permitir sempre | Consenti sempre | Всегда разрешать
 所有專案 | 所有项目 | All projects | すべてのプロジェクト | 모든 프로젝트 | Todos los proyectos | Tous les projets | Alle Projekte | Todos os projetos | Tutti i progetti | Все проекты
 刪除 | 删除 | Delete | 削除 | 삭제 | Eliminar | Supprimer | Löschen | Eliminar | Elimina | Удалить

@@ -41,6 +41,20 @@ public partial class IslandWindow
                 await Save(folder, name);
             }
 
+            // 用量圖：AI 分頁點開那一行，拍完收起來
+            if (Demo.On)
+            {
+                _expanded = true;
+                TabAi.IsChecked = true;
+                _tab = Tab.Ai;
+                RefreshAi();
+                ToggleUsage(true);
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-usage");
+                ToggleUsage(false);
+            }
+
             // 長的回答：一次到齊時要停在開頭、底部淡出
             if (Demo.On)
             {
