@@ -41,6 +41,16 @@ public partial class IslandWindow
                 await Save(folder, name);
             }
 
+            // 長的回答：一次到齊時要停在開頭、底部淡出
+            if (Demo.On)
+            {
+                Say(Demo.LongAnswer);
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-ai-long");
+                Say(Demo.Answer);
+            }
+
             // 設定頁：四個子分頁各一張
             _expanded = true;
             TabSettings.IsChecked = true;

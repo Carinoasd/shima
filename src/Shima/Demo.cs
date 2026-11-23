@@ -108,6 +108,11 @@ public static class Demo
         "- **ほどける**：鬆開、散開；接 `〜ていく` 表示慢慢變成那樣\n\n" +
         "整句是「光在水面上慢慢散開」。";
 
+    /// <summary>長的回答：超過回答區的高度，用來看捲動與淡出（一次到齊的回答應該停在開頭）。</summary>
+    public static string LongAnswer => "# 這首歌在說什麼\n\n" + string.Join("\n\n", Enumerable.Range(1, 9).Select(i =>
+        $"**第 {i} 段**：河與海交會的地方，水是半鹹的；歌裡用它比喻「哪一邊都不算」的心情。" +
+        (i % 3 == 0 ? "\n\n1. 先是清晨的公車\n2. 再到傍晚的橋\n3. 最後是 `潮の匂い`" : ""))) + "\n\n參考 [歌詞資料夾](https://example.com/lyrics)。";
+
     /// <summary>畫一張封面：河海交界的顏色，幾道光。</summary>
     private static BitmapSource Cover()
     {
