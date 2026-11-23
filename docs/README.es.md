@@ -21,6 +21,14 @@ Una pequeña isla en la parte superior de la pantalla de Windows: muestra la mú
 - **Pregunta a Claude**: por escrito o por voz; también puede cambiar de canción
 - **Claude Code**: permite o deniega sus solicitudes de permiso desde la isla; muestra el progreso y avisa al terminar
 - **Chat**: las versiones web de Claude, Gemini y ChatGPT dentro de la isla
+- **Temporizador de apagado**: pausa la música tras 15, 30, 45 o 60 minutos, o al terminar la canción; también se lo puedes pedir al asistente de voz
+- **Dispositivo de reproducción**: cambia el dispositivo predeterminado de Windows desde la pestaña de música o el menú contextual
+- **Resumen de escucha**: tiempo, canciones y artistas más escuchados por semana, mes o año en una tarjeta para compartir; el año es un mapa de calor con un cuadro por día
+- **Recordatorios**: escribe `15:30 reunión`, `20m agua` o `daily 8:00 pastilla` y la isla te avisa a su hora; pueden repetirse a diario, entre semana o cada semana
+- **Apariencia**: color de acento (muestras o un código propio) y línea de progreso en la cápsula
+- **Guardar y traducir letras**: guarda la letra ajustada como `.lrc`; si una canción no tiene traducción, la IA la traduce verso a verso
+- **Codex CLI y Gemini CLI**: como con Claude Code, la isla muestra el estado y avisa al terminar; las solicitudes de permiso de Codex se responden en la isla
+- **Last.fm**: registra lo que escuchas en Last.fm (compatible con ListenBrainz a la vez)
 - Arrástrala a cualquier sitio; se oculta ante aplicaciones a pantalla completa; 11 idiomas
 
 ## Instalación
