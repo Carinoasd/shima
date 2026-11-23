@@ -53,6 +53,12 @@ public sealed record DeckNotice(string Kind, string Title, string Text, string T
     public static readonly DeckNotice None = new("", "", "", "", "", false);
 }
 
+/// <summary>旋鈕旁邊要顯示的數值。Volume 是 0–1（沒有可調的音量就是 -1），Shift 是歌詞提早的秒數。</summary>
+public sealed record DeckDials(double Volume, string VolumeText, bool Muted, string Zone, double Shift)
+{
+    public static readonly DeckDials None = new(-1, "", false, "", 0);
+}
+
 /// <summary>Stream Dock（HotSpot／Mirabox）外掛：把外掛檔案放進它的 plugins 資料夾。</summary>
 public static class StreamDock
 {

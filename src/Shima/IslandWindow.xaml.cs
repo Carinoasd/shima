@@ -101,6 +101,8 @@ public partial class IslandWindow : Window
         Buddy.Kind = AppSettings.Current.Character;
         Buddy.Level = () => _meter.Running ? _meter.Level : 0.35f;
         Meter.Level = () => _micOpen ? Agents.Ears.Level : _meter.Running ? _meter.Level : 0.35f;
+        _bridge.Level = () => _meter.Running ? _meter.Level : -1;
+        _bridge.Bands = count => _meter.Bands(count);
         Closed += (_, _) => _meter.Dispose();
         foreach (var (id, name) in Mascot.All)
         {
@@ -219,8 +221,11 @@ public partial class IslandWindow : Window
             _ = _notifications.PollAsync();
             if (_ticks % 20 == 0) PollStatus();
             // 只在真的有歌在播、島也看得到的時候才擷取聲音
-            bool listen = AppSettings.Current.AudioReactive && _track?.Playing == true && !_hiddenForFullscreen;
-            if (listen && !_meter.Running) _meter.Start(); else if (!listen && _meter.Running) _meter.Stop();
+            // Stream Dock 在看的話，島因為全螢幕藏起來了也照樣擷取
+            bool wanted = AppSettings.Current.AudioReactive && _track?.Playing == true;
+            bool listen = wanted && !_hiddenForFullscreen;
+            bool capture = listen || wanted && _bridge.DeckWatching;
+            if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop();
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
         UpdateTimer();
@@ -244,6 +249,17 @@ public partial class IslandWindow : Window
         else
             notice = new("", "", "", timer, _planLine, false);
         if (notice != _bridge.Notice) _bridge.Notice = notice;
+
+        Agents.DeckDials dials;
+        string zone = _media.ZoneName;
+        double shift = Math.Round(_lyricShift.TotalSeconds, 1);
+        if (_media.Sound is { } roon)
+            dials = new(roon.Max > roon.Min ? (roon.Value - roon.Min) / (roon.Max - roon.Min) : -1, ((int)roon.Value).ToString(), roon.Muted, zone, shift);
+        else if (_system.Sound is { Volume: >= 0 } pc)
+            dials = new(pc.Volume / 100.0, pc.Volume.ToString(), pc.Muted, zone, shift);
+        else
+            dials = new(-1, "", false, zone, shift);
+        if (dials != _bridge.Dials) _bridge.Dials = dials;
     }
 
     private void UpdateTexts()

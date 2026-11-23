@@ -410,3 +410,26 @@ public class SystemWatchTests
         Assert.Equal("輸出：耳機", Shima.SystemWatch.Line("device", "耳機"));
     }
 }
+
+public class SpectrumTests
+{
+    private static float[] Tone(double hz, double gain = 0.8) =>
+        Enumerable.Range(0, Spectrum.Size).Select(i => (float)(gain * Math.Sin(2 * Math.PI * hz * i / 48000))).ToArray();
+
+    [Fact]
+    public void 安靜就是零() => Assert.All(Spectrum.Bands(new float[Spectrum.Size], 48000, 24), b => Assert.Equal(0, b));
+
+    [Fact]
+    public void 低音在左邊_高音在右邊()
+    {
+        var low = Spectrum.Bands(Tone(100), 48000, 24);
+        var high = Spectrum.Bands(Tone(8000), 48000, 24);
+        Assert.True(Array.IndexOf(low, low.Max()) < 6);
+        Assert.True(Array.IndexOf(high, high.Max()) > 17);
+        Assert.True(low.Max() > 0.8f && high.Max() > 0.8f);
+    }
+
+    [Fact]
+    public void 小聲的比大聲的矮() =>
+        Assert.True(Spectrum.Bands(Tone(1000, 0.05), 48000, 24).Max() < Spectrum.Bands(Tone(1000, 0.8), 48000, 24).Max() - 0.2f);
+}

@@ -39,6 +39,14 @@ public sealed class AgentBridge
     /// <summary>Stream Dock 外掛看的內容，由島更新。</summary>
     public volatile DeckState Deck = new(null, null, null, TimeSpan.Zero);
     public volatile DeckNotice Notice = DeckNotice.None;
+    public volatile DeckDials Dials = DeckDials.None;
+    /// <summary>電腦此刻播出的聲音大小（0–1）；沒有在擷取就是 -1。</summary>
+    public Func<float>? Level;
+    private long _deckSeen = -100000;
+    /// <summary>Stream Dock 外掛這幾秒內有沒有來問過（有的話，就算島藏起來了也要繼續擷取聲音）。</summary>
+    public bool DeckWatching => Environment.TickCount64 - Interlocked.Read(ref _deckSeen) < 5000;
+    /// <summary>此刻的頻譜（低音到高音，每段 0–1）。</summary>
+    public Func<int, float[]>? Bands;
     /// <summary>Stream Dock 外掛按了按鍵：playpause、next、previous、allow、deny、ask、zone、mute。</summary>
     public event Action<string>? DeckPressed;
     /// <summary>Stream Dock 的旋鈕轉了幾格：volume、seek、shift、zone。</summary>
@@ -164,11 +172,17 @@ public sealed class AgentBridge
         switch (request.Url!.AbsolutePath)
         {
             case "/deck/now":
+                Interlocked.Exchange(ref _deckSeen, Environment.TickCount64);
                 var now = deck.ToJson(query["have"] ?? "\0");
                 var notice = Notice;
                 now["notice"] = new JsonObject { ["kind"] = notice.Kind, ["title"] = notice.Title, ["text"] = notice.Text, ["listening"] = notice.Listening };
                 now["timer"] = notice.Timer;
                 now["plan"] = notice.Plan;
+                now["level"] = Level?.Invoke() ?? -1;
+                if (int.TryParse(query["bands"], out int wanted) && wanted is > 0 and <= 96 && Bands?.Invoke(wanted) is { } bands)
+                    now["bands"] = new JsonArray(bands.Select(b => (JsonNode)JsonValue.Create(MathF.Round(b, 3))).ToArray());
+                var dials = Dials;
+                now["dials"] = new JsonObject { ["volume"] = dials.Volume, ["volumeText"] = dials.VolumeText, ["muted"] = dials.Muted, ["zone"] = dials.Zone, ["shift"] = dials.Shift };
                 var bytes = Encoding.UTF8.GetBytes(now.ToJsonString());
                 response.ContentType = "application/json; charset=utf-8";
                 await response.OutputStream.WriteAsync(bytes);

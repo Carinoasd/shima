@@ -101,12 +101,14 @@ For HotSpot / Mirabox Stream Dock devices (N4 Pro and others). The "Stream Dock"
 | Ask AI | A microphone, red while listening | Ask the voice assistant once |
 | Allow / Deny | A tick and a cross, lit only while Claude Code waits for permission | Allow / deny |
 
-| Knob | Turn | Press |
-| --- | --- | --- |
-| Volume | Volume (Roon's when Roon is playing, the PC's otherwise) | Mute |
-| Seek | 5 seconds back or forward | Play / pause |
-| Lyrics Timing | Lyrics 0.1 s earlier or later | Play / pause |
-| Roon Zone | Next zone | Next zone |
+| Knob | Turn | Press | The cell above it |
+| --- | --- | --- | --- |
+| Volume | Volume (Roon's when Roon is playing, the PC's otherwise) | Mute | A volume ring |
+| Seek | 5 seconds back or forward | Play / pause | A spinning record with a progress ring |
+| Lyrics Timing | Lyrics 0.1 s earlier or later | Play / pause | The line being sung and the offset |
+| Roon Zone | Next zone | Next zone | Little Claude and the zone name |
+
+The four cells share one blurred cover as their backdrop; the spectrum along the bottom is the sound the PC is actually playing (bass on the left, treble on the right). The strip has it too.
 
 The strip follows the island: when Claude Code asks for permission it shows the tool and its input with allow and deny buttons on the right; the voice assistant, Claude Code progress, message notifications and the water reminder show up too.
 

@@ -309,6 +309,20 @@ public sealed class RoonSource : IMediaSource
         return (int)value;
     }
 
+    /// <summary>目前區域的音量、上下限與是否靜音；這個區域不能調音量就是 null。</summary>
+    public (double Value, double Min, double Max, bool Muted)? Sound
+    {
+        get
+        {
+            lock (_lock)
+            {
+                if (!_zones.TryGetValue(_zoneId, out var zone) || (zone["outputs"] as JsonArray)?.FirstOrDefault(o => o?["volume"] is JsonObject) is not { } o) return null;
+                var volume = o["volume"]!;
+                return (Number(volume["value"]), Number(volume["min"]), Number(volume["max"]), volume["is_muted"] is JsonValue v && v.TryGetValue<bool>(out var m) && m);
+            }
+        }
+    }
+
     /// <summary>靜音開關。回傳現在是不是靜音；這個區域不能調音量就是 null。</summary>
     public bool? ToggleMute()
     {

@@ -98,6 +98,9 @@ public sealed class SystemWatch : IDisposable
         catch (Exception e) { Log.Write("system (set volume): " + e.Message); return null; }
     }
 
+    /// <summary>電腦現在的音量（0–100）與是否靜音；沒有播放裝置時音量是 -1。</summary>
+    public (int Volume, bool Muted) Sound => (_volume, _muted);
+
     /// <summary>系統靜音開關。回傳現在是不是靜音；沒有播放裝置就是 null。</summary>
     public bool? ToggleMute()
     {
