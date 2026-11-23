@@ -199,7 +199,8 @@ public sealed class NetEaseProvider : ILyricsProvider
         var (index, exact) = SongPicker.Pick(items, q.Title, artist, q.Duration);
         if (index < 0) return null;
 
-        var lyric = await Http.GetStringAsync($"https://music.163.com/api/song/lyric?id={ids[index]}&lv=1&tv=-1&rv=-1");
+        // yv=1：有逐字歌詞（yrc）的話一起給
+        var lyric = await Http.GetStringAsync($"https://music.163.com/api/song/lyric?id={ids[index]}&lv=1&tv=-1&rv=-1&yv=1");
         using var l = JsonDocument.Parse(lyric);
         if (!l.RootElement.TryGetProperty("lrc", out var lrc) || !lrc.TryGetProperty("lyric", out var text) || text.ValueKind != JsonValueKind.String) return null;
         var lines = Lrc.Parse(Lrc.StripCredits(text.GetString()!));
@@ -207,6 +208,8 @@ public sealed class NetEaseProvider : ILyricsProvider
 
         string Extra(string name) =>
             l.RootElement.TryGetProperty(name, out var e) && e.TryGetProperty("lyric", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
+        // 句子還是照 LRC，翻譯才對得上；逐字時間只是掛上去
+        if (Extra("yrc") is { Length: > 0 } yrc) lines = WordTiming.Attach(lines, WordTiming.ParseYrc(yrc));
         var sheet = new LyricSheet(lines, true)
         {
             Translation = Lrc.Align(lines, Lrc.Parse(Chinese.Localize(Lrc.StripCredits(Extra("tlyric"))))),

@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using Shima.Lyrics;
 
 namespace Shima;
 
@@ -20,6 +21,7 @@ public sealed class KaraokeLine : FrameworkElement
 
     private string _text = "", _old = "";
     private TimeSpan _start, _length;
+    private IReadOnlyList<LyricWord>? _words;
     private bool _sweep, _frames;
     private long _changedAt = Stopwatch.GetTimestamp();
     private FormattedText? _layout, _oldLayout;
@@ -48,12 +50,13 @@ public sealed class KaraokeLine : FrameworkElement
 
     public KaraokeLine() => ClipToBounds = true;
 
-    /// <summary>一句歌詞：從 start 開始唱，length 之內光掃完整句。</summary>
-    public void Sing(string text, TimeSpan start, TimeSpan length)
+    /// <summary>一句歌詞：從 start 開始唱，length 之內光掃完整句。有逐字時間（words）的話光照著每個字走，length 就不用了。</summary>
+    public void Sing(string text, TimeSpan start, TimeSpan length, IReadOnlyList<LyricWord>? words = null)
     {
         bool same = text == _text && _sweep && start == _start;
         _start = start;
         _length = length;
+        _words = WordTiming.Fits(text, words) ? words : null;
         _sweep = true;
         if (!same) Change(text);
         Wake();
@@ -94,6 +97,7 @@ public sealed class KaraokeLine : FrameworkElement
         get
         {
             if (!_sweep || Clock == null) return 1;
+            if (_words != null) return WordTiming.Progress(_words, Clock().Position);
             if (_length <= TimeSpan.Zero) return 1;
             return Math.Clamp((Clock().Position - _start) / _length, 0, 1);
         }
@@ -149,7 +153,10 @@ public sealed class KaraokeLine : FrameworkElement
             // 光的前緣是一小段漸層，不是一刀切
             bool japanese = Fonts.HasKana(_text);
             _prefixes ??= Fonts.Prefixes(_text, new Typeface(Fonts.For(japanese), FontStyles.Normal, Weight, FontStretches.Normal), Size, Fonts.Culture(japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
-            double p = Singing.WidthShare(_text, Progress, _prefixes), edge = Math.Min(0.12, 14 / Math.Max(1, width));
+            double p = _words != null && Clock != null
+                ? Singing.WidthAt(WordTiming.CharsAt(_words, Clock().Position), _prefixes)
+                : Singing.WidthShare(_text, Progress, _prefixes);
+            double edge = Math.Min(0.12, 14 / Math.Max(1, width));
             double head = p * (1 + edge);
             var sweep = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(x, 0), EndPoint = new Point(x + width, 0) };
             sweep.GradientStops.Add(new GradientStop(Colors.White, 0));
@@ -212,10 +219,18 @@ public static class Singing
     /// <summary>唱到的位置佔整句寬度的比例。prefixes 來自 <see cref="Fonts.Prefixes"/>。</summary>
     public static double WidthShare(string text, double progress, double[] prefixes)
     {
+        if (prefixes[^1] <= 0) return progress;
+        return WidthAt(CharsAt(text, progress), prefixes);
+    }
+
+    /// <summary>唱到第 at 個字元（可以是小數）時，佔整句寬度的比例。</summary>
+    public static double WidthAt(double at, double[] prefixes)
+    {
         double total = prefixes[^1];
-        if (total <= 0) return progress;
-        double at = CharsAt(text, progress);
-        int k = Math.Min((int)at, text.Length - 1);
+        int n = prefixes.Length - 1;
+        if (total <= 0 || n <= 0) return n <= 0 ? 1 : Math.Clamp(at / n, 0, 1);
+        at = Math.Clamp(at, 0, n);
+        int k = Math.Min((int)at, n - 1);
         return Math.Clamp((prefixes[k] + (prefixes[k + 1] - prefixes[k]) * (at - k)) / total, 0, 1);
     }
 }

@@ -124,8 +124,41 @@ public sealed class LyricsFinder
 
     // ---------------------------------------------------------------- 磁碟快取
 
+    // 新欄位一律放最後、給預設值：舊的快取檔沒有它們也讀得進來
     private sealed record Stored(bool Found, bool Synced, bool Exact, string Provider, List<double> Times, List<string> Texts, DateTime At,
-        List<string>? Translation = null, List<string>? Romaji = null);
+        List<string>? Translation = null, List<string>? Romaji = null, List<List<StoredWord>?>? Words = null);
+
+    /// <summary>一個字：開始與長度（毫秒）、字。</summary>
+    private sealed record StoredWord(double S, double L, string T);
+
+    /// <summary>找到的歌詞（或「找不到」）寫成快取檔的內容。</summary>
+    public static string Pack(LyricsHit? hit, DateTime at)
+    {
+        var lines = hit?.Sheet.Lines;
+        var words = lines?.Any(l => l.Words != null) == true
+            ? lines.Select(l => l.Words?.Select(w => new StoredWord(w.Start.TotalMilliseconds, w.Length.TotalMilliseconds, w.Text)).ToList()).ToList()
+            : null;
+        return JsonSerializer.Serialize(new Stored(hit != null, hit?.Sheet.Synced ?? false, hit?.Exact ?? false, hit?.Provider ?? "",
+            lines?.Select(l => l.Time.TotalMilliseconds).ToList() ?? [], lines?.Select(l => l.Text).ToList() ?? [], at,
+            hit?.Sheet.Translation?.ToList(), hit?.Sheet.Romaji?.ToList(), words));
+    }
+
+    /// <summary>讀回快取檔：Hit 是 null 表示當時找不到。逐字資料跟字對不上的那句就當作沒有。</summary>
+    public static (LyricsHit? Hit, DateTime At)? Unpack(string json)
+    {
+        var s = JsonSerializer.Deserialize<Stored>(json);
+        if (s == null) return null;
+        if (!s.Found) return (null, s.At);
+        var lines = s.Times.Zip(s.Texts, (t, x) => new LyricLine(TimeSpan.FromMilliseconds(t), x)).ToList();
+        if (s.Words != null)
+            for (int i = 0; i < lines.Count && i < s.Words.Count; i++)
+            {
+                if (s.Words[i] is not { } stored) continue;
+                var words = stored.Select(w => new LyricWord(TimeSpan.FromMilliseconds(w.S), TimeSpan.FromMilliseconds(w.L), w.T)).ToList();
+                if (WordTiming.Fits(lines[i].Text, words)) lines[i] = lines[i] with { Words = words };
+            }
+        return (new LyricsHit(new LyricSheet(lines, s.Synced) { Translation = s.Translation, Romaji = s.Romaji }, s.Exact, s.Provider), s.At);
+    }
 
     private string FileFor(string key) =>
         Path.Combine(_cacheFolder!, Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(key)))[..20] + ".json");
@@ -137,14 +170,12 @@ public sealed class LyricsFinder
         {
             var path = FileFor(key);
             if (!File.Exists(path)) return null;
-            var s = JsonSerializer.Deserialize<Stored>(File.ReadAllText(path));
-            if (s == null) return null;
+            if (Unpack(File.ReadAllText(path)) is not { } s) return null;
             // 找不到的 3 天後再問；只找到原曲的 14 天後再問（也許有人補上這個版本了）
             var age = DateTime.Now - s.At;
-            if (!s.Found) return age < TimeSpan.FromDays(3) ? (null, true) : null;
-            if (!s.Exact && age > TimeSpan.FromDays(14)) return null;
-            var lines = s.Times.Zip(s.Texts, (t, x) => new LyricLine(TimeSpan.FromMilliseconds(t), x)).ToList();
-            return (new LyricsHit(new LyricSheet(lines, s.Synced) { Translation = s.Translation, Romaji = s.Romaji }, s.Exact, s.Provider), true);
+            if (s.Hit == null) return age < TimeSpan.FromDays(3) ? (null, true) : null;
+            if (!s.Hit.Exact && age > TimeSpan.FromDays(14)) return null;
+            return (s.Hit, true);
         }
         catch (Exception e) { Log.Write("歌詞快取: " + e.Message); return null; }
     }
@@ -155,11 +186,8 @@ public sealed class LyricsFinder
         try
         {
             Directory.CreateDirectory(_cacheFolder);
-            var s = new Stored(hit != null, hit?.Sheet.Synced ?? false, hit?.Exact ?? false, hit?.Provider ?? "",
-                hit?.Sheet.Lines.Select(l => l.Time.TotalMilliseconds).ToList() ?? [], hit?.Sheet.Lines.Select(l => l.Text).ToList() ?? [], DateTime.Now,
-                hit?.Sheet.Translation?.ToList(), hit?.Sheet.Romaji?.ToList());
             var path = FileFor(key);
-            File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(s));
+            File.WriteAllText(path + ".tmp", Pack(hit, DateTime.Now));
             File.Move(path + ".tmp", path, overwrite: true);
         }
         catch (Exception e) { Log.Write("歌詞快取寫入: " + e.Message); }

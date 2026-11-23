@@ -161,10 +161,17 @@ public sealed class LyricsView : FrameworkElement
             Brush brush = Brushes.White;
             if (sheet.Synced && line.Text.Length > 0 && Clock != null)
             {
-                var length = Singing.Length(line.Text, line.Time, i + 1 < sheet.Lines.Count ? sheet.Lines[i + 1].Time : null);
-                double progress = length <= TimeSpan.Zero ? 1 : Math.Clamp((Clock().Position - line.Time) / length, 0, 1);
                 _prefixes[i] ??= Fonts.Prefixes(line.Text, new Typeface(Fonts.For(_japanese), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 16, Fonts.Culture(_japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
-                double p = Singing.WidthShare(line.Text, progress, _prefixes[i]!), edge = Math.Min(0.12, 16 / Math.Max(1, width)), head = p * (1 + edge);
+                double p;
+                // 有逐字時間就照著每個字走；沒有的話整句依長度估
+                if (WordTiming.Fits(line.Text, line.Words)) p = Singing.WidthAt(WordTiming.CharsAt(line.Words!, Clock().Position), _prefixes[i]!);
+                else
+                {
+                    var length = Singing.Length(line.Text, line.Time, i + 1 < sheet.Lines.Count ? sheet.Lines[i + 1].Time : null);
+                    double progress = length <= TimeSpan.Zero ? 1 : Math.Clamp((Clock().Position - line.Time) / length, 0, 1);
+                    p = Singing.WidthShare(line.Text, progress, _prefixes[i]!);
+                }
+                double edge = Math.Min(0.12, 16 / Math.Max(1, width)), head = p * (1 + edge);
                 var sweep = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(x, 0), EndPoint = new Point(x + width, 0) };
                 sweep.GradientStops.Add(new GradientStop(Colors.White, 0));
                 sweep.GradientStops.Add(new GradientStop(Colors.White, Math.Clamp(head - edge * 2.2, 0, 1)));

@@ -7,7 +7,11 @@ using System.Text.RegularExpressions;
 
 namespace Shima.Lyrics;
 
-public sealed record LyricLine(TimeSpan Time, string Text);
+public sealed record LyricLine(TimeSpan Time, string Text)
+{
+    /// <summary>逐字時間（接起來等於 Text）；沒有逐字資料是 null，光就依整句長度估。</summary>
+    public IReadOnlyList<LyricWord>? Words { get; init; }
+}
 
 /// <param name="Synced">每一行都有時間；false 表示只有純文字。</param>
 public sealed record LyricSheet(IReadOnlyList<LyricLine> Lines, bool Synced)
@@ -21,7 +25,7 @@ public static partial class Lrc
 {
     /// <summary>
     /// LRC 轉成一行一行：「[mm:ss.xx]歌詞」，一行可以有好幾個時間；[ar:…] 這類標籤略過；
-    /// [offset:+250] 表示整份提早 250 毫秒。
+    /// [offset:+250] 表示整份提早 250 毫秒。加強版 LRC 句中的 &lt;mm:ss.xx&gt; 是逐字時間，放進 Words。
     /// </summary>
     public static List<LyricLine> Parse(string lrc)
     {
@@ -33,12 +37,21 @@ public static partial class Lrc
             if (o.Success) { offset = double.Parse(o.Groups[1].Value, CultureInfo.InvariantCulture); continue; }
             var stamps = Stamp().Matches(raw);
             if (stamps.Count == 0) continue;
-            var text = Stamp().Replace(raw, "").Trim();
+            var content = Stamp().Replace(raw, "");
+            TimeSpan? first = null;
             foreach (Match m in stamps)
             {
                 double seconds = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) * 60
                                + double.Parse(m.Groups[2].Value.Replace(':', '.'), CultureInfo.InvariantCulture);
-                lines.Add(new LyricLine(TimeSpan.FromSeconds(Math.Max(0, seconds - offset / 1000)), text));
+                var time = TimeSpan.FromSeconds(seconds);
+                first ??= time;
+                var (text, words) = WordTiming.ParseEnhanced(content, first.Value);
+                // 同一行有好幾個時間（重複的副歌）：字的時間跟著那一次平移；offset 也要算進去
+                var shift = time - first.Value - TimeSpan.FromMilliseconds(offset);
+                lines.Add(new LyricLine(TimeSpan.FromSeconds(Math.Max(0, seconds - offset / 1000)), text)
+                {
+                    Words = words?.Select(w => w with { Start = w.Start + shift < TimeSpan.Zero ? TimeSpan.Zero : w.Start + shift }).ToList(),
+                });
             }
         }
         lines.Sort((a, b) => a.Time.CompareTo(b.Time));
