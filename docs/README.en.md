@@ -29,17 +29,19 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **Character**: lives in the pill and moves to the actual sound (right-click → Character). The default is a pixel Claude, a homage to the Claude Code mascot, animated frame by frame like a GIF
 - **Reacts to sound**: the level bars and the character follow what your computer is really playing; the light and the progress bar take their colour from the cover
 - **Discord status**: the song, cover and progress on your profile
-- **Tools**: pomodoro timer, file shelf (drop files on the island, drag them out later), to-do list, calendar, water reminder
+- **Tools**: pomodoro timer, shelf (drop files, text or screenshots on the island, or press Paste; drag them out later), to-do list, reminders (type `15:30 meeting` or `20m water` and press Enter), calendar, water reminder
 - **System status**: volume, brightness, battery, network and output device (headphones plugged in or out) shown on the island when they change
+- **Output device**: the speaker button on the music tab and the pill's right-click menu switch the Windows default playback device (headphones, speakers, DAC); the spectrum and the character follow the new output
 - **11 languages**: 繁體中文, 简体中文, English, 日本語, 한국어, Español, Français, Deutsch, Português, Italiano, Русский. Follows Windows by default; change it in Settings
 - **Chat**: the web versions of Claude, Gemini and ChatGPT inside the island; sign in once
-- **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
-- **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
+- **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; frequent commands can be set to "Always allow", and the remembered rules can be removed one by one on the AI tab; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
+- **Codex CLI, Gemini CLI**: when their settings are found on this PC, each gets its own Connect row on the AI tab. Codex permission requests can be allowed or denied on the island; Gemini CLI only shows session status and completion
+- **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; answers appear as they are generated; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
 - **Message notifications**: Discord, LINE, Telegram and other messengers flash on the island (turn it on in Settings)
 - **Roon queue**: the list button on the music tab shows what plays next; click a track to start from it, toggle shuffle and loop. Search is off by default (`RoonSearch`): turning it on makes Roon ask you to enable Shima again under Settings → Extensions
 - **Word-by-word lyrics**: when a lyric file carries per-word timing (enhanced LRC), the sweep follows each word; the online sources do not provide it today
-- **Desktop lyrics**: a line of lyrics floating on the desktop, visible over borderless fullscreen apps (right-click → Desktop lyrics); locked and click-through by default
-- **Listening history**: kept only on this PC (`history.jsonl`), with weekly / monthly / yearly time, plays and top tracks on the listening tab; optional ListenBrainz scrobbling
+- **Desktop lyrics**: a line of lyrics floating on the desktop, visible over borderless fullscreen apps (right-click → Desktop lyrics); locked and click-through by default; hidden for tracks (or videos) without synced lyrics
+- **Listening history**: kept only on this PC (`history.jsonl`), with weekly / monthly / yearly time, plays and top tracks on the listening tab; optional scrobbling to ListenBrainz and Last.fm (both can be on at once)
 - **Saved lines, explain a line**: save the line being sung, search it later, turn it into a card; or ask the AI to explain its reading, words and grammar
 - **Claude Code sessions**: one row per session with its state and plan progress, today's token use and estimated cost, and "always allow" for commands you approve often
 - **More assistant skills**: weather, reminders, opening sites and common apps, arithmetic, reading clipboard text; an optional wake word
@@ -65,7 +67,9 @@ After the first start, enable **Shima** in Roon under Settings → Extensions.
 | Ctrl+Alt+Space | Open / close (falls back to Ctrl+Alt+I, then Ctrl+Shift+Space, when another program owns it; a toast at startup tells you) |
 | Ctrl+Alt+V | Ask the voice assistant one question |
 
-The tray icon hides the island or quits. The gear at the right of the open panel is Settings.
+Both can be changed under Settings → General: click the button and press the new combination; Esc cancels, Backspace or Delete restores the default.
+
+The tray icon hides the island or quits; "Do not disturb (1 hour)" in its menu pauses the water reminder, messenger notifications and system status (Claude Code permission requests, your own reminders and the pomodoro still show). The gear at the right of the open panel is Settings, split into General, Look, Music, and AI & tools.
 
 ## Building it yourself
 
@@ -82,6 +86,10 @@ This publishes a single executable, installs it to `%LOCALAPPDATA%\Shima\Shima.e
 Open the island → the microphone tab.
 
 **Claude Code**: Connect adds four hooks to Claude Code's `settings.json` (one for Windows, one for the default WSL distribution). They only use `curl.exe` to send events to `localhost:47813`, which Shima listens on. Disconnect removes them and leaves everything else alone. Before the first change a copy is kept as `settings.json.before-shima.bak`. When Shima is not running, or the island is hidden behind a full-screen app, Claude Code asks in the terminal as usual.
+
+**Other agents**: Codex CLI uses `~/.codex/hooks.json`; after connecting, run `/hooks` in Codex and trust Shima's hook for it to take effect. Gemini CLI uses `~/.gemini/settings.json`; its hooks cannot approve on your behalf, so only status and completion are shown. Each agent has its own key that only opens its own URLs, and "Always allow" applies to Claude Code only. A `.before-shima.bak` copy is kept before the first change here too.
+
+**Last.fm**: fill in your own API key and shared secret (from last.fm/api) under Settings → Music and press Connect to authorise in the browser. Once connected, the title, artist, album, duration and start time of what you play are sent to ws.audioscrobbler.com. The shared secret and session key are stored encrypted with Windows DPAPI.
 
 **Ask an AI**: pick a service, paste that provider's API key (stored encrypted with Windows DPAPI, readable only by your Windows account), then press the model button and choose from the list that provider actually offers. After that, type in the box, or press the microphone and speak: one question, and it stops after answering; it listens once more only when it asks you something back. The conversation goes to the provider you chose and is billed by them.
 

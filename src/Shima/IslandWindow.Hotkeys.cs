@@ -17,8 +17,8 @@ public partial class IslandWindow
     private IEnumerable<UIElement> HotkeySettingsRows()
     {
         _hotkeyShows.Clear();   // 設定頁重建了，舊的那兩顆按鈕不在畫面上了
-        yield return HotkeyRow("展開／收起", () => ToggleHotkey, () => AskHotkey, v => AppSettings.Current.HotkeyToggle = v, () => AppSettings.Current.HotkeyToggle, () => RegisterToggle(), RegisterAsk);
-        yield return HotkeyRow("問 AI", () => AskHotkey, () => ToggleHotkey, v => AppSettings.Current.HotkeyAsk = v, () => AppSettings.Current.HotkeyAsk, RegisterAsk, () => RegisterToggle());
+        yield return HotkeyRow("展開／收起", () => ToggleHotkey, () => AskHotkey, v => AppSettings.Current.HotkeyToggle = v, () => AppSettings.Current.HotkeyToggle, () => RegisterToggle(), RegisterAsk, "Ctrl+Alt+Space");
+        yield return HotkeyRow("問 AI", () => AskHotkey, () => ToggleHotkey, v => AppSettings.Current.HotkeyAsk = v, () => AppSettings.Current.HotkeyAsk, RegisterAsk, () => RegisterToggle(), "Ctrl+Alt+V");
     }
 
     /// <summary>
@@ -26,11 +26,13 @@ public partial class IslandWindow
     /// Esc 取消，Backspace／Delete 還原預設。
     /// </summary>
     /// <param name="other">另一組目前實際用的組合。錄製時兩組都拆掉了，但這個字串要到重新註冊才會變。</param>
-    private DockPanel HotkeyRow(string name, Func<string> actual, Func<string> other, Action<string> store, Func<string> saved, Func<bool> register, Func<bool> registerOther)
+    private DockPanel HotkeyRow(string name, Func<string> actual, Func<string> other, Action<string> store, Func<string> saved, Func<bool> register, Func<bool> registerOther, string standard)
     {
         var button = new Button { Style = (Style)FindResource("Pill"), Height = 26, MinWidth = 120, Padding = new Thickness(12, 0, 12, 0), Focusable = true };
         bool recording = false;
-        void Show() => button.Content = recording ? L.T("按下新的組合") : actual() is { Length: > 0 } text ? text : "—";
+        // 截圖模式不註冊全域快速鍵，沒有「實際用的那一組」：顯示設定的或預設的
+        void Show() => button.Content = recording ? L.T("按下新的組合") : actual() is { Length: > 0 } text ? text
+            : _smoke ? (saved() is { Length: > 0 } wanted ? wanted : standard) : "—";
         _hotkeyShows.Add(Show);
 
         // 錄製時兩組都拆掉了：結束後照設定註冊回去，兩列都更新
