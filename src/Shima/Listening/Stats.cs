@@ -135,7 +135,6 @@ public static class Stats
             .ToList();
     }
 
-    /// <summary>「全部」的長條圖要不要一年一根：跨超過 24 個月。</summary>
     /// <summary>
     /// 把長條補到整個期間：週補滿七天、月補到月底、年補到十二月（還沒到的是 0）。
     /// 不補的話星期一只有一兩根長條孤零零地站著，每天的位置也會跟著星期幾跑。
@@ -202,6 +201,7 @@ public static class Stats
         return level;
     }
 
+    /// <summary>「全部」的長條圖要不要一年一根：跨超過 24 個月。</summary>
     public static bool ByYear(IReadOnlyList<(DateTime Day, TimeSpan Time)> daily) =>
         daily.Count > 0 && (daily[^1].Day.Year - daily[0].Day.Year) * 12 + daily[^1].Day.Month - daily[0].Day.Month >= 24;
 }

@@ -72,7 +72,7 @@ public partial class IslandWindow : Window
         InitStatus();
         InitAgents();
         InitListening();
-        if (Demo.On) InitAlarms();
+        if (Demo.On && _smoke) InitAlarms();   // 截圖要看得到示範的提醒；不是截圖時下面那一行會做
         if (!_smoke)
         {
             InitAlarms();
@@ -636,7 +636,7 @@ public partial class IslandWindow : Window
         try
         {
             var card = MakeCard(track);
-            LyricCard.Save(card, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Shima"), track.Title);
+            LyricCard.Save(card, LyricCard.Folder, track.Title);
             Clipboard.SetImage(card);
             Toast(L.T("歌詞卡片已複製"), 4);
         }

@@ -80,6 +80,10 @@ public static class LyricCard
     }
 
     /// <summary>存成 PNG，回傳檔案路徑。檔名用歌名，去掉不能當檔名的字。</summary>
+    /// <summary>卡片存在哪裡：「圖片\Shima」；示範模式放在它自己的暫存資料夾。</summary>
+    public static string Folder => Demo.On ? Path.Combine(AppSettings.Folder, "pictures")
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Shima");
+
     public static string Save(BitmapSource card, string folder, string title)
     {
         Directory.CreateDirectory(folder);

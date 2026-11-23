@@ -230,6 +230,7 @@ public sealed class AnswerView : Grid
                 if (st.HasFlag(MdStyle.Bold)) { run.FontWeight = FontWeights.SemiBold; run.Foreground = Strong; }
                 if (st.HasFlag(MdStyle.Italic)) run.FontStyle = FontStyles.Italic;
                 if (st.HasFlag(MdStyle.Code)) { run.FontFamily = Mono; run.FontSize = 12; run.Background = CodeBack; }
+                if (st.HasFlag(MdStyle.Link)) run.TextDecorations = TextDecorations.Underline;
             }
             inlines.Add(run);
         }
