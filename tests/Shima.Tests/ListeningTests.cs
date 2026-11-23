@@ -13,10 +13,10 @@ using Xunit;
 namespace Shima.Tests;
 
 /// <summary>測試用的暫存資料夾：放在測試程式旁邊，用完就刪，不碰使用者的資料夾。</summary>
-internal sealed class TempFolder : IDisposable
+internal sealed class ListeningTempFolder : IDisposable
 {
     public string Path { get; } = System.IO.Path.Combine(AppContext.BaseDirectory, "listening-tmp", Guid.NewGuid().ToString("N"));
-    public TempFolder() => Directory.CreateDirectory(Path);
+    public ListeningTempFolder() => Directory.CreateDirectory(Path);
     public string File(string name) => System.IO.Path.Combine(Path, name);
     public void Dispose() { try { Directory.Delete(Path, recursive: true); } catch { } }
 }
@@ -167,7 +167,7 @@ public class ListeningLogTests
     [Fact]
     public void 寫成_JSON_Lines_讀得回來()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         var path = temp.File("sub/history.jsonl");
         var log = new ListeningLog(path, _ => { });
         var heard = new List<Listen>();
@@ -191,7 +191,7 @@ public class ListeningLogTests
     [Fact]
     public void 寫不進去_不丟例外_只記錄()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         File.WriteAllText(temp.File("blocker"), "");
         var errors = new List<string>();
         var log = new ListeningLog(temp.File("blocker/history.jsonl"), errors.Add);   // 上層是檔案，建不了資料夾
@@ -213,7 +213,7 @@ public class ListeningLogTests
     [Fact]
     public void 沒有檔案就是空的()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         Assert.Empty(HistoryFile.Read(temp.File("none.jsonl")));
     }
 }
@@ -301,7 +301,7 @@ public class StatsTests
     }
 
     [Fact]
-    public void 長條圖_年是一個月一根_好幾年是一年一根()
+    public void 長條圖_年是一個月一根_超過兩年是一年一根()
     {
         var year = Stats.Compute([L(new(2026, 3, 3), "a", "x", 60), L(new(2026, 3, 9), "a", "x", 60)], StatsPeriod.Year, Now, DayOfWeek.Monday);
         var bars = Stats.Bars(year.Daily, StatsPeriod.Year);
@@ -310,6 +310,8 @@ public class StatsTests
 
         var all = Stats.Compute([L(new(2024, 6, 1), "a", "x", 60)], StatsPeriod.All, Now, DayOfWeek.Monday);
         Assert.Equal([2024, 2025, 2026], Stats.Bars(all.Daily, StatsPeriod.All).Select(b => b.Start.Year));
+        var recent = Stats.Compute([L(new(2025, 6, 1), "a", "x", 60)], StatsPeriod.All, Now, DayOfWeek.Monday);
+        Assert.Equal(18, Stats.Bars(recent.Daily, StatsPeriod.All).Count);   // 2025-06 到 2026-11
 
         var week = Stats.Compute([], StatsPeriod.Week, Now, DayOfWeek.Monday);
         Assert.Equal(3, Stats.Bars(week.Daily, StatsPeriod.Week).Count);
@@ -323,7 +325,7 @@ public class LyricFavoritesTests
     [Fact]
     public void 加入_列出_刪除_重開還在()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         var path = temp.File("favorites.json");
         var store = new LyricFavorites(path, _ => { });
         var a = store.Add("届かない星だとしても", "就算是遙不可及的星星", "Snow halation", "μ's", "Snow halation", TimeSpan.FromSeconds(62), When)!;
@@ -340,7 +342,7 @@ public class LyricFavoritesTests
     [Fact]
     public void 搜尋不分大小寫_每個欄位都找()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         var store = new LyricFavorites(temp.File("favorites.json"), _ => { });
         store.Add("Snow halation", "", "Snow halation", "μ's", "", TimeSpan.Zero, When);
         store.Add("夢を夢で終わらせない", "不讓夢想只是夢想", "Dream Believers", "蓮ノ空", "", TimeSpan.Zero, When);
@@ -355,7 +357,7 @@ public class LyricFavoritesTests
     [Fact]
     public void 同一句不重複_空白不收()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         var store = new LyricFavorites(temp.File("favorites.json"), _ => { });
         var a = store.Add("Snow halation", "", "Snow halation", "μ's", "", TimeSpan.Zero, When);
         Assert.Equal(a, store.Add(" Snow halation ", "", "Snow halation", "μ's", "", TimeSpan.Zero, When.AddDays(1)));
@@ -366,7 +368,7 @@ public class LyricFavoritesTests
     [Fact]
     public void 檔案壞掉_不丟例外_先備份()
     {
-        using var temp = new TempFolder();
+        using var temp = new ListeningTempFolder();
         var path = temp.File("favorites.json");
         File.WriteAllText(path, "{ 這不是 JSON");
         var errors = new List<string>();

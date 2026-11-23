@@ -116,16 +116,20 @@ public static class Stats
     }
 
     /// <summary>
-    /// 長條圖的每一根：週、月是一天一根；年是一個月一根；全部是一年一根（只有一年以內就一個月一根）。
+    /// 長條圖的每一根：週、月是一天一根；年是一個月一根；全部在兩年內是一個月一根，再長就一年一根。
     /// Start 是那一根的第一天。
     /// </summary>
     public static List<(DateTime Start, TimeSpan Time)> Bars(IReadOnlyList<(DateTime Day, TimeSpan Time)> daily, StatsPeriod period)
     {
-        bool byYear = period == StatsPeriod.All && daily.Count > 0 && daily[0].Day.Year != daily[^1].Day.Year;
+        bool byYear = period == StatsPeriod.All && ByYear(daily);
         if (period is StatsPeriod.Week or StatsPeriod.Month) return daily.Select(d => (d.Day, d.Time)).ToList();
         return daily
             .GroupBy(d => byYear ? new DateTime(d.Day.Year, 1, 1) : new DateTime(d.Day.Year, d.Day.Month, 1))
             .Select(g => (g.Key, g.Aggregate(TimeSpan.Zero, (t, d) => t + d.Time)))
             .ToList();
     }
+
+    /// <summary>「全部」的長條圖要不要一年一根：跨超過 24 個月。</summary>
+    public static bool ByYear(IReadOnlyList<(DateTime Day, TimeSpan Time)> daily) =>
+        daily.Count > 0 && (daily[^1].Day.Year - daily[0].Day.Year) * 12 + daily[^1].Day.Month - daily[0].Day.Month >= 24;
 }

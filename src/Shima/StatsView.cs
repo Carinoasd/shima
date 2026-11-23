@@ -12,7 +12,7 @@ namespace Shima;
 
 /// <summary>
 /// 聆聽統計：上面切換期間（週／月／年／全部）與連續天數，接著是總時間與次數、
-/// 最常聽的五首歌與五位藝人，最下面是長條圖（週、月一天一根，年一個月一根，全部一年一根）。
+/// 最常聽的五首歌與五位藝人，最下面是長條圖（週、月一天一根，年一個月一根，全部兩年內一個月一根、再長一年一根）。
 /// </summary>
 public sealed class StatsView : FrameworkElement
 {
@@ -31,6 +31,7 @@ public sealed class StatsView : FrameworkElement
     private StatsPeriod _period = StatsPeriod.Week;
     private StatsSummary? _summary;
     private List<(DateTime Start, TimeSpan Time)> _bars = [];
+    private bool _byYear;
     private readonly Rect[] _tabs = new Rect[4];
 
     /// <summary>切換期間之後觸發。</summary>
@@ -69,6 +70,7 @@ public sealed class StatsView : FrameworkElement
     {
         _summary = Stats.Compute(_listens, _period, _now, Loc.Culture.DateTimeFormat.FirstDayOfWeek);
         _bars = Stats.Bars(_summary.Daily, _period);
+        _byYear = _period == StatsPeriod.All && Stats.ByYear(_summary.Daily);
         InvalidateVisual();
     }
 
@@ -181,9 +183,10 @@ public sealed class StatsView : FrameworkElement
             StatsPeriod.Week => format.ShortestDayNames[(int)start.DayOfWeek],
             StatsPeriod.Month => start.Day % 7 == 1 ? start.Day.ToString(CultureInfo.InvariantCulture) : null,
             StatsPeriod.Year => start.Month.ToString(CultureInfo.InvariantCulture),
-            _ => _bars.Count > 1 && _bars[0].Start.Year != _bars[^1].Start.Year
-                ? (_bars.Count <= 8 || i % ((_bars.Count + 7) / 8) == 0 ? start.Year.ToString(CultureInfo.InvariantCulture) : null)
-                : start.Month.ToString(CultureInfo.InvariantCulture),
+            _ when _byYear => _bars.Count <= 8 || i % ((_bars.Count + 7) / 8) == 0 ? start.Year.ToString(CultureInfo.InvariantCulture) : null,
+            // 一個月一根：一月與第一根寫年份，其他每三個月寫月份
+            _ => i == 0 || start.Month == 1 ? start.Year.ToString(CultureInfo.InvariantCulture)
+                : _bars.Count <= 12 || start.Month % 3 == 1 ? start.Month.ToString(CultureInfo.InvariantCulture) : null,
         };
     }
 
@@ -215,9 +218,8 @@ public sealed class StatsView : FrameworkElement
         {
             StatsPeriod.Week or StatsPeriod.Month => start.ToString(culture.DateTimeFormat.MonthDayPattern, culture),
             StatsPeriod.Year => start.ToString(culture.DateTimeFormat.YearMonthPattern, culture),
-            _ => _bars.Count > 1 && _bars[0].Start.Year != _bars[^1].Start.Year
-                ? start.Year.ToString(CultureInfo.InvariantCulture)
-                : start.ToString(culture.DateTimeFormat.YearMonthPattern, culture),
+            _ when _byYear => start.Year.ToString(CultureInfo.InvariantCulture),
+            _ => start.ToString(culture.DateTimeFormat.YearMonthPattern, culture),
         };
         return when + "  " + Long(time);
     }

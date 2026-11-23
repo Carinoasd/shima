@@ -68,7 +68,7 @@ public sealed class FavoritesView : UserControl
         var scroll = new ScrollViewer
         {
             Content = _rows,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,   // 系統的捲軸是淺色的，放在深色面板上很突兀；滾輪照樣能捲
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
         var root = new DockPanel();
