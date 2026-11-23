@@ -79,13 +79,22 @@ public abstract class HookFileInstaller : AgentInstaller
     /// <summary>每個 hook 物件額外的欄位（Gemini 的 name）。</summary>
     protected virtual void Decorate(JsonObject hook) { }
 
+    /// <summary>
+    /// 資料夾裡要有其中一個檔案才算這個工具有在用；空的表示資料夾在就算。
+    /// ~/.gemini 不只 Gemini CLI 在用（Antigravity 也把東西放在那裡），光看資料夾會替沒裝的工具多顯示一列。
+    /// </summary>
+    protected virtual IReadOnlyList<string> Markers => [];
+
+    private bool Present(string folder) =>
+        Directory.Exists(folder) && (Markers.Count == 0 || Markers.Any(m => File.Exists(Path.Combine(folder, m))));
+
     public IReadOnlyList<string> Events => Hooks.Select(h => h.Event).Distinct().ToList();
 
     public override List<Target> Targets(AgentHooks.Home home)
     {
         var list = new List<Target>();
-        if (Directory.Exists(Path.Combine(home.Windows, Folder))) list.Add(new(Path.Combine(home.Windows, Folder, FileName), "curl.exe"));
-        if (home.Wsl is { } wsl && Directory.Exists(Path.Combine(wsl, Folder))) list.Add(new(Path.Combine(wsl, Folder, FileName), AgentHooks.WslCurl));
+        if (Present(Path.Combine(home.Windows, Folder))) list.Add(new(Path.Combine(home.Windows, Folder, FileName), "curl.exe"));
+        if (home.Wsl is { } wsl && Present(Path.Combine(wsl, Folder))) list.Add(new(Path.Combine(wsl, Folder, FileName), AgentHooks.WslCurl));
         return list;
     }
 
@@ -229,6 +238,7 @@ internal sealed class GeminiInstaller : HookFileInstaller
     public override AgentKind Agent => AgentKind.Gemini;
     protected override string Folder => ".gemini";
     protected override string FileName => "settings.json";
+    protected override IReadOnlyList<string> Markers => ["settings.json", "installation_id", "oauth_creds.json", "google_accounts.json"];
     protected override bool Milliseconds => true;
     /// <summary>名字讓使用者在 /hooks 認得出來，也能用 hooksConfig.disabled 單獨關掉。</summary>
     protected override void Decorate(JsonObject hook) => hook["name"] = "shima";

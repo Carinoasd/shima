@@ -272,6 +272,17 @@ public sealed class MoreAgentsInstallTests : IDisposable
     }
 
     [Fact]
+    public void Gemini_的資料夾裡只有別的工具的東西就不算有裝()
+    {
+        // Antigravity 也用 ~/.gemini：只有它的子資料夾時，不該出現 Gemini CLI 那一列
+        Directory.CreateDirectory(Path.Combine(Wsl, ".gemini", "antigravity"));
+        Assert.Empty(AgentInstaller.Gemini.Targets(Home));
+        Assert.False(AgentInstaller.Scan(Home).Single(s => s.Agent == AgentKind.Gemini).Detected);
+        File.WriteAllText(Path.Combine(Wsl, ".gemini", "installation_id"), "x");
+        Assert.Single(AgentInstaller.Gemini.Targets(Home));
+    }
+
+    [Fact]
     public void Gemini_的_timeout_是毫秒_沒有權限請求_帶名字()
     {
         Directory.CreateDirectory(Path.Combine(Wsl, ".gemini"));
@@ -324,6 +335,7 @@ public sealed class MoreAgentsInstallTests : IDisposable
     public void 拿不到金鑰就什麼都不寫(string token)
     {
         Directory.CreateDirectory(Path.Combine(Windows, ".gemini"));
+        File.WriteAllText(Path.Combine(Windows, ".gemini", "installation_id"), "x");
         Assert.NotNull(AgentInstaller.Gemini.Install(AgentInstaller.Gemini.Targets(Home), token));
         Assert.False(File.Exists(Path.Combine(Windows, ".gemini", "settings.json")));
     }
