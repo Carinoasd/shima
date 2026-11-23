@@ -24,7 +24,7 @@ public sealed class KaraokeLine : FrameworkElement
     private TimeSpan _start, _length;
     private IReadOnlyList<LyricWord>? _words;
     private bool _sweep, _frames, _japanese;
-    private TimeSpan _lastFrame, _lastDrawn;
+    private TimeSpan _lastFrame;
     /// <summary>上次畫的光頭在第幾個像素；NaN 是還沒畫過或不是掃光。</summary>
     private double _drawnHead = double.NaN;
     /// <summary>掃光的漸層只做一支，每次畫只改位置與停點（每一幀新建一支沒凍結的筆刷，每秒就多出幾 MB 的垃圾）。</summary>
@@ -152,13 +152,9 @@ public sealed class KaraokeLine : FrameworkElement
         var now = ((RenderingEventArgs)e).RenderingTime;
         if (now == _lastFrame) return;   // 同一幀可能被叫兩次
         _lastFrame = now;
-        bool moving = Moving;
-        // 停下來之前補畫最後一次，光才會停在對的位置
-        if (SinceChange < Arrive || !moving || FrameGate.Due(_lastDrawn, now) && FrameGate.Moved(_drawnHead, Head()))
-        {
-            InvalidateVisual();
-            _lastDrawn = now;
-        }
+        bool moving = Moving, beat = Pulse.Beat(now);   // 每一幀都要問，節拍才會一直由幀來打
+        // 掃光跟著共用的節拍畫（跟角色、音量條同一幀）；停下來之前補畫最後一次，光才會停在對的位置
+        if (SinceChange < Arrive || !moving || beat && FrameGate.Moved(_drawnHead, Head())) InvalidateVisual();
         if (moving) return;
         CompositionTarget.Rendering -= OnFrame;
         _frames = false;

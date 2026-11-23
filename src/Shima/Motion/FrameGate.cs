@@ -21,6 +21,12 @@ public static class FrameGate
     public static bool Due(TimeSpan lastDrawn, TimeSpan now) =>
         lastDrawn == TimeSpan.Zero || now < lastDrawn || now - lastDrawn >= Gap;
 
+    /// <summary>
+    /// 計時器要不要自己打拍子：最近一次節拍（不管是誰打的）已經超過 1.5 個間隔，表示沒有人在跟著幀走。
+    /// 跟著幀的節拍每 1/30 秒一次，計時器的間隔差不多，留一點餘裕才不會兩邊都打。
+    /// </summary>
+    public static bool Quiet(TimeSpan lastBeat, TimeSpan now) => now - lastBeat >= Gap * 1.5 || now < lastBeat;
+
     /// <summary>光的前緣（像素）跟上次畫的差了至少半個像素嗎。還沒畫過（NaN）就是要畫。</summary>
     public static bool Moved(double drawn, double now) =>
         double.IsNaN(drawn) || double.IsNaN(now) || Math.Abs(now - drawn) >= 0.5;

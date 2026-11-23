@@ -27,7 +27,7 @@ public sealed class LyricsView : FrameworkElement
     private double[]?[] _prefixes = [];
     private bool _japanese, _frames;
     private int _index = int.MinValue;
-    private TimeSpan _lastFrame, _lastDrawn;
+    private TimeSpan _lastFrame;
     /// <summary>上次畫的光頭在正在唱的那句的第幾個像素；NaN 是還沒畫過。</summary>
     private double _drawnHead = double.NaN;
     /// <summary>掃光的漸層只做一支，每次畫只改位置與停點。</summary>
@@ -170,13 +170,9 @@ public sealed class LyricsView : FrameworkElement
         _lastFrame = now;
         bool scrolling = !_scroll.Settled;
         _scroll.Step(dt);
-        bool moving = Moving;
-        // 捲動每一幀都畫；掃光是慢動作，約每秒 30 次、光頭動了半個像素以上才畫；停下來之前補畫最後一次
-        if (scrolling || !moving || FrameGate.Due(_lastDrawn, now) && FrameGate.Moved(_drawnHead, Head()))
-        {
-            InvalidateVisual();
-            _lastDrawn = now;
-        }
+        bool moving = Moving, beat = Pulse.Beat(now);   // 每一幀都要問，節拍才會一直由幀來打
+        // 捲動每一幀都畫；掃光是慢動作，跟著共用的節拍（約每秒 30 次、跟頻譜同一幀）、光頭動了半個像素以上才畫；停下來之前補畫最後一次
+        if (scrolling || !moving || beat && FrameGate.Moved(_drawnHead, Head())) InvalidateVisual();
         if (moving) return;
         CompositionTarget.Rendering -= OnFrame;
         _frames = false;

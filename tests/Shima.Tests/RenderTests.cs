@@ -48,3 +48,43 @@ public class FrameGateTests
     [InlineData(10, double.NaN, true)]
     public void 光頭動了半個像素才畫(double drawn, double now, bool moved) => Assert.Equal(moved, FrameGate.Moved(drawn, now));
 }
+
+public class PulseTests
+{
+    [Fact]
+    public void 計時器只在沒有人跟著幀打拍子時才打()
+    {
+        var t = TimeSpan.FromSeconds(10);
+        Assert.False(FrameGate.Quiet(t, t + TimeSpan.FromMilliseconds(33)));   // 掃光剛打過一拍
+        Assert.True(FrameGate.Quiet(t, t + TimeSpan.FromMilliseconds(45)));    // 掃光停了，計時器接手
+        Assert.True(FrameGate.Quiet(TimeSpan.FromDays(-1), t));                // 從來沒打過
+    }
+
+    [Theory]
+    [InlineData(0.6, 0.04, 0.6)]      // 原本的間隔：係數不變
+    [InlineData(0.25, 0.033, 0.25)]
+    [InlineData(0.6, 0, 0)]           // 沒經過時間就不動
+    public void 緩動照實際經過的時間換算(double factor, double seconds, double expected) =>
+        Assert.Equal(expected, Pulse.Ease(factor, seconds, seconds == 0 ? 0.04 : seconds), 6);
+
+    [Fact]
+    public void 兩小步等於一大步()
+    {
+        // 間隔變短時每一步走少一點，加起來跟原本一步走的一樣多
+        double half = Pulse.Ease(0.6, 0.02, 0.04);
+        Assert.Equal(0.6, 1 - (1 - half) * (1 - half), 6);
+        Assert.True(Pulse.Ease(0.6, 0.033, 0.04) < 0.6);
+    }
+}
+
+public class BarsTests
+{
+    [Fact]
+    public void 高度動不到零點三個像素就不重畫()
+    {
+        double[] drawn = [0.5, 0.5, 0.5, 0.5];
+        Assert.False(Bars.Worth(drawn, [0.51, 0.5, 0.49, 0.5], 11.5));   // 0.115 px
+        Assert.True(Bars.Worth(drawn, [0.5, 0.5, 0.5, 0.53], 11.5));     // 0.345 px
+        Assert.False(Bars.Worth(drawn, [0.9, 0.9, 0.9, 0.9], 0));         // 還沒排版
+    }
+}
