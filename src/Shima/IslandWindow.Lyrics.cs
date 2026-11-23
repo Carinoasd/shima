@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: MIT
 
 using System.Windows;
+using System.Windows.Controls;
 using Shima.Lyrics;
+using Shima.Playback;
 
 namespace Shima;
 
-// 右鍵「這首歌的歌詞」：存成 .lrc、複製全文。
+// 右鍵「這首歌的歌詞」：存成 .lrc、複製全文、用 AI 翻譯。
 public partial class IslandWindow
 {
     /// <summary>子選單打開時才決定哪幾項能按：要看當下這首歌有沒有同步歌詞。</summary>
@@ -15,6 +17,7 @@ public partial class IslandWindow
     {
         LyricsSaveItem.IsEnabled = _sheet is { Synced: true };
         LyricsCopyItem.IsEnabled = _sheet is { Lines.Count: > 0 };
+        LyricsTranslateItem.IsEnabled = !_translating && _sheet is { Synced: true, Translation: null };
     }
 
     /// <summary>
@@ -52,5 +55,65 @@ public partial class IslandWindow
         // Windows 的文字用 CRLF 換行，舊程式才不會貼成一整行；別的程式正開著剪貼簿時會丟例外
         try { Clipboard.SetText(text.Replace("\n", "\r\n")); Toast(L.T("已複製"), 2); }
         catch (Exception x) { Log.Write("複製歌詞: " + x.Message); }
+    }
+
+    // ---------------------------------------------------------------- AI 翻譯
+
+    private bool _translating;
+
+    /// <summary>這份歌詞沒有翻譯、之前請 AI 翻過的話，把那份翻譯掛上去。</summary>
+    private static LyricSheet? WithAiTranslation(Track track, LyricSheet? sheet)
+    {
+        if (Demo.On || sheet is not { Synced: true, Translation: null }) return sheet;
+        return AiTranslation.Load(AiTranslation.Folder, LyricsFinder.IdOf(track), sheet, Loc.Lang) is { } lines ? sheet with { Translation = lines } : sheet;
+    }
+
+    /// <summary>
+    /// 整份歌詞交給 AI 分頁設定的那一家，逐句翻成介面的語言，當成這首歌的翻譯。
+    /// 不經過語音助手（那邊會帶工具、記對話），只問一次。翻好就存起來，下次播這首直接用。
+    /// </summary>
+    private async void LyricsTranslate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_translating) return;
+        if (_track is not { } track || _sheet is not { Synced: true } sheet) { Toast(L.T("現在沒有歌詞"), 3, false); return; }
+        if (sheet.Translation != null) return;
+        var brain = Agents.Brain.Create((_, _) => "", Loc.Speech, out var problem);
+        if (brain == null) { Say(problem); Toast(L.T("先到 AI 分頁設定好 AI 服務"), 4); return; }
+
+        string key = _trackKey, id = LyricsFinder.IdOf(track), lang = Loc.Lang;
+        var (system, text) = AiTranslation.Request(sheet, track.Title, track.Artist, AiTranslation.LanguageName(lang));
+        var waiting = L.T("翻譯中…");
+        _translating = true;
+        Toast(waiting, 15, false);
+        try
+        {
+            var reply = await Task.Run(() => brain.CompleteAsync(system, text, CancellationToken.None));
+            if (AiTranslation.Align(sheet, reply) is not { } lines)
+            {
+                Log.Write($"AI 翻譯對不上: {track.Title}（{reply.Split('\n').Length} 行）");
+                Toast(L.T("AI 的翻譯跟歌詞對不上"), 4, false);
+                return;
+            }
+            // 換歌了也先存著（只看歌詞的句子），下次播到就用得上；但不能套到現在這首上
+            AiTranslation.Save(AiTranslation.Folder, id, sheet, lang, lines);
+            if (key != _trackKey || !ReferenceEquals(_sheet, sheet))
+            {
+                if (_toast == waiting) { _toast = ""; UpdateTexts(); }
+                return;
+            }
+            _sheet = sheet with { Translation = lines };
+            _lyricIndex = int.MinValue;
+            // 第二行設成不顯示的話，翻好了也看不到：改成顯示翻譯
+            if (AppSettings.Current.LyricsSecondLine == "none")
+            {
+                AppSettings.Current.LyricsSecondLine = "translation";
+                AppSettings.Current.Save();
+                foreach (MenuItem item in SecondLineMenu.Items) item.IsChecked = (string)item.Tag == "translation";
+            }
+            Toast(L.T("翻譯好了"), 3);
+            Morph();
+        }
+        catch (Exception x) { Log.Write("AI 翻譯: " + x.Message); Toast(brain.Explain(x), 4, false); }
+        finally { _translating = false; }
     }
 }

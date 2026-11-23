@@ -24,6 +24,11 @@ public interface IBrain
     /// 回傳值跟不串流時一樣，只有最後一輪的回答。
     /// </param>
     Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null);
+    /// <summary>
+    /// 單純問一段文字、拿回一段文字（例如翻譯歌詞）：不帶工具、不串流，也不記進這段對話。
+    /// 拒絕回答時回空字串。
+    /// </summary>
+    Task<string> CompleteAsync(string system, string text, CancellationToken stop);
     /// <summary>出錯時給人看的一句話。</summary>
     string Explain(Exception e);
     /// <summary>這把金鑰能用的模型。</summary>
@@ -311,6 +316,20 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         }
     }
 
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    {
+        var response = await Client.Messages.Create(new MessageCreateParams
+        {
+            Model = model.Length > 0 ? model : DefaultModel,
+            MaxTokens = 16000,
+            System = system,
+            OutputConfig = new OutputConfig { Effort = Effort.Low },
+            Messages = [new UserMessageParam { Content = text }],
+        }, stop);
+        if (response.StopReason == "refusal") return "";
+        return string.Concat(response.Content.Select(b => b.TryPickText(out TextBlock? t) ? t.Text : ""));
+    }
+
     public string Explain(Exception e) => e switch
     {
         AnthropicUnauthorizedException => L.T("API 金鑰無效"),
@@ -461,6 +480,22 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
         Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
+    }
+
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    {
+        var body = Body(model, system, [new JsonObject { ["role"] = "user", ["content"] = text }], tools: false);
+        using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), stop);
+        var raw = await response.Content.ReadAsStringAsync(stop);
+        if (!response.IsSuccessStatusCode) throw new ApiError(response.StatusCode, raw);
+        var plain = JsonNode.Parse(raw);
+        // 出錯照樣回 200、錯誤放在內文裡的代理：跟 ThinkAsync 一樣當成錯誤
+        if ((plain as JsonObject)?["error"] is { } refused)
+        {
+            var kind = (refused as JsonObject)?["code"] is JsonValue given && given.TryGetValue(out int http) && http is >= 400 and < 600 ? (HttpStatusCode)http : HttpStatusCode.InternalServerError;
+            throw new ApiError(kind, refused.ToJsonString());
+        }
+        return plain?["choices"]?[0]?["message"]?["content"]?.ToString() ?? "";
     }
 
     /// <summary>

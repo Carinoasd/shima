@@ -247,7 +247,7 @@ public partial class IslandWindow : Window
         var hit = Demo.On ? Demo.Lyrics() : await _lyrics.FindAsync(track);
         Log.Write($"歌詞: {track.Title} → {(hit == null ? "找不到" : hit.Provider + (hit.Exact ? "" : "（原曲，版本不同）"))}");
         if (key != _trackKey) return;   // 查的時候已經換歌了
-        _sheet = hit?.Sheet;
+        _sheet = WithAiTranslation(track, hit?.Sheet);
         _lyricsFrom = hit?.Provider ?? "";
         _lyricIndex = int.MinValue;
         UpdateTexts();
@@ -609,7 +609,7 @@ public partial class IslandWindow : Window
         var next = all[(all.FindIndex(h => h.Provider == _lyricsFrom) + 1) % all.Count];
         AppSettings.Current.LyricsPick[LyricsFinder.IdOf(track)] = next.Provider;
         AppSettings.Current.Save();
-        _sheet = next.Sheet;
+        _sheet = WithAiTranslation(track, next.Sheet);
         _lyricsFrom = next.Provider;
         _lyricIndex = int.MinValue;
         Toast(all.Count == 1 ? L.F("只有 {0} 有這首歌的歌詞", next.Provider) : L.F("歌詞：{0}", next.Provider), 3);
