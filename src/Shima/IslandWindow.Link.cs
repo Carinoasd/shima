@@ -240,7 +240,7 @@ public partial class IslandWindow
     /// <summary>今天用了多少：打開 AI 分頁時算一次，之後最多一分鐘算一次（要掃很多檔案）。</summary>
     private async void RefreshUsage()
     {
-        if (_usageLine == null || DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;
+        if (Demo.On || _usageLine == null || DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;   // 示範模式不讀自己的用量
         _usageAt = DateTime.Now;
         try
         {

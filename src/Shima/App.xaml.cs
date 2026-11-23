@@ -27,6 +27,12 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // 示範模式要在讀設定之前就把資料夾換掉
+        if (e.Args.Contains("--demo"))
+        {
+            try { Demo.Prepare(); }
+            catch (Exception x) { Log.Write("demo: " + x); Shutdown(); return; }
+        }
         int shot = Array.IndexOf(e.Args, "--shot");
         string? shotFolder = shot >= 0 && shot + 1 < e.Args.Length ? e.Args[shot + 1] : null;
         bool smoke = e.Args.Contains("--smoke") || shotFolder != null || e.Args.Contains("--hear-test");

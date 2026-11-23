@@ -71,6 +71,7 @@ public partial class IslandWindow : Window
         InitStatus();
         InitAgents();
         InitListening();
+        if (Demo.On) InitAlarms();
         if (!_smoke)
         {
             InitAlarms();
@@ -88,8 +89,10 @@ public partial class IslandWindow : Window
             _media.Changed += () => Dispatcher.BeginInvoke(Refresh);
             if (!_smoke) _discord.Start();
             // 讀不到系統的媒體資訊也要繼續：後面的計時器沒啟動的話，整座島就不會動了
-            try { await _media.StartAsync(); }
-            catch (Exception x) { Log.Write("media: " + x.Message); }
+            if (Demo.On) _media.Demo = Demo.Track();
+            else
+                try { await _media.StartAsync(); }
+                catch (Exception x) { Log.Write("media: " + x.Message); }
             Refresh();
             _tick.Start();
             if (shotFolder != null) { await ShootAsync(shotFolder); return; }
@@ -116,10 +119,10 @@ public partial class IslandWindow : Window
 
         Buddy.ImagePath = AppSettings.Current.CharacterImage;
         Buddy.Kind = AppSettings.Current.Character;
-        Buddy.Level = () => _meter.Running ? _meter.Level : 0.35f;
+        Buddy.Level = () => Demo.On ? Demo.Level : _meter.Running ? _meter.Level : 0.35f;
         Meter.Level = () => _micOpen ? Agents.Ears.Level : _meter.Running ? _meter.Level : 0.35f;
-        Meter.Bands = () => !_micOpen && _meter.Running ? _meter.Bands(4) : null;
-        Spectrum.Bands = () => _meter.Running && _track?.Playing == true ? _meter.Bands(SpectrumView.Count) : null;
+        Meter.Bands = () => Demo.On ? Demo.Bands(4) : !_micOpen && _meter.Running ? _meter.Bands(4) : null;
+        Spectrum.Bands = () => Demo.On ? Demo.Bands(SpectrumView.Count) : _meter.Running && _track?.Playing == true ? _meter.Bands(SpectrumView.Count) : null;
         Buddy.Bass = () => _meter.Running ? (float)_meter.Bands(64).Take(7).Average(b => SpectrumView.Scale(b)) : 0;
         _bridge.Level = () => _meter.Running ? _meter.Level : -1;
         _bridge.Bands = count => _meter.Bands(count);
@@ -241,7 +244,7 @@ public partial class IslandWindow : Window
 
     private async Task LoadLyricsAsync(Track track, string key)
     {
-        var hit = await _lyrics.FindAsync(track);
+        var hit = Demo.On ? Demo.Lyrics() : await _lyrics.FindAsync(track);
         Log.Write($"歌詞: {track.Title} → {(hit == null ? "找不到" : hit.Provider + (hit.Exact ? "" : "（原曲，版本不同）"))}");
         if (key != _trackKey) return;   // 查的時候已經換歌了
         _sheet = hit?.Sheet;
@@ -263,7 +266,7 @@ public partial class IslandWindow : Window
             if (_ticks % 20 == 0) PollStatus();
             // 只在真的有歌在播、島也看得到的時候才擷取聲音
             // Stream Dock 在看的話，島因為全螢幕藏起來了也照樣擷取
-            bool wanted = AppSettings.Current.AudioReactive && _track?.Playing == true;
+            bool wanted = !Demo.On && AppSettings.Current.AudioReactive && _track?.Playing == true;
             bool listen = wanted && !_hiddenForFullscreen;
             bool capture = listen || wanted && _bridge.DeckWatching;
             if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);

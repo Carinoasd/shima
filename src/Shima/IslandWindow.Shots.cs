@@ -20,7 +20,7 @@ public partial class IslandWindow
         try
         {
             Directory.CreateDirectory(folder);
-            await Task.Delay(7000);   // 等 Roon 連上、歌詞查到、封面載入
+            await Task.Delay(Demo.On ? 1500 : 7000);   // 等 Roon 連上、歌詞查到、封面載入（示範模式都是現成的）
             Refresh();
 
             _expanded = false;
