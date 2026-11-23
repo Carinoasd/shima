@@ -20,6 +20,8 @@ public sealed class PermissionRequest
     public const string Always = "always";
 
     public required string Project { get; init; }
+    /// <summary>哪一個 agent 在問。</summary>
+    public AgentKind Agent { get; init; } = AgentKind.Claude;
     public required string Tool { get; init; }
     public required string Details { get; init; }
     public string SessionId { get; init; } = "";
@@ -45,8 +47,10 @@ public sealed class AgentBridge
     private HttpListener? _listener;
 
     public event Action<PermissionRequest>? Asked;
-    /// <summary>專案名稱、最後一句話。</summary>
+    /// <summary>Claude Code 做完了：專案名稱、最後一句話。</summary>
     public event Action<string, string>? Finished;
+    /// <summary>任何一個 agent 做完了：哪一個、專案名稱、最後一句話。</summary>
+    public event Action<AgentKind, string, string>? AgentFinished;
     /// <summary>Claude Code 的待辦清單變了：專案名稱、做完幾項、總共幾項、正在做的那一項。</summary>
     public event Action<string, int, int, string>? Progressed;
     /// <summary>工作階段清單有變（新的、狀態、進度、結束）。用 Sessions 讀目前的清單。</summary>
@@ -105,20 +109,36 @@ public sealed class AgentBridge
     public static string Token() => TokenIn(TokenFile);
     public static string DeckToken() => TokenIn(DeckTokenFile);
 
+    /// <summary>
+    /// 每個 agent 的 hook 各用一把金鑰（Claude Code 沿用 bridge.token）。Codex、Gemini 的那把只進得了自己的網址，
+    /// 外流了也冒充不了 Claude Code、碰不到 Stream Dock；Gemini 的連權限請求那扇門都沒有。
+    /// </summary>
+    public static string Token(AgentKind agent) => agent == AgentKind.Claude ? Token() : TokenIn(Path.Combine(AppSettings.Folder, $"{agent.ToString().ToLowerInvariant()}.token"));
+
+    /// <summary>
+    /// 讀過或剛產生的金鑰：程式開著的時候固定不變。Shima 啟動時就讀好每一把，之後才連接的 agent 寫進 hook 的
+    /// 一定是同一把（不然檔案在中途被刪掉時，hook 拿到新的、這邊還在比舊的，每個請求都會被拒絕）。
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Known = new(StringComparer.OrdinalIgnoreCase);
+
     private static string TokenIn(string file)
     {
+        if (Known.TryGetValue(file, out var known)) return known;
         try
         {
-            if (File.Exists(file) && File.ReadAllText(file).Trim() is { Length: >= 32 } existing) return existing;
+            if (File.Exists(file) && File.ReadAllText(file).Trim() is { Length: >= 32 } existing) return Known.GetOrAdd(file, existing);
             Directory.CreateDirectory(Path.GetDirectoryName(file)!);
             var fresh = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
             File.WriteAllText(file, fresh);
-            return fresh;
+            return Known.GetOrAdd(file, fresh);
         }
         catch (Exception e) { Log.Write("bridge token: " + e.Message); return ""; }
     }
 
     public enum Door { Refuse, Hook, Deck }
+
+    /// <summary>走 Hook 那扇門的請求是哪個 agent 的、是不是權限請求。</summary>
+    public readonly record struct Admission(Door Door, AgentKind Agent = AgentKind.Claude, bool Permission = false);
 
     /// <summary>
     /// 一個請求可以走哪一扇門。兩把金鑰各管各的：
@@ -126,18 +146,41 @@ public sealed class AgentBridge
     /// /deck/ 的金鑰放在網址上（外掛是內嵌瀏覽器裡的網頁，加不了自訂標頭），會改變狀態的 press、turn 只收 POST，
     /// 免得一張 &lt;img&gt; 或一個連結就能替人按下去。
     /// </summary>
-    public static Door Gate(string method, string path, string? header, string? query, bool hasOrigin, string hookToken, string deckToken)
+    public static Door Gate(string method, string path, string? header, string? query, bool hasOrigin, string hookToken, string deckToken) =>
+        Admit(method, path, header, query, hasOrigin, agent => agent == AgentKind.Claude ? hookToken : "", deckToken).Door;
+
+    /// <summary>
+    /// 跟 Gate 一樣，再加上別的 agent：/codex/、/gemini/ 底下的網址只認那個 agent 自己的金鑰，規則跟 Claude Code 的 hook 一樣
+    /// （只收 POST、金鑰在標頭、不能帶 Origin）。其餘的網址照舊是 Claude Code 的。
+    /// </summary>
+    public static Admission Admit(string method, string path, string? header, string? query, bool hasOrigin, Func<AgentKind, string> tokens, string deckToken)
     {
         static bool Same(string? given, string wanted) =>
             wanted.Length > 0 && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(given ?? ""), Encoding.UTF8.GetBytes(wanted));
 
         if (path.StartsWith("/deck/", StringComparison.Ordinal))
         {
-            if (!Same(query, deckToken)) return Door.Refuse;
+            if (!Same(query, deckToken)) return new(Door.Refuse);
             bool acts = path is "/deck/press" or "/deck/turn";
-            return method == (acts ? "POST" : "GET") ? Door.Deck : Door.Refuse;
+            return new(method == (acts ? "POST" : "GET") ? Door.Deck : Door.Refuse);
         }
-        return method == "POST" && !hasOrigin && Same(header, hookToken) ? Door.Hook : Door.Refuse;
+        if (method != "POST" || hasOrigin || Route(path) is not { } route) return new(Door.Refuse);
+        return Same(header, tokens(route.Agent)) ? new(Door.Hook, route.Agent, route.Permission) : new(Door.Refuse);
+    }
+
+    /// <summary>網址是哪個 agent 的哪一種 hook；null 表示沒有這扇門（例如 Gemini 的權限請求）。</summary>
+    private static (AgentKind Agent, bool Permission)? Route(string path)
+    {
+        foreach (var agent in (AgentKind[])[AgentKind.Codex, AgentKind.Gemini])
+        {
+            var prefix = AgentKinds.Prefix(agent);
+            if (!path.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            var rest = path[prefix.Length..];
+            if (rest == "notify") return (agent, false);
+            if (rest == "permission" && AgentKinds.Asks(agent)) return (agent, true);
+            return null;
+        }
+        return (AgentKind.Claude, path == "/permission");
     }
 
     public const int MaxBody = 512 * 1024;
@@ -164,12 +207,14 @@ public sealed class AgentBridge
         if (_listener != null) return;
         string token = Token(), deckToken = DeckToken();
         if (token.Length == 0) return;
+        // 每一把都先讀好（沒有就產生），之後連接才裝的 hook 用的也是這幾把
+        var tokens = Enum.GetValues<AgentKind>().ToDictionary(a => a, Token);
         try
         {
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{Port}/");
             _listener.Start();
-            _ = Task.Run(() => LoopAsync(_listener, token, deckToken));
+            _ = Task.Run(() => LoopAsync(_listener, tokens, deckToken));
             _pruner = new Timer(_ => Prune(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
         catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; }
@@ -185,34 +230,34 @@ public sealed class AgentBridge
         _pruner = null;
     }
 
-    private async Task LoopAsync(HttpListener listener, string token, string deckToken)
+    private async Task LoopAsync(HttpListener listener, IReadOnlyDictionary<AgentKind, string> tokens, string deckToken)
     {
         while (listener.IsListening)
         {
             HttpListenerContext context;
             try { context = await listener.GetContextAsync(); }
             catch { return; }
-            _ = Task.Run(() => HandleAsync(context, token, deckToken));
+            _ = Task.Run(() => HandleAsync(context, tokens, deckToken));
         }
     }
 
-    private async Task HandleAsync(HttpListenerContext context, string token, string deckToken)
+    private async Task HandleAsync(HttpListenerContext context, IReadOnlyDictionary<AgentKind, string> tokens, string deckToken)
     {
         var response = context.Response;
         try
         {
             var request = context.Request;
-            var door = Gate(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
-                request.Headers["Origin"] != null, token, deckToken);
+            var (door, agent, permission) = Admit(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
+                request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), deckToken);
             if (door == Door.Refuse) { response.StatusCode = 403; return; }
             if (request.ContentLength64 > MaxBody) { response.StatusCode = 413; return; }
             if (door == Door.Deck) { await DeckAsync(request, response); return; }
 
             if (await ReadLimitedAsync(request.InputStream, MaxBody) is not { } text) { response.StatusCode = 413; return; }
             if (JsonNode.Parse(text) is not JsonObject json) { response.StatusCode = 400; return; }
-            if (request.Url?.AbsolutePath == "/permission")
+            if (permission)
             {
-                var behavior = await PermissionAsync(json);
+                var behavior = await PermissionAsync(json, agent);
                 if (Answer(behavior) is { } body)
                 {
                     var bytes = Encoding.UTF8.GetBytes(body);
@@ -224,8 +269,14 @@ public sealed class AgentBridge
             }
 
             // /notify 永遠不回內容：SessionStart、UserPromptSubmit 的輸出會被 Claude Code 當成給模型看的內容
-            Notify(json);
-            response.StatusCode = 204;
+            Notify(json, agent);
+            if (agent == AgentKind.Gemini)
+            {
+                // Gemini CLI 把 hook 的 stdout 當成 JSON 解析：給一個空物件（不帶 decision，AfterAgent 的 deny 會讓它重來一次）
+                response.ContentType = "application/json";
+                await response.OutputStream.WriteAsync("{}"u8.ToArray());
+            }
+            else response.StatusCode = 204;
         }
         catch (Exception e) { Log.Write("bridge request: " + e.Message); try { response.StatusCode = 500; } catch { } }
         finally { try { response.Close(); } catch { } }
@@ -287,33 +338,38 @@ public sealed class AgentBridge
 
     /// <summary>
     /// 一則權限請求：先查規則，符合就直接允許；不符合才問島上的人。回傳 "allow"、"deny" 或 null。
+    /// 「以後都允許」的規則是照 Claude Code 的工具語意設計的：別的 agent 的請求既不比對規則、也不給記，每次都問人。
     /// </summary>
-    public async Task<string?> PermissionAsync(JsonObject json)
+    public async Task<string?> PermissionAsync(JsonObject json, AgentKind agent = AgentKind.Claude)
     {
+        bool claude = agent == AgentKind.Claude;
+        if (AgentKinds.Normalize(agent, json) is not { } normalized) return null;
+        json = normalized;
         var tool = json["tool_name"]?.ToString() ?? "?";
         var input = json["tool_input"];
         var cwd = json["cwd"]?.ToString() ?? "";
         var ask = new PermissionRequest
         {
             Project = AgentSessions.ProjectOf(cwd),
+            Agent = agent,
             Tool = tool,
             Details = Describe(tool, input),
             SessionId = json["session_id"]?.ToString() ?? "",
             Cwd = cwd,
             ToolInput = input?.ToJsonString() ?? "{}",
-            Remember = AgentRules.Suggest(tool, input, cwd),
+            Remember = claude ? AgentRules.Suggest(tool, input, cwd) : null,
         };
         var key = AgentSessions.Key(json);
 
-        if (Rules.Match(tool, input, cwd) is { } rule)
+        if (claude && Rules.Match(tool, input, cwd) is { } rule)
         {
-            Touch(json);
+            Touch(json, agent);
             Change(s => s.Resumed(key));
             AutoAllowed?.Invoke(ask, rule);
             return "allow";
         }
 
-        Touch(json);
+        Touch(json, agent);
         if (Asked == null) return null;
         Asked.Invoke(ask);
         // 人按了之後就把計時器取消，不然每問一次就留一個活九分多鐘的計時器
@@ -324,7 +380,7 @@ public sealed class AgentBridge
         ask.Decision.TrySetResult(null);
         if (behavior == PermissionRequest.Always)
         {
-            if (ask.Remember is { } remember) Rules.Add(remember);
+            if (claude && ask.Remember is { } remember) Rules.Add(remember);
             behavior = "allow";
         }
         if (behavior is "allow" or "deny") Change(s => s.Resumed(key));
@@ -332,23 +388,30 @@ public sealed class AgentBridge
     }
 
     /// <summary>不用等回答的 hook：Stop、PostToolUse、Notification、SessionStart、SessionEnd…</summary>
-    public void Notify(JsonObject json)
+    public void Notify(JsonObject json, AgentKind agent = AgentKind.Claude)
     {
+        if (AgentKinds.Normalize(agent, json) is not { } normalized) return;
+        json = normalized;
         var name = json["hook_event_name"]?.ToString();
         var project = AgentSessions.ProjectOf(json["cwd"]?.ToString());
         bool planChanged = false;
         AgentSession? session = null;
         Change(s =>
         {
-            bool changed = s.Apply(json, out planChanged);
+            bool changed = s.Apply(json, out planChanged, agent);
             session = s.Find(AgentSessions.Key(json));
             return changed;
         });
-        if (name == "Stop") Finished?.Invoke(project, json["last_assistant_message"]?.ToString() ?? "");
+        if (name == "Stop")
+        {
+            var last = json["last_assistant_message"]?.ToString() ?? "";
+            if (agent == AgentKind.Claude) Finished?.Invoke(project, last);
+            AgentFinished?.Invoke(agent, project, last);
+        }
         else if (planChanged && session != null) Progressed?.Invoke(project, session.Done, session.Total, session.Current);
     }
 
-    private void Touch(JsonObject json) => Change(s => s.Apply(json));
+    private void Touch(JsonObject json, AgentKind agent) => Change(s => s.Apply(json, out _, agent));
 
     private void Prune() => Change(s => s.Prune());
 

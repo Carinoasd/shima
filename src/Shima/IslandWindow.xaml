@@ -337,6 +337,7 @@
                 </StackPanel>
               </Grid>
               <StackPanel x:Name="RulesBox" Visibility="Collapsed" Margin="0,6,0,0"/>
+              <StackPanel x:Name="OtherAgentsBox"/>
             </StackPanel>
 
             <!-- 工具：番茄鐘、暫存架、待辦 -->

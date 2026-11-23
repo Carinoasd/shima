@@ -15,7 +15,7 @@ namespace Shima;
 
 /// <summary>
 /// Claude Code 的工作階段，一個一列：狀態的小圓點、專案名稱、待辦進度（3/5 · 正在做的那一項）。
-/// 點一列觸發 Picked。沒有工作階段時高度是 0。
+/// 別的 agent（Codex、Gemini CLI）的工作階段在名稱前面多一個小標籤。點一列觸發 Picked。沒有工作階段時高度是 0。
 /// </summary>
 public sealed class SessionsView : FrameworkElement
 {
@@ -23,6 +23,7 @@ public sealed class SessionsView : FrameworkElement
     private static readonly Brush Back = Frozen(Color.FromArgb(0x99, 0x14, 0x14, 0x16));
     private static readonly Brush Hover = Frozen(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF));
     private static readonly Brush Dim = Frozen(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));   // 次要文字 60%
+    private static readonly Brush TagBack = Frozen(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF));
 
     private ImmutableArray<AgentSession> _sessions = [];
     private int _hover = -1;
@@ -81,7 +82,16 @@ public sealed class SessionsView : FrameworkElement
             dc.DrawEllipse(Frozen(ColorOf(s.State)), null, new Point(x, y + Row / 2), Dot, Dot);
             x += Dot + 10;
 
-            var name = Text(s.Project.Length > 0 ? s.Project : "Claude Code", 13, Brushes.White, FontWeights.SemiBold, dpi);
+            if (AgentKinds.Tag(s.Agent) is { } tag)
+            {
+                var label = Text(tag, 10.5, Dim, FontWeights.SemiBold, dpi);
+                double tw = label.WidthIncludingTrailingWhitespace + 12, th = 17;
+                dc.DrawRoundedRectangle(TagBack, null, new Rect(x, y + (Row - th) / 2, tw, th), th / 2, th / 2);
+                dc.DrawText(label, new Point(x + 6, y + (Row - label.Height) / 2));
+                x += tw + 8;
+            }
+
+            var name = Text(s.Project.Length > 0 ? s.Project : AgentKinds.Name(s.Agent), 13, Brushes.White, FontWeights.SemiBold, dpi);
             name.MaxTextWidth = Math.Max(1, (w - x - 12) * 0.5);
             dc.DrawText(name, new Point(x, y + (Row - name.Height) / 2));
             x += name.WidthIncludingTrailingWhitespace + 10;

@@ -16,7 +16,7 @@ namespace Shima.Agents;
 /// </summary>
 public static class AgentHooks
 {
-    private const string Mark = "X-Shima-Token";
+    internal const string Mark = "X-Shima-Token";
     /// <summary>
     /// Shima 裝的 hook：事件、matcher、要不要等（async 的在背景跑，不拖慢 Claude Code）、curl 最多等幾秒、hook 的 timeout。
     /// 權限請求要等人按；Stop 照舊同步送。其餘只是讓島知道每個工作階段在做什麼，全部背景送。
@@ -49,12 +49,29 @@ public static class AgentHooks
     public sealed record Target(string SettingsPath, string Curl);
 
     /// <summary>這台電腦上 Claude Code 的設定檔：Windows 的，以及預設 WSL 發行版的。</summary>
-    public static List<Target> Targets()
+    public static List<Target> Targets() => Targets(Homes());
+
+    /// <summary>Windows 的家目錄，以及預設 WSL 發行版的家目錄（從 Windows 看的 \\wsl.localhost\… 路徑；沒有 WSL 就是 null）。</summary>
+    public sealed record Home(string Windows, string? Wsl);
+
+    /// <summary>給定兩邊的家目錄時的 Claude Code 設定檔（Windows 那份一定列；WSL 那份要已經有 .claude 才列）。</summary>
+    public static List<Target> Targets(Home home)
     {
-        var list = new List<Target>
-        {
-            new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "settings.json"), "curl.exe"),
-        };
+        var list = new List<Target> { new(Path.Combine(home.Windows, ".claude", "settings.json"), "curl.exe") };
+        if (home.Wsl is { } wsl && Directory.Exists(Path.Combine(wsl, ".claude")))
+            list.Add(new(Path.Combine(wsl, ".claude", "settings.json"), WslCurl));
+        return list;
+    }
+
+    /// <summary>WSL 裡呼叫 Windows 的 curl.exe（hook 打的是 Windows 這邊的 localhost）。</summary>
+    public const string WslCurl = "/mnt/c/Windows/System32/curl.exe";
+
+    /// <summary>
+    /// 找兩邊的家目錄。要啟動 wsl.exe（最多等六秒），每個 agent 的安裝器共用同一次的結果，不要每個各問一次。
+    /// </summary>
+    public static Home Homes()
+    {
+        string? wsl = null;
         try
         {
             var info = new ProcessStartInfo("wsl.exe", "-e sh -c \"printf '%s|%s' \\\"$WSL_DISTRO_NAME\\\" \\\"$HOME\\\"\"")
@@ -69,23 +86,21 @@ public static class AgentHooks
             {
                 var parts = p.StandardOutput.ReadToEnd().Trim().Split('|');
                 if (parts.Length == 2 && parts[0].Length > 0 && parts[1].StartsWith('/'))
-                {
-                    var home = $@"\\wsl.localhost\{parts[0]}{parts[1].Replace('/', '\\')}";
-                    if (Directory.Exists(Path.Combine(home, ".claude")))
-                        list.Add(new(Path.Combine(home, ".claude", "settings.json"), "/mnt/c/Windows/System32/curl.exe"));
-                }
+                    wsl = $@"\\wsl.localhost\{parts[0]}{parts[1].Replace('/', '\\')}";
             }
         }
         catch (Exception e) { Log.Write("wsl: " + e.Message); }
-        return list;
+        return new(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), wsl);
     }
 
     /// <summary>
     /// 一次查完「裝了沒」與「是不是舊版」。要啟動 wsl.exe、讀 WSL 裡的檔案，可能花上一兩秒，不要在畫面的執行緒上呼叫。
     /// </summary>
-    public static (bool Installed, bool Outdated) State()
+    public static (bool Installed, bool Outdated) State() => State(Targets());
+
+    public static (bool Installed, bool Outdated) State(IEnumerable<Target> targets)
     {
-        var settings = Targets().Select(t => Read(t.SettingsPath)).ToList();
+        var settings = targets.Select(t => Read(t.SettingsPath)).ToList();
         return (settings.Any(s => Has(s)), settings.Any(s => s is { } found && Has(found) && !Complete(found)));
     }
 
@@ -110,7 +125,9 @@ public static class AgentHooks
         return Each(targets, t => With(Read(t.SettingsPath) ?? [], t.Curl, token));
     }
 
-    public static string? Remove() => Each(Targets(), t => Read(t.SettingsPath) is { } s && Has(s) ? Without(s) : null);
+    public static string? Remove() => Remove(Targets());
+
+    public static string? Remove(IEnumerable<Target> targets) => Each(targets, t => Read(t.SettingsPath) is { } s && Has(s) ? Without(s) : null);
 
     private static string? Each(IEnumerable<Target> targets, Func<Target, JsonObject?> change)
     {
@@ -177,7 +194,7 @@ public static class AgentHooks
         }
     }
 
-    private static void Check(byte[] bytes)
+    internal static void Check(byte[] bytes)
     {
         bool ok;
         try { ok = JsonNode.Parse(bytes) is JsonObject; }
@@ -186,7 +203,7 @@ public static class AgentHooks
         if (!ok) throw new IOException(L.T("寫入的設定檔內容不完整，沒有更動"));
     }
 
-    private static JsonObject? Read(string path)
+    internal static JsonObject? Read(string path)
     {
         try { return File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject : null; }
         catch { return null; }
@@ -208,7 +225,7 @@ public static class AgentHooks
         return true;
     }
 
-    private static bool Ours(JsonNode? group) =>
+    internal static bool Ours(JsonNode? group) =>
         (group?["hooks"] as JsonArray)?.Any(h => h?["command"]?.ToString().Contains(Mark) == true) == true;
 
     /// <summary>設定加上 Shima 的 hook（先拿掉舊的，所以重複連接不會越加越多）。</summary>

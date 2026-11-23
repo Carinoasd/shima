@@ -282,7 +282,7 @@ public partial class IslandWindow : Window
         Agents.DeckNotice notice;
         string timer = TimerLine() ?? "";
         if (_asking is { } ask && !ask.Decision.Task.IsCompleted)
-            notice = new("ask", ask.Project.Length > 0 ? $"Claude Code · {ask.Project}" : "Claude Code", $"{ask.Tool}  {ask.Details}", timer, _planLine, false);
+            notice = new("ask", ask.Project.Length > 0 ? $"{Agents.AgentKinds.Name(ask.Agent)} · {ask.Project}" : Agents.AgentKinds.Name(ask.Agent), $"{ask.Tool}  {ask.Details}", timer, _planLine, false);
         else if (_voice != null)
             notice = new("voice", "", _voiceLine, timer, _planLine, _micOpen);
         else if (_toast.Length > 0 && DateTime.Now < _toastUntil)
