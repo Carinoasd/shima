@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.IO;
 using Shima.Agents;
 using Xunit;
 
@@ -139,5 +140,61 @@ public class PresenceScheduleTests
         s.Next(T0);
         s.Set(B);
         Assert.Same(B, s.Next(T0.AddHours(-1)).Activity!.Value.Value);
+    }
+}
+
+public class AlarmWakeTests
+{
+    private static readonly DateTime Now = new(2026, 1, 1, 12, 0, 0);
+
+    [Fact]
+    public void 沒有提醒就只留保險間隔()
+    {
+        Assert.Equal(Alarms.Safety, Alarms.NextWake([], Now));
+    }
+
+    [Fact]
+    public void 很近的提醒就睡到那一刻()
+    {
+        var list = new[] { new Alarm(1, Now.AddSeconds(12.5), "a"), new Alarm(2, Now.AddSeconds(5), "b") };
+        Assert.Equal(TimeSpan.FromSeconds(5), Alarms.NextWake(list, Now));
+    }
+
+    [Fact]
+    public void 很遠的提醒不會讓計時器睡過保險間隔()
+    {
+        Assert.Equal(Alarms.Safety, Alarms.NextWake([new Alarm(1, Now.AddHours(3), "a")], Now));
+    }
+
+    [Fact]
+    public void 已經到點的馬上醒()
+    {
+        Assert.Equal(TimeSpan.Zero, Alarms.NextWake([new Alarm(1, Now.AddHours(1), "a"), new Alarm(2, Now.AddMinutes(-1), "b")], Now));
+        Assert.Equal(TimeSpan.Zero, Alarms.NextWake([new Alarm(1, Now, "a")], Now));
+    }
+
+    [Fact]
+    public void 毫秒以下的零頭進位_不會稍早醒來又空轉()
+    {
+        var wake = Alarms.NextWake([new Alarm(1, Now.AddTicks(12_345), "a")], Now);
+        Assert.Equal(TimeSpan.FromMilliseconds(2), wake);
+    }
+
+    [Fact]
+    public void 重複的提醒響過之後下一次是新的到點時間()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "shima-wake-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var alarms = new Alarms(path);
+            alarms.Add(Now.AddMinutes(1), "吃藥", "daily");
+            Assert.Equal(TimeSpan.FromSeconds(30), Alarms.NextWake(alarms.List, Now));
+            Assert.Equal(TimeSpan.FromSeconds(10), Alarms.NextWake(alarms.List, Now.AddSeconds(50)));
+            Assert.Single(alarms.Check(Now.AddMinutes(1)));
+            // 排到明天了：不再是 0（否則計時器會一直空轉）
+            Assert.Equal(Alarms.Safety, Alarms.NextWake(alarms.List, Now.AddMinutes(1)));
+            Assert.Equal(Now.AddDays(1).AddMinutes(1), alarms.List[0].At);
+        }
+        finally { File.Delete(path); }
     }
 }
