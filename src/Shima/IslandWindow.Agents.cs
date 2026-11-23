@@ -27,8 +27,15 @@ public partial class IslandWindow
         {
             _planLine = total == 0 ? "" : $"{done}/{total}{(current.Length > 0 ? " · " + current : "")}";
             if (total > 0) Toast($"Claude Code {_planLine}", 5);
-            if (_tab == Tab.Ai) RefreshAi();
+            // 收著的時候只更新待辦那一行；展開 AI 分頁時才整頁更新（查 hook 要啟動 wsl.exe、金鑰要解密）
+            if (_tab == Tab.Ai && _expanded) RefreshAi();
+            else { PlanText.Text = _planLine; _aiStale = _tab == Tab.Ai; }
         });
+        // 收著時錯過的更新，在展開的那一刻補上（Morph 展開時會把 Panel 設成可點）
+        Panel.IsHitTestVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true && _aiStale) Dispatcher.BeginInvoke(() => { if (_aiStale && _tab == Tab.Ai && _expanded) RefreshAi(); });
+        };
         _bridge.DeckPressed += action => Dispatcher.BeginInvoke(() =>
         {
             switch (action)
@@ -125,11 +132,15 @@ public partial class IslandWindow
 
     private (bool Installed, bool Outdated)? _hooks;
 
+    /// <summary>AI 分頁停著、收著的時候有進度回報進來，整頁還沒更新。</summary>
+    private bool _aiStale;
+
     private void ShowHookState() =>
         AgentButton.Content = _hooks is not { } state ? "…" : !state.Installed ? L.T("連接") : state.Outdated ? L.T("更新連接") : L.T("中斷");
 
     private void RefreshAi()
     {
+        _aiStale = false;
         // 查 hook 的狀態要啟動 wsl.exe，放到背景做；畫面先用上次的結果，查完再更新。每個 agent 共用同一次查詢
         ShowHookState();
         _ = Task.Run(() => AgentInstaller.Scan()).ContinueWith(done =>

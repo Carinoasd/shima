@@ -191,6 +191,49 @@ public static class HistoryFile
 }
 
 /// <summary>
+/// 記住上一次讀進來的聆聽紀錄：檔案的大小與修改時間都沒變就直接給同一份清單，不再整檔重讀、重新解析。
+/// 任何執行緒都可以呼叫（同一時間只讀一次）。讀失敗不記，下次再試；失敗時先給上一份。
+/// </summary>
+public sealed class HistoryCache
+{
+    private readonly object _gate = new();
+    private string? _path;
+    private long _size = -1;
+    private long _stamp;
+    private List<Listen> _listens = [];
+
+    /// <summary>Changed 為 false 表示檔案沒變，Listens 就是上次給的同一個物件。</summary>
+    public (List<Listen> Listens, bool Changed) Read(string? path = null, Action<string>? log = null)
+    {
+        path ??= HistoryFile.DefaultPath;
+        lock (_gate)
+        {
+            long size = -1, stamp = 0;
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Exists) { size = info.Length; stamp = info.LastWriteTimeUtc.Ticks; }
+            }
+            catch (Exception e) { (log ?? Log.Write)("history stat: " + e.Message); return (_listens, false); }
+
+            if (path == _path && size == _size && stamp == _stamp) return (_listens, false);
+            try
+            {
+                // 先量再讀：讀的當中檔案又長了，下次比對會不同，就會再讀一次
+                _listens = size < 0 ? [] : HistoryFile.Parse(File.ReadAllText(path, Encoding.UTF8));
+                _path = path; _size = size; _stamp = stamp;
+                return (_listens, true);
+            }
+            catch (Exception e)
+            {
+                (log ?? Log.Write)("history read: " + e.Message);
+                return (_listens, false);
+            }
+        }
+    }
+}
+
+/// <summary>
 /// 聆聽紀錄：整合者每個 tick 呼叫 Observe，聽夠的歌附加寫進 history.jsonl。寫檔失敗只記錄，不丟例外。
 /// </summary>
 public sealed class ListeningLog

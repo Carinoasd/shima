@@ -69,7 +69,40 @@ public static class AgentHooks
     /// <summary>
     /// 找兩邊的家目錄。要啟動 wsl.exe（最多等六秒），每個 agent 的安裝器共用同一次的結果，不要每個各問一次。
     /// </summary>
-    public static Home Homes()
+    public static Home Homes() => Cache.Get(DateTime.UtcNow, Find);
+
+    private static readonly HomeCache Cache = new();
+
+    /// <summary>
+    /// 記住上一次 Homes() 的結果。WSL 的家目錄不常變，但 Claude Code 每回報一次進度就會掃一次，不能每次都啟動 wsl.exe。
+    /// 找到了記久一點；沒找到（沒裝 WSL、或還沒裝好）記短一點，使用者之後才裝也很快就看得到。時鐘由呼叫端給，方便測試。
+    /// </summary>
+    public sealed class HomeCache
+    {
+        public static readonly TimeSpan Found = TimeSpan.FromMinutes(5);
+        public static readonly TimeSpan Missing = TimeSpan.FromSeconds(30);
+
+        private readonly object _lock = new();
+        private Home? _home;
+        private DateTime _at;
+        private TimeSpan _keep;
+
+        public Home Get(DateTime now, Func<Home> find)
+        {
+            lock (_lock)
+            {
+                // 時鐘被往回調也要重找，不然舊結果會留到時鐘追上來為止
+                if (_home != null && now >= _at && now - _at < _keep) return _home;
+                var home = find();
+                _home = home;
+                _at = now;
+                _keep = home.Wsl != null ? Found : Missing;
+                return home;
+            }
+        }
+    }
+
+    private static Home Find()
     {
         string? wsl = null;
         try

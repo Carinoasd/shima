@@ -114,7 +114,7 @@ public partial class IslandWindow
         }
         _stats.Visibility = _libraryShowsFavorites ? Visibility.Collapsed : Visibility.Visible;
         _favoritesView!.Visibility = _libraryShowsFavorites ? Visibility.Visible : Visibility.Collapsed;
-        if (_libraryShowsFavorites) _favoritesView.Refresh(); else _stats.Load();
+        if (_libraryShowsFavorites) _favoritesView.Refresh(); else LoadStats();
     }
 
     /// <summary>把聆聽分頁目前選的期間做成回顧卡片：複製、存到圖片\Shima。</summary>
