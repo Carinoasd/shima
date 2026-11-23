@@ -55,7 +55,7 @@ public partial class IslandWindow
         Closed += (_, _) => { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); } };
         if (_smoke) return;
         InitUpdates();
-        _notifications.Arrived += (app, title, body) => Dispatcher.BeginInvoke(() => { if (!InDoNotDisturb) Toast(NotificationMirror.Line(app, title, body), 7); });
+        _notifications.Arrived += (app, title, body) => Dispatcher.BeginInvoke(() => { Remember(RecentKind.Message, app, title, body); if (!InDoNotDisturb) Toast(NotificationMirror.Line(app, title, body), 7); });
         if (AppSettings.Current.Notifications) _ = _notifications.StartAsync();
         try
         {

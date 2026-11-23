@@ -68,6 +68,7 @@ public partial class IslandWindow : Window
         Deactivated += (_, _) => { if (_expanded && _tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && !Host.IsMouseOver) SetExpanded(false); };
         InitChat();
         InitTools();
+        InitRecent();
         InitSettings();
         InitStatus();
         InitAgents();
@@ -313,6 +314,7 @@ public partial class IslandWindow : Window
     private void UpdateTexts()
     {
         UpdateNotice();
+        UpdateRecentDot();
         ObserveListening();
         _musicPlaying = _track?.Playing == true;
         // 佇列是 Roon 才有的東西

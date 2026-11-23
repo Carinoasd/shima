@@ -22,7 +22,7 @@ public partial class IslandWindow
     private void InitAgents()
     {
         _bridge.Asked += ask => Dispatcher.BeginInvoke(() => Enqueue(ask));
-        _bridge.AgentFinished += (agent, project, _) => Dispatcher.BeginInvoke(() => Toast(Finished(agent, project)));
+        _bridge.AgentFinished += (agent, project, _) => Dispatcher.BeginInvoke(() => { Remember(RecentKind.Agent, AgentKinds.Name(agent), L.T("完成了"), project); Toast(Finished(agent, project)); });
         _bridge.Progressed += (project, done, total, current) => Dispatcher.BeginInvoke(() =>
         {
             _planLine = total == 0 ? "" : $"{done}/{total}{(current.Length > 0 ? " · " + current : "")}";
