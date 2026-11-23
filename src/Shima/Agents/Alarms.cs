@@ -286,7 +286,8 @@ public sealed class Alarms : IDisposable
         var text = at.Normalize(System.Text.NormalizationForm.FormKC).Trim();
 
         DateTime? result = null;
-        string[] formats = ["yyyy-MM-dd HH:mm", "yyyy-MM-dd H:mm", "yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm", "yyyy/M/d H:mm"];
+        // M、d、H 都收一到兩位：「2026-11-8 07:30」跟補零的寫法一樣
+        string[] formats = ["yyyy-M-d H:mm", "yyyy-M-dTH:mm", "yyyy-M-dTH:mm:ss", "yyyy-M-d H:mm:ss", "yyyy/M/d H:mm", "yyyy/M/dTH:mm", "yyyy/M/d H:mm:ss", "yyyy/M/dTH:mm:ss"];
         if (DateTime.TryParseExact(text, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var full)) result = full;
         else
         {
@@ -368,9 +369,13 @@ public sealed class Alarms : IDisposable
             if (y < 1 || mo is < 1 or > 12 || d < 1 || d > DateTime.DaysInMonth(y, mo)) return null;
             var rest = text[day.Length..].TrimStart();
             var time = DefaultTime;
-            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock && Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } given)
-            { time = given; rest = rest[clock.Length..].TrimStart(); }
-            return InRange(new DateTime(y, mo, d) + time, now) is { } result ? (result, rest, null) : null;
+            bool given = false;
+            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock && Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } stated)
+            { time = stated; given = true; rest = rest[clock.Length..].TrimStart(); }
+            var target = new DateTime(y, mo, d) + time;
+            // 沒寫時間的「今天」而九點已經過了（月曆點今天最常見）：取現在之後的下一個整點，不然一定被當成過去
+            if (!given && target.Date == now.Date && target <= now && now.Hour < 23) target = now.Date.AddHours(now.Hour + 1);
+            return InRange(target, now) is { } result ? (result, rest, null) : null;
         }
 
         var head = (FullDate.Match(text) is { Success: true } full ? full : ClockPrefix.Match(text));

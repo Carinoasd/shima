@@ -30,6 +30,12 @@ public partial class IslandWindow
     /// <summary>清單正攤在眼前：算看過了。</summary>
     private bool RecentInView => _recentOpen && _tab == Tab.Tools && _expanded;
 
+    /// <summary>展開或切到工具分頁時清單已經攤著：這時不會有 Changed，要自己標成已讀。</summary>
+    private void SeeRecent()
+    {
+        if (RecentInView && _recent.Unread > 0) _recent.MarkRead();
+    }
+
     private void SetRecentOpen(bool open)
     {
         _recentOpen = open && _recent.Count > 0;

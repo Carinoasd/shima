@@ -123,7 +123,6 @@ public class CalendarAlarmTests
 
     [Theory]
     [InlineData("2026-11-23 昨天")]
-    [InlineData("2026-11-24 今天九點已過")]
     [InlineData("2026-02-30 沒這天")]
     [InlineData("2026-13-01 沒這月")]
     [InlineData("2027-03-25 太遠")]
