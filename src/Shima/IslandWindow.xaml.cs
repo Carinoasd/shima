@@ -746,6 +746,7 @@ public partial class IslandWindow : Window
         AppSettings.Current.IslandX = Left + Width / 2;
         AppSettings.Current.IslandY = Top;
         AppSettings.Current.Save();
+        FitPages();   // 換了高度，各頁可用的高度也變了
     }
 
     private void ResetPlace_Click(object sender, RoutedEventArgs e)

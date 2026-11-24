@@ -28,8 +28,12 @@ public static class IslandFit
     /// <summary>各頁原本的高度（100% 時不變）。</summary>
     public const double ChatHeight = 560, SettingsMax = 540, RecentMax = 440;
 
+    /// <summary>視窗上緣到工作區下緣的高度；上緣不合理（NaN）時當成貼在工作區最上面（座標 0）。</summary>
+    public static double Below(double workBottom, double windowTop) =>
+        double.IsFinite(windowTop) ? workBottom - windowTop : workBottom;
+
     /// <summary>
-    /// 某一頁最多能多高：螢幕可用高度換算成島的單位（除以比例），扣掉上緣、固定的面板高度與這一頁自己的額外高度；
+    /// 某一頁最多能多高：從視窗上緣到螢幕可用區下緣的高度（<see cref="Below"/>；島在最上面時就是工作區高度）換算成島的單位（除以比例），扣掉上緣、固定的面板高度與這一頁自己的額外高度；
     /// 不會超過原本的高度，所以螢幕夠高時（一般 1080p、100%）跟以前一模一樣。
     /// </summary>
     public static double Page(double workHeight, double scale, double extra, double native)
