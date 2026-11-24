@@ -40,17 +40,40 @@ public static class Backup
     /// </summary>
     private static readonly string[] ShelfExtensions = [".txt", ".png"];
 
+    // ---------------------------------------------------------------- 設定欄位的四種歸類
+    // 備份可能是別人分享的「設定檔」，還原時要當成不可信的輸入。AppSettings 每加一個屬性，都要想它從 zip 進來能做什麼，放進其中一類：
+    //   機密（SecretFields）    金鑰、token、session。不匯出，還原時用這台的。
+    //   只用本機（LocalFields） 連到哪裡、用誰的帳號花錢或回報、開什麼權限（麥克風、通知、快捷鍵、Stream Dock 允許、檢查新版）、
+    //                          以及只對這台有意義的狀態。不匯出，還原時一律用這台原本的（這台沒有設定檔就是預設值）。
+    //   只能變嚴（Tighten）     關掉了就不能被備份打開的隱私開關與範圍：備份只能把它關掉、縮小。照常匯出。
+    //   照備份（其他全部）       外觀、待辦、歌詞偏好這類資料：照備份的，可疑的值在 Sanitize 改回安全的範圍。
+    // 拿不準的就放「只用本機」：還原之後使用者要自己重設幾個開關，比被別人的備份打開麥克風好。
+
     /// <summary>
-    /// 只在這台電腦上有意義、或是機密的設定欄位：DPAPI 加密的（AI 金鑰、Last.fm 的 secret 與 session）、
-    /// Roon 的 token，以及 ListenBrainz token（同樣是 DPAPI 加密的）。匯出時拿掉，還原時保留這台原本的。
+    /// 機密：DPAPI 加密的（AI 金鑰、Last.fm 的 secret 與 session、ListenBrainz token）與 Roon 的 token。
+    /// 匯出時拿掉，還原時保留這台原本的。
     /// </summary>
     public static readonly string[] SecretFields = ["AiKeys", "AnthropicKey", "LastFmSecret", "LastFmSession", "RoonTokens", "ListenBrainzToken"];
 
     /// <summary>
-    /// 「連到哪裡」的設定：Roon 主機、自訂的 AI 位址。跟上面的機密一樣不匯出、還原時一律用這台原本的。
-    /// 備份檔能改這些的話，等於能把這台存著的 Roon token、對 AI 說的話（連同工具讀到的剪貼簿）導到別人的伺服器。
+    /// 只用本機：跟上面的機密一樣不匯出、還原時一律用這台原本的。
+    /// 連線目標（Roon、自訂 AI 位址）能被改的話，等於能把這台存著的 token、對 AI 說的話導到別人的伺服器；
+    /// AI 服務與模型會用這台的金鑰花錢；Last.fm 的 API key 與帳號要跟這台的 secret、session 配成一對，不然之後每一首都送不出去；
+    /// Discord 的 Application ID 會開始公開顯示在聽什麼；Roon 搜尋會改變向 Roon 要的權限。
+    /// 麥克風（喚醒詞、連續對話、辨識引擎與模型）、通知內容（開關與哪些程式）、全域快捷鍵、Stream Dock 的允許、檢查新版：權限類的開關。
+    /// 勿擾、上次執行的版本、設定檔版本：這台自己的狀態（舊備份的版本會讓重新啟動跳出假的「已更新」、重跑或跳過升級步驟）。
     /// </summary>
-    public static readonly string[] LocalFields = ["RoonHost", "RoonPort", "RoonExtensionId", "AiCustomUrl"];
+    public static readonly string[] LocalFields =
+    [
+        "RoonHost", "RoonPort", "RoonExtensionId", "RoonSearch", "AiCustomUrl", "AiService", "AiModels",
+        "LastFmApiKey", "LastFmUser", "DiscordClientId",
+        "WakeWord", "VoiceContinuous", "SpeechEngine", "WhisperModel", "Notifications", "NotificationApps",
+        "HotkeyToggle", "HotkeyAsk", "DeckAllow", "CheckUpdates",
+        "DoNotDisturbUntil", "LastRunVersion", "Version",
+    ];
+
+    /// <summary>只能變嚴的欄位（照常匯出，還原時見 <see cref="Tighten"/>）。</summary>
+    public static readonly string[] StricterFields = ["History", "HistoryExcluded", "DiscordCover", "LyricsProviders"];
 
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
@@ -349,10 +372,32 @@ public static class Backup
             if (s == null) return null;
             foreach (var property in typeof(AppSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 if (property.CanWrite && !property.PropertyType.IsValueType && property.GetValue(s) == null) return null;
+            Tighten(s, Mine(local));
             Sanitize(s, folder, Paths(local), shelfCopies, shelfSkipped);
             return JsonSerializer.Serialize(s, Indented);
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException or NotSupportedException or ArgumentException) { return null; }
+    }
+
+    /// <summary>這台原本的設定；沒有或讀不懂就是預設值。</summary>
+    private static AppSettings Mine(JsonObject? local)
+    {
+        try { if (local?.Deserialize<AppSettings>() is { } mine) return mine; }
+        catch (Exception e) when (e is JsonException or InvalidOperationException or NotSupportedException or ArgumentException) { }
+        return new AppSettings();
+    }
+
+    /// <summary>
+    /// 只能變嚴：這台關掉的不會因為還原又打開、排除的不會被拿掉。
+    /// 聆聽紀錄（記下來還會用這台的帳號回報出去）、排除的來源取聯集、Discord 封面（歌名會送到 Apple）、
+    /// 歌詞來源（歌名會送到那些網站）只留這台也開著的，順序照備份。
+    /// </summary>
+    private static void Tighten(AppSettings s, AppSettings mine)
+    {
+        s.History &= mine.History;
+        s.HistoryExcluded = (mine.HistoryExcluded ?? []).Concat(s.HistoryExcluded).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        s.DiscordCover &= mine.DiscordCover;
+        if (mine.LyricsProviders is { } allowed) s.LyricsProviders = s.LyricsProviders.Where(allowed.Contains).ToList();
     }
 
     /// <summary>這台原本就設定過的路徑（角色圖片、歌詞資料夾、暫存架）：使用者自己加的，還原時照舊信任。</summary>

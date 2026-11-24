@@ -5,6 +5,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -85,7 +86,7 @@ public sealed class BackupTests : IDisposable
             Assert.Equal(File.ReadAllText(Path.Combine(Data, rel)), File.ReadAllText(Path.Combine(other, rel)));
         var restored = JsonNode.Parse(File.ReadAllText(Path.Combine(other, "settings.json")))!;
         Assert.Equal("ja", (string?)restored["Language"]);
-        Assert.Equal("me", (string?)restored["LastFmUser"]);
+        Assert.Equal("", (string?)restored["LastFmUser"]);   // 只用本機：要跟那台的 session 配成一對，換一台就要重新連接
     }
 
     [Fact]
@@ -290,6 +291,96 @@ public sealed class BackupTests : IDisposable
         Assert.Equal("mine", (string?)s["RoonExtensionId"]);
         Assert.Equal("http://localhost:11434/v1", (string?)s["AiCustomUrl"]);   // 這台自己填的 http 位址（本機的模型）照舊
         Assert.Equal("en", (string?)s["Language"]);
+    }
+
+    private const string Hostile = """
+        { "Language": "en", "DeckAllow": true, "CheckUpdates": false, "HotkeyAsk": "Ctrl+V", "HotkeyToggle": "Ctrl+C",
+          "WakeWord": true, "VoiceContinuous": true, "SpeechEngine": "windows", "WhisperModel": "medium",
+          "Notifications": true, "NotificationApps": ["a"], "AiService": "openai", "AiModels": { "openai": "most-expensive" },
+          "LastFmApiKey": "EVIL-KEY", "LastFmUser": "evil", "LastRunVersion": "0.1.0", "Version": 999,
+          "DiscordClientId": "123456789012345678", "RoonSearch": true, "DoNotDisturbUntil": "2099-01-01T00:00:00",
+          "History": true, "HistoryExcluded": [], "DiscordCover": true, "LyricsProviders": ["netease", "lrclib", "qq"] }
+        """;
+
+    [Fact]
+    public void 權限與帳號類的設定不匯出_還原時用這台原本的()
+    {
+        Write("settings.json", """
+            { "Language": "ja", "DeckAllow": false, "CheckUpdates": true, "HotkeyAsk": "Ctrl+Alt+A", "HotkeyToggle": "",
+              "WakeWord": false, "VoiceContinuous": false, "SpeechEngine": "whisper", "WhisperModel": "base",
+              "Notifications": false, "NotificationApps": ["LINE"], "AiService": "claude", "AiModels": { "claude": "mine" },
+              "LastFmApiKey": "MY-KEY", "LastFmUser": "me", "LastRunVersion": "0.9.0", "Version": 2,
+              "DiscordClientId": "", "RoonSearch": false, "DoNotDisturbUntil": null,
+              "History": false, "HistoryExcluded": ["Chrome"], "DiscordCover": false, "LyricsProviders": ["lrclib", "local"] }
+            """);
+        Assert.Equal(BackupStatus.Ok, Backup.Export(Data, Zip).Status);
+        using (var z = ZipFile.OpenRead(Zip))
+        {
+            using var r = new StreamReader(z.GetEntry("settings.json")!.Open());
+            var exported = JsonNode.Parse(r.ReadToEnd())!.AsObject();
+            foreach (var field in Backup.LocalFields) Assert.False(exported.ContainsKey(field), field);
+            foreach (var field in Backup.StricterFields) Assert.True(exported.ContainsKey(field), field);
+            Assert.DoesNotContain("MY-KEY", exported.ToJsonString());
+        }
+        File.Delete(Zip);
+
+        Make(("settings.json", Hostile));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.Equal("en", (string?)s["Language"]);   // 外觀、語言照備份
+        Assert.False((bool)s["DeckAllow"]!);
+        Assert.True((bool)s["CheckUpdates"]!);
+        Assert.Equal("Ctrl+Alt+A", (string?)s["HotkeyAsk"]);
+        Assert.Equal("", (string?)s["HotkeyToggle"]);
+        Assert.False((bool)s["WakeWord"]!);
+        Assert.False((bool)s["VoiceContinuous"]!);
+        Assert.Equal("whisper", (string?)s["SpeechEngine"]);
+        Assert.Equal("base", (string?)s["WhisperModel"]);
+        Assert.False((bool)s["Notifications"]!);
+        Assert.Equal(["LINE"], s["NotificationApps"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.Equal("claude", (string?)s["AiService"]);
+        Assert.Equal("mine", (string?)s["AiModels"]!["claude"]);
+        Assert.Null(s["AiModels"]!["openai"]);
+        Assert.Equal("MY-KEY", (string?)s["LastFmApiKey"]);
+        Assert.Equal("me", (string?)s["LastFmUser"]);
+        Assert.Equal("0.9.0", (string?)s["LastRunVersion"]);
+        Assert.Equal(2, (int)s["Version"]!);
+        Assert.Equal("", (string?)s["DiscordClientId"]);
+        Assert.False((bool)s["RoonSearch"]!);
+        Assert.Null(s["DoNotDisturbUntil"]);
+        // 只能變嚴
+        Assert.False((bool)s["History"]!);
+        Assert.Equal(["Chrome"], s["HistoryExcluded"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.False((bool)s["DiscordCover"]!);
+        Assert.Equal(["lrclib"], s["LyricsProviders"]!.AsArray().Select(n => (string)n!).ToArray());
+    }
+
+    [Fact]
+    public void 這台沒有設定檔時_權限與帳號類的設定是預設值()
+    {
+        Make(("settings.json", Hostile));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var restored = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        var defaults = new AppSettings();
+        foreach (var field in Backup.LocalFields)
+        {
+            var property = typeof(AppSettings).GetProperty(field)!;
+            Assert.Equal(JsonSerializer.Serialize(property.GetValue(defaults)), JsonSerializer.Serialize(property.GetValue(restored)));
+        }
+        Assert.Equal("en", restored.Language);
+    }
+
+    [Fact]
+    public void 聆聽紀錄只能被備份關掉_排除的來源取聯集()
+    {
+        Write("settings.json", """{ "History": true, "HistoryExcluded": ["Chrome"], "DiscordCover": true }""");
+        Make(("settings.json", """{ "History": false, "HistoryExcluded": ["chrome", "Edge", " "], "DiscordCover": false, "LyricsProviders": ["qq", "lrclib"] }"""));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.False((bool)s["History"]!);
+        Assert.Equal(["Chrome", "Edge"], s["HistoryExcluded"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.False((bool)s["DiscordCover"]!);
+        Assert.Equal(["qq", "lrclib"], s["LyricsProviders"]!.AsArray().Select(n => (string)n!).ToArray());   // 這台是預設（全開）：照備份的順序
     }
 
     [Fact]
