@@ -96,6 +96,7 @@ public static class StreamDock
                 from.CopyTo(to);
             }
             File.WriteAllText(Path.Combine(folder, "bridge.js"), $"window.SHIMA = {{ port: {AgentBridge.Port}, token: \"{AgentBridge.DeckToken()}\" }};\n");
+            AgentBridge.DeckDoor.Forget();   // 剛裝好就要認得這把，不用等
             return true;
         }
         catch (Exception e) { Log.Write("stream dock: " + e.Message); return false; }
@@ -105,5 +106,6 @@ public static class StreamDock
     {
         try { Directory.Delete(Path.Combine(PluginsFolder, PluginFolder), true); }
         catch (Exception e) { Log.Write("stream dock: " + e.Message); }
+        AgentBridge.DropDeckToken();   // 不用 Stream Dock 了：/deck/ 也跟著關上
     }
 }

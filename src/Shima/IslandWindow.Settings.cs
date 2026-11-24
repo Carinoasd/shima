@@ -103,6 +103,8 @@ public partial class IslandWindow
             if (DeckSwitch.IsChecked == true) Toast(L.T("重新開啟 Stream Dock 後，把 Shima 拖到按鍵上"), 6);
         }
         else Agents.StreamDock.Remove();
+        DeckAllowSwitch.Visibility = DeckSwitch.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (_tab == Tab.Settings && _expanded) Morph();
     }
 
     private async void Notify_Click(object sender, RoutedEventArgs e)

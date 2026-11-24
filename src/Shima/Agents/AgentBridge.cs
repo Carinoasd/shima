@@ -110,6 +110,21 @@ public sealed class AgentBridge
     public static string DeckToken() => TokenIn(DeckTokenFile);
 
     /// <summary>
+    /// /deck/ 認的金鑰：這台電腦有 Stream Dock、外掛也裝著（設定裡的 Stream Dock 開關開著）才有，否則空字串（一律拒絕）。
+    /// 這裡只讀不產生：金鑰由 StreamDock.Install() 寫外掛時才產生。
+    /// </summary>
+    public static readonly DeckDoor DeckDoor = new(() => StreamDock.Available && StreamDock.Installed, () => PeekToken(DeckTokenFile));
+
+    /// <summary>沒在用 Stream Dock：把 deck 金鑰整個收回（檔案刪掉、記住的那份也忘掉），之後再裝外掛會產生新的一把。</summary>
+    public static void DropDeckToken()
+    {
+        Known.TryRemove(DeckTokenFile, out _);
+        try { File.Delete(DeckTokenFile); }
+        catch (Exception e) { Log.Write("deck token: " + e.Message); }
+        DeckDoor.Forget();
+    }
+
+    /// <summary>
     /// 每個 agent 的 hook 各用一把金鑰（Claude Code 沿用 bridge.token）。Codex、Gemini 的那把只進得了自己的網址，
     /// 外流了也冒充不了 Claude Code、碰不到 Stream Dock；Gemini 的連權限請求那扇門都沒有。
     /// </summary>
@@ -133,6 +148,15 @@ public sealed class AgentBridge
             return Known.GetOrAdd(file, fresh);
         }
         catch (Exception e) { Log.Write("bridge token: " + e.Message); return ""; }
+    }
+
+    /// <summary>讀已經有的金鑰，沒有就是空字串（不產生）。</summary>
+    private static string PeekToken(string file)
+    {
+        if (Known.TryGetValue(file, out var known)) return known;
+        try { if (File.Exists(file) && File.ReadAllText(file).Trim() is { Length: >= 32 } existing) return Known.GetOrAdd(file, existing); }
+        catch (Exception e) { Log.Write("bridge token: " + e.Message); }
+        return "";
     }
 
     public enum Door { Refuse, Hook, Deck }
@@ -205,8 +229,9 @@ public sealed class AgentBridge
     public void Start()
     {
         if (_listener != null) return;
-        string token = Token(), deckToken = DeckToken();
+        string token = Token();
         if (token.Length == 0) return;
+        if (!(StreamDock.Available && StreamDock.Installed)) DropDeckToken();   // 沒在用 Stream Dock：之前留下的 deck 金鑰不要再認
         // 每一把都先讀好（沒有就產生），之後連接才裝的 hook 用的也是這幾把
         var tokens = Enum.GetValues<AgentKind>().ToDictionary(a => a, Token);
         try
@@ -214,7 +239,7 @@ public sealed class AgentBridge
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{Port}/");
             _listener.Start();
-            _ = Task.Run(() => LoopAsync(_listener, tokens, deckToken));
+            _ = Task.Run(() => LoopAsync(_listener, tokens));
             _pruner = new Timer(_ => Prune(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
         catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; }
@@ -230,25 +255,25 @@ public sealed class AgentBridge
         _pruner = null;
     }
 
-    private async Task LoopAsync(HttpListener listener, IReadOnlyDictionary<AgentKind, string> tokens, string deckToken)
+    private async Task LoopAsync(HttpListener listener, IReadOnlyDictionary<AgentKind, string> tokens)
     {
         while (listener.IsListening)
         {
             HttpListenerContext context;
             try { context = await listener.GetContextAsync(); }
             catch { return; }
-            _ = Task.Run(() => HandleAsync(context, tokens, deckToken));
+            _ = Task.Run(() => HandleAsync(context, tokens));
         }
     }
 
-    private async Task HandleAsync(HttpListenerContext context, IReadOnlyDictionary<AgentKind, string> tokens, string deckToken)
+    private async Task HandleAsync(HttpListenerContext context, IReadOnlyDictionary<AgentKind, string> tokens)
     {
         var response = context.Response;
         try
         {
             var request = context.Request;
             var (door, agent, permission) = Admit(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
-                request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), deckToken);
+                request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), DeckDoor.Key);
             if (door == Door.Refuse) { response.StatusCode = 403; return; }
             if (request.ContentLength64 > MaxBody) { response.StatusCode = 413; return; }
             if (door == Door.Deck) { await DeckAsync(request, response); return; }

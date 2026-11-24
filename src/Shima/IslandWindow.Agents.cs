@@ -42,7 +42,7 @@ public partial class IslandWindow
             {
                 case "next": _media.Next(); break;
                 case "previous": _media.Previous(); break;
-                case "allow": Decide("allow"); break;
+                case "allow": if (AppSettings.Current.DeckAllow) Decide("allow"); break;   // 設定裡可以不讓 Stream Dock 按允許
                 case "deny": Decide("deny"); break;
                 case "ask": AskOnce(); break;
                 case "zone": SwitchZone(); break;
