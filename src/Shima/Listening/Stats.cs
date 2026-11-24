@@ -78,17 +78,25 @@ public static class Stats
     /// <summary>能不能往後翻（回到比較新的一段）：只要不是最新的那一段。</summary>
     public static bool CanGoForward(StatsPeriod period, int back) => period != StatsPeriod.All && back > 0;
 
-    /// <summary>目前看的那一段的標題：週「11月2日 – 8日」（跨年加年份）、月「2026年10月」、年「2025」。全部是空字串。</summary>
-    public static string Label(StatsPeriod period, DateTime from, CultureInfo culture)
+    private const int MaxWeekLabel = 24;
+
+    /// <summary>
+    /// 目前看的那一段的標題：週「11月2日 – 8日」（跨年、或不是今年的要帶年份）、月「2026年10月」、年「2025」。全部是空字串。
+    /// now 是今天，用來判斷這一週是不是今年；不給就只有跨年才帶年份。
+    /// 日期太長的語言（西班牙文「2 de noviembre – 8 de noviembre」）改用短日期，標題的位置只有四百像素。
+    /// </summary>
+    public static string Label(StatsPeriod period, DateTime from, CultureInfo culture, DateTime? now = null)
     {
         var format = culture.DateTimeFormat;
         switch (period)
         {
             case StatsPeriod.Week:
                 var last = from.AddDays(6);
-                if (from.Year != last.Year)
+                if (from.Year != last.Year || (now is { } today && from.Year != today.Year))
                     return from.ToString(format.ShortDatePattern, culture) + " – " + last.ToString(format.ShortDatePattern, culture);
-                return from.ToString(format.MonthDayPattern, culture) + " – " + last.ToString(format.MonthDayPattern, culture);
+                var text = from.ToString(format.MonthDayPattern, culture) + " – " + last.ToString(format.MonthDayPattern, culture);
+                return text.Length <= MaxWeekLabel ? text
+                    : from.ToString(format.ShortDatePattern, culture) + " – " + last.ToString(format.ShortDatePattern, culture);
             case StatsPeriod.Month: return from.ToString(format.YearMonthPattern, culture);
             case StatsPeriod.Year: return from.Year.ToString(CultureInfo.InvariantCulture);
             default: return "";
