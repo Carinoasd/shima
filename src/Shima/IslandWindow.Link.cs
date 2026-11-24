@@ -260,6 +260,7 @@ public partial class IslandWindow
     private SessionsView? _sessions;
     private TextBlock? _usageLine;
     private DateTime _usageAt;
+    private HashSet<string> _usageSessions = [];   // 上次查用量時連著的 Claude Code 工作階段
     private UsageView? _usageView;
     private bool _usageOpen;
     private int _trendToggles;   // 圖開關過幾次：讓排好的「晚點釋放」知道自己過期了
@@ -303,20 +304,38 @@ public partial class IslandWindow
             _usageView!.Trend = demo;
             return;
         }
-        if (DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;
-        _usageAt = DateTime.Now;
+        var now = DateTime.Now;
+        var claude = _bridge.Sessions.Where(x => x.Agent == AgentKind.Claude).Select(x => x.Id).ToHashSet();
+        if (!UsageDue(now, _usageAt, claude.Any(id => !_usageSessions.Contains(id)))) return;
+        _usageAt = now;
+        _usageSessions = claude;
         try
         {
             var today = await _usage.TodayAsync();
             ShowUsageLine(today.Tokens.Total, today.Cost, today.CostKnown);
             if (_usageOpen) LoadTrend();
         }
-        catch (Exception e) { Log.Write("usage: " + e.Message); }
+        catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }   // 訊息可能有含專案名稱的路徑
     }
+
+    /// <summary>
+    /// 現在要不要重新查今天的用量（要掃很多檔案，平常最多一分鐘一次）。
+    /// 跨過午夜（「今天」換了）、時鐘往回調（不然要等時間追上才會再查）、有沒看過的 Claude Code 工作階段連上（那一行要馬上出現）都立刻查。
+    /// newSession 只看「上次查的時候沒有的工作階段」：每個 hook 事件都會觸發，連進度更新也算的話等於沒有節流。
+    /// </summary>
+    public static bool UsageDue(DateTime now, DateTime last, bool newSession) =>
+        newSession || now < last || now.Date != last.Date || now - last >= TimeSpan.FromSeconds(60);
 
     private void ShowUsageLine(long tokens, decimal cost, bool known)
     {
-        if (!ShowsUsageLine(tokens, _usageOpen, _bridge.Sessions.Any(x => x.Agent == AgentKind.Claude))) { _usageLine!.Visibility = Visibility.Collapsed; _usageView!.Visibility = Visibility.Collapsed; return; }
+        if (!ShowsUsageLine(tokens, _usageOpen, _bridge.Sessions.Any(x => x.Agent == AgentKind.Claude)))
+        {
+            bool shown = _usageLine!.Visibility == Visibility.Visible;
+            _usageLine.Visibility = Visibility.Collapsed;
+            _usageView!.Visibility = Visibility.Collapsed;
+            if (shown && _tab == Tab.Ai && _expanded) Morph();   // 收起來了，島也要跟著縮
+            return;
+        }
         string money = cost > 0 ? UsageView.Money(cost, known) + " · " : "";
         _usageLine!.Text = L.F("今天 {0}", money + UsageView.Amount(tokens) + " tokens");
         _usageLine.Visibility = Visibility.Visible;

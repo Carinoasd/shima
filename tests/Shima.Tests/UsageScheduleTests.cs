@@ -22,6 +22,32 @@ public class UsageScheduleTests
         Assert.True(IslandWindow.ReleasesTrend(b, toggles, open));    // 再五分鐘 B 醒來
     }
 
+    private static readonly DateTime At = new(2026, 5, 14, 12, 0, 0);
+
+    [Fact]
+    public void 一般情況六十秒內不重查()
+    {
+        Assert.True(IslandWindow.UsageDue(At, default, false));   // 第一次
+        Assert.False(IslandWindow.UsageDue(At.AddSeconds(59), At, false));
+        Assert.True(IslandWindow.UsageDue(At.AddSeconds(60), At, false));
+    }
+
+    [Fact]
+    public void 跨過午夜立刻重查()
+    {
+        var late = new DateTime(2026, 5, 14, 23, 59, 50);
+        Assert.True(IslandWindow.UsageDue(late.AddSeconds(15), late, false));
+        Assert.False(IslandWindow.UsageDue(late.AddSeconds(5), late, false));
+    }
+
+    [Fact]
+    public void 時鐘往回調立刻重查() =>
+        Assert.True(IslandWindow.UsageDue(At.AddHours(-1), At, false));
+
+    [Fact]
+    public void 有新的工作階段立刻重查() =>
+        Assert.True(IslandWindow.UsageDue(At.AddSeconds(10), At, true));
+
     [Fact]
     public void 圖開著就不釋放()
     {
