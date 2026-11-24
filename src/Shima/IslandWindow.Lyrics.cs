@@ -99,6 +99,12 @@ public partial class IslandWindow
         _translating.Add(key);
         Toast(waiting, 15, false);
         var waitingUntil = _toastUntil;   // 換歌後另一首也在翻的話，那邊的「翻譯中…」不是這一次的
+        // 沒翻成：還在這首才說；已經換歌的話不能蓋掉現在那首的提示（看起來像是它失敗了），只收掉自己的「翻譯中…」
+        void Failed(string message)
+        {
+            if (key == _trackKey) Toast(message, 4, false);
+            else if (_toast == waiting && _toastUntil == waitingUntil) { _toast = ""; UpdateTexts(); }
+        }
         try
         {
             // 最多等三分鐘：網路卡住時不要讓這一項永遠按不了
@@ -107,7 +113,7 @@ public partial class IslandWindow
             if (AiTranslation.Align(sheet, reply) is not { } lines)
             {
                 Log.Write($"AI 翻譯對不上: {track.Title}（{reply.Split('\n').Length} 行）");
-                Toast(L.T("AI 的翻譯跟歌詞對不上"), 4, false);
+                Failed(L.T("AI 的翻譯跟歌詞對不上"));
                 return;
             }
             // 換歌了也先存著（只看歌詞的句子），下次播到就用得上；但不能套到現在這首上
@@ -130,7 +136,7 @@ public partial class IslandWindow
             Toast(L.T("翻譯好了"), 3);
             Morph();
         }
-        catch (Exception x) { Log.Write("AI 翻譯: " + x.Message); Toast(brain.Explain(x), 4, false); }
+        catch (Exception x) { Log.Write("AI 翻譯: " + x.Message); Failed(brain.Explain(x)); }
         finally { _translating.Remove(key); }
     }
 }
