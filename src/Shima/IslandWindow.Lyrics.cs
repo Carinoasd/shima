@@ -120,8 +120,8 @@ public partial class IslandWindow
             _sheet = sheet with { Translation = lines };
             _aiTranslated = true;
             _lyricIndex = int.MinValue;
-            // 第二行設成不顯示（或讀音）的話，翻好了也看不到：改成顯示翻譯
-            if (AppSettings.Current.LyricsSecondLine is "none" or "furigana")
+            // 第二行設成不顯示、讀音或羅馬拼音（歌詞有拼音的話翻譯排在後面）的話，翻好了也看不到：改成顯示翻譯
+            if (AppSettings.Current.LyricsSecondLine != "translation")
             {
                 AppSettings.Current.LyricsSecondLine = "translation";
                 AppSettings.Current.Save();
