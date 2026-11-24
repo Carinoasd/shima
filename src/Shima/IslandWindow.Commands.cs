@@ -170,13 +170,12 @@ public partial class IslandWindow
 
             case CommandKind.Volume:
             {
-                int? volume = command.Action switch
-                {
-                    "set" => _media.SetVolume(command.Number) ?? _system.SetVolume(command.Number),
-                    // 與助手同樣的幅度：Roon 兩格、電腦 8%
-                    var dir => _media.Nudge(dir == "up" ? 2 : -2) ?? _system.Nudge(dir == "up" ? 8 : -8),
-                };
-                Toast(volume is { } v ? L.F("音量 {0}", v) : L.T("沒有可以調音量的裝置"), 2, false);
+                bool set = command.Action == "set", up = command.Action == "up";
+                // 與助手同樣的幅度：Roon 兩格、電腦 8%。在播的是 Roon 而它調不了時，不碰系統音量（MediaHub.Route）
+                var (volume, roonCannot) = Playback.MediaHub.Route(_media.OnRoon,
+                    () => set ? _media.SetVolume(command.Number) : _media.Nudge(up ? 2 : -2),
+                    () => set ? _system.SetVolume(command.Number) : _system.Nudge(up ? 8 : -8));
+                Toast(volume is { } v ? L.F("音量 {0}", v) : roonCannot ? L.T("這個 Roon 輸出不能這樣調音量") : L.T("沒有可以調音量的裝置"), 2, false);
                 break;
             }
 
