@@ -145,7 +145,11 @@ public sealed class UsageLedger
         if (!Worth(line)) return false;
         try
         {
-            using var doc = JsonDocument.Parse(line.ToArray());
+            // 直接在原本的緩衝區上解析：line.ToArray() 會為每一行（常有幾百 KB）在 LOH 配一份。
+            // ParseValue 把這個值複製進從 ArrayPool 借的緩衝區，doc 釋放時還回去；取出來的字串都是另外的 string
+            var reader = new Utf8JsonReader(line);
+            using var doc = JsonDocument.ParseValue(ref reader);
+            if (reader.Read()) return false;   // 後面還有東西：跟以前的 JsonDocument.Parse 一樣不收（多半會直接丟 JsonException）
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object || Str(root, "type") != "assistant") return false;
             if (root.TryGetProperty("isApiErrorMessage", out var error) && error.ValueKind == JsonValueKind.True) return false;
@@ -179,14 +183,14 @@ public sealed class UsageLedger
             // 模型備援：usage 本身是最後成功的那個模型；先前用別的模型跑過的那一段在 iterations 裡
             if (usage.TryGetProperty("iterations", out var iterations) && iterations.ValueKind == JsonValueKind.Array)
             {
-                var extra = new List<(string, long, long, long, long, long)>();
+                List<(string, long, long, long, long, long)>? extra = null;   // 多半沒有備援：有才配置，空的就繼續共用 NoExtra
                 foreach (var it in iterations.EnumerateArray())
                     if (it.ValueKind == JsonValueKind.Object && Str(it, "model") is { Length: > 0 } other && other != model)
                     {
                         var c = Counts(it);
-                        extra.Add((other, c.Input, c.Output, c.Write5m, c.Write1h, c.Read));
+                        (extra ??= []).Add((other, c.Input, c.Output, c.Write5m, c.Write1h, c.Read));
                     }
-                if (extra.Count >= e.Extra.Count) e.Extra = extra;
+                if (extra != null && extra.Count >= e.Extra.Count) e.Extra = extra;
             }
             return true;
         }
