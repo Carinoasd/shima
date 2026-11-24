@@ -342,6 +342,46 @@ public class FuzzLyricsTests
         }, v => Fuzz.Escape(Lrc.Write(v.Item1, TimeSpan.Zero)));
     }
 
+    /// <summary>壞掉的快取檔：Unpack 可以丟例外（唯一的呼叫端 LyricsFinder.Read 全部接住、當作沒有快取），但不能卡住，也不能回傳對不上的歌詞。</summary>
+    [Fact]
+    public void LyricsFinder_Unpack_BrokenCacheFiles_FailCleanly()
+    {
+        string[] pieces =
+        [
+            "\"Times\":null", "\"Texts\":null", "\"Times\":[1000,\"x\"]", "\"Times\":[1e300]", "\"Times\":[-5,1e400]", "\"Texts\":[1,2]", "\"Words\":[[{\"S\":1e300,\"L\":1,\"T\":\"a\"}]]", "\"Words\":[null,[null]]", "\"Words\":[[{\"S\":1,\"L\":1,\"T\":null}]]",
+            "\"Translation\":[1]", "\"At\":\"bad\"", "\"At\":null", "\"Found\":5", "\"Synced\":\"yes\"", "\"Provider\":null", "\"Exact\":null",
+        ];
+        var types = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+        Fuzz.Run("LyricsFinder.Unpack（壞掉的快取）", 1013, 1500, r =>
+        {
+            var json = LyricsFinder.Pack(new LyricsHit(RandomSheet(r), true, "lrclib"), DateTime.Now);
+            var node = JsonNode.Parse(json)!.AsObject();
+            for (int n = r.Next(0, 3); n > 0; n--)
+            {
+                var piece = JsonNode.Parse("{" + r.Pick(pieces) + "}")!.AsObject();
+                foreach (var (k, v) in piece) node[k] = v?.DeepClone();
+            }
+            return r.Chance(0.3) ? r.Mangle(node.ToJsonString()) : node.ToJsonString();
+        }, json =>
+        {
+            try
+            {
+                if (LyricsFinder.Unpack(json) is not { } unpacked || unpacked.Hit == null) return;
+                foreach (var line in unpacked.Hit.Sheet.Lines)
+                {
+                    Assert.NotNull(line.Text);
+                    if (line.Words != null) Assert.True(WordTiming.Fits(line.Text, line.Words));
+                }
+            }
+            catch (Exception e) when (e is System.Text.Json.JsonException or ArgumentException or NullReferenceException or OverflowException or InvalidOperationException or FormatException)
+            {
+                types.AddOrUpdate(e.GetType().Name, 1, (_, n) => n + 1);
+            }
+        }, Fuzz.Escape, perCallMs: 300);
+        // 想知道丟了哪幾種例外的話，加 --logger "console;verbosity=detailed" 看這一行
+        Console.WriteLine("Unpack 壞掉的快取丟出的例外：" + string.Join("、", types.Select(p => $"{p.Key}×{p.Value}")));
+    }
+
     [Fact]
     public void SongPicker_Pick_ReturnsAValidIndexOfTheSameSong()
     {

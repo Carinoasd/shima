@@ -44,7 +44,7 @@ public class FuzzAgentRulesTests
     /// 這個路徑相對於 cwd，一定不能自動允許嗎？保守地把 / 與 \ 都當分隔符：
     /// 往上跳出 cwd、絕對路徑不在 cwd 裡、~、任何一段（解析之後）是設定／金鑰、磁碟機相對路徑。
     /// </summary>
-    private static string? MustRefuse(string path, string cwd)
+    internal static string? MustRefuse(string path, string cwd)
     {
         if (path.Length == 0) return "空的";
         if (path[0] == '~') return "~";
@@ -81,7 +81,7 @@ public class FuzzAgentRulesTests
 
     private static readonly string[] CoreDangerous = ["output", "upload-pack", "receive-pack", "exec-path", "pager", "config", "git-dir", "work-tree", "exec"];
 
-    private static string? MustRefuseArg(string arg, string cwd)
+    internal static string? MustRefuseArg(string arg, string cwd)
     {
         if (arg.Contains('=')) return "有 =";
         if (arg.StartsWith('@')) return "@";
@@ -180,6 +180,36 @@ public class FuzzAgentRulesTests
             if (AgentRules.Suggest("Bash", input, cwd) is { } suggested) Assert.True(AgentRules.Covers(suggested, "Bash", input, cwd));
         }, v => $"command={Fuzz.Escape(v.Item1)} cwd={v.Item2} ruleCwd={v.Item3}");
         Assert.True(allowed > 500, $"隨機輸入太少會被放行（{allowed}），測試等於沒測");
+    }
+
+    private static readonly string[] Wrappers =
+    [
+        "bash", "bash.exe", "BASH.", "BASH.EXE", "sh.", "sh", "zsh", "cmd", "CMD.EXE", "cmd.exe.exe", "powershell", "pwsh.cmd", "pwsh", "python", "python3", "python3.12", "Python.exe", "py", "node", "node18", "nodejs", "deno", "bun", "perl", "ruby", "php",
+        "env", "sudo", "su", "xargs", "nohup", "time", "timeout", "exec", "eval", "source", ".", "find", "sed", "awk", "tar", "rsync", "vim", "less", "man", "curl", "wget", "ssh", "scp", "nc", "claude", "wsl", "start", "explorer", "mshta", "rundll32", "certutil", "reg", "schtasks",
+    ];
+
+    private static readonly string[] ExecSubcommands =
+    [
+        "git config", "git submodule", "git bisect", "git difftool", "git filter-branch", "npm exec", "npm x", "npm init", "npm config", "uv run", "uv tool", "pipx run", "poetry run", "docker run", "docker exec", "docker compose", "kubectl exec", "gh api", "gh extension",
+        "dotnet tool", "dotnet exec", "dotnet nuget", "go generate", "go env", "bundle exec", "yarn dlx", "pnpm exec", "pnpm dlx", "Git.EXE config", "GIT. config", "NPM.cmd exec",
+    ];
+
+    [Fact]
+    public void Suggest_NeverOffers_ToRememberAWrapperOrAnExecutingSubcommand()
+    {
+        Fuzz.Run("AgentRules.Suggest（包裝程式與會執行東西的子指令）", 5007, 5000, r =>
+        {
+            var program = r.Chance(0.5) ? r.Pick(Wrappers) : r.Pick(ExecSubcommands);
+            var args = string.Join(" ", Enumerable.Range(0, r.Next(0, 4)).Select(_ => r.Pick(["-c", "x", "a.txt", "-la", "status", "src", "run", "--version", "ls"])));
+            return ((program + " " + args).Trim(), r.Pick(Cwds));
+        }, v =>
+        {
+            var (command, cwd) = v;
+            var input = new JsonObject { ["command"] = command };
+            Assert.Null(AgentRules.Suggest("Bash", input, cwd));
+            foreach (var rule in new[] { new AgentRule("Bash", command.Split(' ')[0], cwd), new AgentRule("Bash", string.Join(' ', command.Split(' ').Take(2)), cwd) })
+                Assert.False(AgentRules.Covers(rule, "Bash", input, cwd), $"規則「{rule.Command}」不該存在，卻放行了 {command}");
+        }, v => $"command={Fuzz.Escape(v.Item1)} cwd={v.Item2}");
     }
 
     [Fact]

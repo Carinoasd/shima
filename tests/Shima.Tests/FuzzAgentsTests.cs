@@ -191,9 +191,11 @@ public class FuzzAgentsTests
             Assert.True(rules.Add(new AgentRule("Bash", "git status", "/home/u/proj")));
             Assert.True(rules.Add(new AgentRule("Read", null, "/home/u/proj")));
             var bridge = new AgentBridge(rules, () => new DateTime(2026, 11, 24, 12, 0, 0, DateTimeKind.Utc));
-            var auto = new List<(string Tool, string Input, string Cwd)>();
-            bridge.AutoAllowed += (ask, rule) => auto.Add((ask.Tool, ask.ToolInput, ask.Cwd));
-            bridge.Asked += ask => ask.Decision.TrySetResult("deny");
+            var auto = new List<(string Tool, string Input, string Cwd, AgentRule Rule)>();
+            bridge.AutoAllowed += (ask, rule) => auto.Add((ask.Tool, ask.ToolInput, ask.Cwd, rule));
+            string answer = "deny";
+            int autoAllowed = 0;
+            bridge.Asked += ask => ask.Decision.TrySetResult(answer);
             Fuzz.Run("AgentBridge.PermissionAsync／Notify", 6006, 1500, r =>
             {
                 var hook = RandomHook(r);
@@ -204,25 +206,37 @@ public class FuzzAgentsTests
                     hook["cwd"] = r.Pick(["/home/u/proj", "/home/u/proj/", "/home/u/proj/sub", "/home/u/other", ""]);
                     hook["tool_input"] = r.Chance(0.5) ? new JsonObject { ["command"] = r.Pick(["git status", "git status -s", "git status; rm -rf x", "git status .env", "git status $(x)", "ls"]) } : new JsonObject { ["file_path"] = r.Pick(["/home/u/proj/a.cs", "/home/u/proj/.git/config", "../x", "a.cs"]) };
                 }
-                return (hook.ToJsonString(), r.Pick(Enum.GetValues<AgentKind>()));
+                return (hook.ToJsonString(), r.Pick(Enum.GetValues<AgentKind>()), r.Pick(["deny", "always", "always", "allow"]));
             }, v =>
             {
-                var (json, agent) = v;
+                var (json, agent, _) = v;
                 var hook = JsonNode.Parse(json)!.AsObject();
                 auto.Clear();
+                answer = v.Item3;   // 「always」會真的建立新規則：後面的請求自動允許時，再用獨立的判斷檢查一次
                 var behavior = bridge.PermissionAsync(hook, agent).GetAwaiter().GetResult();
                 Assert.True(behavior is null or "allow" or "deny");
                 bridge.Notify(JsonNode.Parse(json)!.AsObject(), agent);
                 _ = bridge.Sessions;
-                foreach (var (tool, input, cwd) in auto)
+                foreach (var (tool, input, cwd, rule) in auto)
                 {
+                    Interlocked.Increment(ref autoAllowed);
                     Assert.Equal(AgentKind.Claude, agent);   // 別的 agent 不比對規則
                     var node = JsonNode.Parse(input);
-                    Assert.True(rules.List().Any(rule => AgentRules.Covers(rule, tool, node, cwd)), $"自動允許了沒有規則涵蓋的請求：{tool} {input} cwd={cwd}");
+                    Assert.True(rules.List().Any(r => AgentRules.Covers(r, tool, node, cwd)), $"自動允許了沒有規則涵蓋的請求：{tool} {input} cwd={cwd}");
                     Assert.Equal("allow", behavior);
-                    if (tool == "Bash") Assert.DoesNotContain(';', node!["command"]!.ToString());
+                    var folder = rule.Cwd ?? cwd;
+                    if (tool == "Bash")
+                    {
+                        var command = node!["command"]!.ToString();
+                        Assert.True(command.IndexOfAny([';', '&', '|', '`', '$', '<', '>', '(', ')', '{', '}', '\\', '"', '\'', '!', '#', '\n', '\r']) < 0, $"自動允許了有串接的指令：{command}");
+                        foreach (var arg in command.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).Skip(rule.Command!.Contains(' ') ? 2 : 1))
+                            Assert.True(FuzzAgentRulesTests.MustRefuseArg(arg, folder) is null, $"自動允許了參數 {arg}：{FuzzAgentRulesTests.MustRefuseArg(arg, folder)}");
+                    }
+                    else if (node is JsonObject o && o["file_path"]?.ToString() is { } path)
+                        Assert.True(FuzzAgentRulesTests.MustRefuse(path, folder) is null, $"自動允許了路徑 {path}：{FuzzAgentRulesTests.MustRefuse(path, folder)}");
                 }
-            }, v => $"{v.Item2} {v.Item1}", perCallMs: 500);
+            }, v => $"{v.Item2} {v.Item3} {v.Item1}", perCallMs: 500);
+            Assert.True(autoAllowed > 30, $"自動允許只有 {autoAllowed} 次，測試等於沒測");
         }
         finally { try { Directory.Delete(folder, true); } catch (IOException) { } }
     }
