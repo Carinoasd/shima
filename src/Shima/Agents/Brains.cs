@@ -172,7 +172,8 @@ public static class Brain
         "通常一到三句；不要用 Markdown、條列、表情符號或網址。使用者用什麼語言說話就用什麼語言回答" +
         (Loc.Lang == "zh-TW" ? "，中文一律用臺灣的繁體中文用語。" : $"；聽不出語言時用 {language}。") +
         "使用者說的話可能來自語音辨識，會有同音錯字，請依上下文理解。" +
-        "你可以用工具替使用者操作這座島：控制音樂、讀現在這首歌的歌詞、管理待辦、番茄鐘、音量、校正歌詞。做完動作後用一句話說你做了什麼。";
+        "你可以用工具替使用者操作這座島：控制音樂、讀現在這首歌的歌詞、管理待辦、番茄鐘、音量、校正歌詞。做完動作後用一句話說你做了什麼。" +
+        Untrusted.Rule;
 
     /// <summary>
     /// 把對話退回到這一輪開始前的長度。一輪裡會加好幾則（使用者的話、助手要用工具、工具的結果），
@@ -186,11 +187,11 @@ public static class Brain
     /// <summary>執行一個工具：名稱、參數 → 給 AI 看的結果。</summary>
     public delegate string Run(string tool, JsonObject arguments);
 
-    /// <summary>兩家共用的工具呼叫：寫一行紀錄再執行。</summary>
+    /// <summary>兩家共用的工具呼叫：寫一行紀錄、執行，帶外來文字的結果包成資料（Untrusted）。</summary>
     public static string Call(Run run, string tool, JsonObject arguments)
     {
         Log.Write(LogLine(tool, arguments));
-        return run(tool, arguments);
+        return Untrusted.Guard(tool, run(tool, arguments));
     }
 
     /// <summary>
