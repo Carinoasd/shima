@@ -72,8 +72,8 @@ public partial class IslandWindow
                 {
                     // 被拒的是舊的那一把、使用者已經重新連接了：不要把新的清掉
                     if (s.LastFmSessionText() != rejected) return;
+                    // 還沒送的留著：重新連接之後補送。自己按「中斷」才清掉（LastFmDisconnect）
                     s.SetLastFmSession("", "");
-                    _pending.Clear("lastfm");
                     RefreshLastFmButton();
                     Toast(L.T("Last.fm 授權失效，請重新連接"), 6, false);
                 });
