@@ -21,7 +21,6 @@ namespace Shima.Playback;
 public sealed class DiscordPresence : IDisposable
 {
     private const int Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4;
-    private static readonly TimeSpan MinInterval = PresenceSchedule.MinInterval;
     private static readonly TimeSpan SafetyWait = TimeSpan.FromSeconds(30);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5), MaxResponseContentBufferSize = 2 * 1024 * 1024 };   // iTunes 搜尋結果只是十筆 JSON
 
@@ -314,6 +313,12 @@ public sealed class PresenceSchedule
     /// <summary>斷線重連：還沒就緒，而且把目前的狀態再送一次（原本就是清除的就不用）。</summary>
     public void Reconnect() { lock (_lock) { _ready = false; _hasPending = _pending != null; } }
 
+    /// <summary>
+    /// 進位到整毫秒：SemaphoreSlim.WaitAsync(TimeSpan) 把不到一毫秒的部分捨去，剩 0.4 毫秒就變成 WaitAsync(0) 立刻回來，
+    /// 迴圈會高速空轉到時間滿為止（跟 Alarms.NextWake 同樣的處理）。
+    /// </summary>
+    public static TimeSpan CeilMs(TimeSpan wait) => TimeSpan.FromMilliseconds(Math.Ceiling(wait.TotalMilliseconds));
+
     /// <summary>現在該做什麼；回報「要送」的同時就當作已經送出了。</summary>
     public Step Next(DateTime now)
     {
@@ -323,7 +328,7 @@ public sealed class PresenceSchedule
             var elapsed = now - _sentAt;
             // 時鐘被往回調：不要因此卡住很久
             if (elapsed < TimeSpan.Zero) elapsed = MinInterval;
-            if (elapsed < MinInterval) return new(null, MinInterval - elapsed);
+            if (elapsed < MinInterval) return new(null, CeilMs(MinInterval - elapsed));
             _hasPending = false;
             _sentAt = now;
             return new(new Pending(_pending), null);
