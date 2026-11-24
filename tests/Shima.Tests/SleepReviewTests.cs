@@ -183,4 +183,31 @@ public class SleepReviewTests
         Assert.False(timer.Tick(T0, "c\nd", S(0), Len, false, () => true));
         Assert.Equal(SleepMode.Off, timer.Mode);
     }
+    // ---------------------------------------------------------------- 停在結尾時按「這首播完」（#7 審查 7）
+
+    [Fact]
+    public void 這首播完_已經停在結尾就不能設定()
+    {
+        var timer = new SleepTimer();
+        Assert.False(timer.AfterTrack("a\nb", Len - S(1), Len, playing: false));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
+
+    [Fact]
+    public void 這首播完_在最後幾秒但還在播_照樣設定並在換歌時暫停()
+    {
+        var timer = new SleepTimer();
+        Assert.True(timer.AfterTrack("a\nb", Len - S(1), Len, playing: true));
+        Assert.False(timer.Tick(T0, "a\nb", Len - S(0.9), Len, true));
+        Assert.True(timer.Tick(T0.AddSeconds(1), "c\nd", S(0), Len, true));
+    }
+
+    [Fact]
+    public void 這首播完_暫停在中間可以設定_設定後不會馬上取消()
+    {
+        var timer = new SleepTimer();
+        Assert.True(timer.AfterTrack("a\nb", S(60), Len, playing: false));
+        Assert.False(timer.Tick(T0, "a\nb", S(60), Len, false));
+        Assert.Equal(SleepMode.EndOfTrack, timer.Mode);
+    }
 }

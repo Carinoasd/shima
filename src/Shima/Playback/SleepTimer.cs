@@ -38,10 +38,13 @@ public sealed class SleepTimer
         _playedAt = _dueAt = null;
     }
 
-    /// <summary>這首播完就停。沒有歌在播時沒有意義，回傳 false。</summary>
-    public bool AfterTrack(string? track, TimeSpan position)
+    /// <summary>
+    /// 這首播完就停。沒有歌在播時沒有意義，回傳 false；已經停在這首的結尾（播完了）也一樣，
+    /// 不然下一個 tick 就會被當成播完而默默取消，畫面上卻先顯示設定好了。
+    /// </summary>
+    public bool AfterTrack(string? track, TimeSpan position, TimeSpan duration = default, bool playing = true)
     {
-        if (track == null) return false;
+        if (track == null || Finished(position, duration, playing)) return false;
         Mode = SleepMode.EndOfTrack;
         Total = TimeSpan.Zero;
         _track = track;

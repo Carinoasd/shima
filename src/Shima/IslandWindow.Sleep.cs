@@ -64,7 +64,7 @@ public partial class IslandWindow
     private bool StartSleepAfterTrack()
     {
         var track = _track;
-        if (!_sleep.AfterTrack(track == null ? null : SleepTimer.KeyOf(track.Title, track.Artist), track?.Now ?? default))
+        if (!_sleep.AfterTrack(track == null ? null : SleepTimer.KeyOf(track.Title, track.Artist), track?.Now ?? default, track?.Duration ?? default, track?.Playing == true))
         {
             Toast(L.T("沒有正在播放的音樂"), 2.5, cheer: false);
             return false;
