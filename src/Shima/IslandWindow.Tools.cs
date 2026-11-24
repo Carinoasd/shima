@@ -199,14 +199,20 @@ public partial class IslandWindow
     private void EditTodo(Border host, TodoItem todo)
     {
         var box = new TextBox { Text = todo.Text, Style = (Style)FindResource("Input"), Height = 26, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(-6, 0, 0, 0) };
+        var label = host.Child as TextBlock;
         host.Child = box;
         var finished = false;
         void Finish(bool save)
         {
             if (finished) return;
             finished = true;
-            if (save && TodoOps.Rename(AppSettings.Current.Todos, todo, box.Text)) AppSettings.Current.Save();
-            RefreshTools();
+            var changed = save && TodoOps.Rename(AppSettings.Current.Todos, todo, box.Text);
+            if (changed) AppSettings.Current.Save();
+            // 只把這一列換回文字：失焦是在別顆按鈕的 MouseDown 裡同步觸發的，這時整頁重建會把剛按下去的那顆從畫面上拿掉，
+            // 這一下點擊就沒了。真的刪掉了一筆（Enter 改成空的）才需要重建，那時沒有別的點擊在進行
+            if (label == null || !AppSettings.Current.Todos.Contains(todo)) { RefreshTools(); return; }
+            label.Text = todo.Text;
+            host.Child = label;
         }
         box.KeyDown += (_, e) =>
         {
