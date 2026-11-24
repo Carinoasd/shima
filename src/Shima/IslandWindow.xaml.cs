@@ -840,6 +840,7 @@ public partial class IslandWindow : Window
         {
             _hiddenForFullscreen = hide;
             Root.Visibility = hide || _userHidden ? Visibility.Hidden : Visibility.Visible;
+            AskRevealed();
         }
         if (!hide) SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }

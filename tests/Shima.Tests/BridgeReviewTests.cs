@@ -136,3 +136,42 @@ public class BridgeLanesTests
         Assert.True(lanes.TryOpen());
     }
 }
+
+/// <summary>deck 的允許只在使用者看得到那一則的時候才算。</summary>
+public class DeckVisibleTests
+{
+    private const string Current = "A1B2C3D4E5F60718";
+    private const long Seen = DeckAnswer.Glance;
+
+    [Theory]
+    // action, id, allowOn, visible, expected
+    [InlineData("allow", Current, true, true, DeckVerdict.Apply)]
+    [InlineData("allow", Current, true, false, DeckVerdict.Ignore)]     // 島藏起來了：看不到內容
+    [InlineData("allow", Current, false, true, DeckVerdict.Ignore)]
+    [InlineData("allow", Current, false, false, DeckVerdict.Ignore)]
+    [InlineData("allow", null, true, true, DeckVerdict.OldPlugin)]
+    [InlineData("allow", null, true, false, DeckVerdict.Ignore)]
+    [InlineData("deny", Current, true, true, DeckVerdict.Apply)]
+    [InlineData("deny", Current, true, false, DeckVerdict.Apply)]       // 拒絕隨時可以
+    [InlineData("deny", Current, false, false, DeckVerdict.Apply)]
+    [InlineData("deny", null, true, false, DeckVerdict.Apply)]
+    public void 藏起來的時候不能允許_拒絕照舊(string action, string? id, bool allowOn, bool visible, DeckVerdict expected) =>
+        Assert.Equal(expected, DeckAnswer.Judge(action, id, Current, Seen, allowOn, visible));
+
+    [Fact]
+    public void 沒帶可見與否的呼叫照舊算看得見() =>
+        Assert.Equal(DeckVerdict.Apply, DeckAnswer.Judge("allow", Current, Current, Seen, true));
+
+    [Fact]
+    public void 重新看得見之後從那一刻起算_不到六百毫秒的允許不算()
+    {
+        // 模擬 IslandWindow：出現時間在島變回看得見的那一刻重設
+        long shownAt = 0, now = 5000;
+        Assert.Equal(DeckVerdict.Apply, DeckAnswer.Judge("allow", Current, Current, now - shownAt, true, true));
+        shownAt = now;   // 從系統匣叫回來
+        now += DeckAnswer.Glance - 1;
+        Assert.Equal(DeckVerdict.Ignore, DeckAnswer.Judge("allow", Current, Current, now - shownAt, true, true));
+        now += 1;
+        Assert.Equal(DeckVerdict.Apply, DeckAnswer.Judge("allow", Current, Current, now - shownAt, true, true));
+    }
+}
