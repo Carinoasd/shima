@@ -175,7 +175,7 @@ public partial class IslandWindow : Window
         _close.Tick += (_, _) =>
         {
             _close.Stop();
-            if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _tab == Tab.Ask) return;
+            if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _buttonMenu?.IsOpen == true || _tab == Tab.Ask) return;
             // 正在打字的分頁不因為滑鼠離開就收起來，點到別的視窗才收
             if (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && IsActive) return;
             SetExpanded(false);

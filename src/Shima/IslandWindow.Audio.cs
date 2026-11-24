@@ -36,7 +36,7 @@ public partial class IslandWindow
     {
         var menu = new ContextMenu { PlacementTarget = AudioButton, Placement = PlacementMode.Top };
         FillAudioMenu(menu.Items);
-        menu.IsOpen = true;
+        OpenButtonMenu(menu);
     }
 
     private void FillAudioMenu(ItemCollection items)
