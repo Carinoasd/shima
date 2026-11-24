@@ -434,6 +434,7 @@ public partial class IslandWindow : Window
         if (!expanded && _tab == Tab.Ask) return;
         _expanded = expanded;
         if (expanded && _tab == Tab.Tools) EnterTools();
+        if (expanded && _tab == Tab.Chat) Place();   // 收著時拖到邊上：聊天比較寬，展開前再夾一次
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
     }
@@ -452,6 +453,7 @@ public partial class IslandWindow : Window
             EnterTools();
         }
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
+        Place();   // 聊天比別頁寬：靠邊時重新夾一次，切回別頁也會回到存的位置
         if (tab == Tab.Ai) RefreshAi();
         if (tab == Tab.Settings) RefreshSettings();
         if (tab == Tab.Library) RefreshLibrary();
@@ -693,11 +695,14 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 位置：可以拖，會記住
 
     /// <summary>島的中心 X 與視窗上緣；沒拖過就在主螢幕頂端正中間。存的位置跑出螢幕外（換了螢幕）就回到預設。</summary>
+    /// <summary>展開時面板的寬：聊天分頁比較寬。靠邊時要照目前這一頁的寬度夾，不然切到聊天會超出螢幕。</summary>
+    private static double PanelWidth(Tab tab) => tab == Tab.Chat ? 528 : 440;
+
     private void Place()
     {
         var s = AppSettings.Current;
         var screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, 440 * _scale);
+        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, PanelWidth(_tab) * _scale);
         Left = _smoke ? -5000 : at.X;
         Top = at.Y;
     }
