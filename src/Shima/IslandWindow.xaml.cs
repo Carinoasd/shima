@@ -65,7 +65,7 @@ public partial class IslandWindow : Window
             // 不出現在 Alt+Tab
             SetWindowLong(_hwnd, GWL_EXSTYLE, GetWindowLong(_hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
         };
-        Deactivated += (_, _) => { if (_expanded && _tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && !Host.IsMouseOver) SetExpanded(false); };
+        Deactivated += (_, _) => { if (_expanded && (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && (_queueOpen || _searchOpen)) && !Host.IsMouseOver) SetExpanded(false); };
         InitChat();
         InitTools();
         InitRecent();
@@ -179,7 +179,7 @@ public partial class IslandWindow : Window
             _close.Stop();
             if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _buttonMenu?.IsOpen == true || _tab == Tab.Ask || _opening != null) return;
             // 正在打字的分頁不因為滑鼠離開就收起來，點到別的視窗才收
-            if (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && IsActive) return;
+            if ((_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && (_queueOpen || _searchOpen)) && IsActive) return;
             SetExpanded(false);
         };
     }
@@ -194,6 +194,7 @@ public partial class IslandWindow : Window
     {
         var track = _media.Current;
         _track = track;
+        _musicSearch?.SetTrack(track);
         bool has = track != null;
 
         if (has)
@@ -479,8 +480,9 @@ public partial class IslandWindow : Window
         SettingsPage.Visibility = _tab == Tab.Settings ? Visibility.Visible : Visibility.Collapsed;
         AskPage.Visibility = _tab == Tab.Ask ? Visibility.Visible : Visibility.Collapsed;
         Tabs.Visibility = _tab == Tab.Ask ? Visibility.Collapsed : Visibility.Visible;
-        LyricsBox.Visibility = HasLyrics && !_queueOpen ? Visibility.Visible : Visibility.Collapsed;
+        LyricsBox.Visibility = HasLyrics && !_queueOpen && !_searchOpen ? Visibility.Visible : Visibility.Collapsed;
         QueueHost.Visibility = _queueOpen ? Visibility.Visible : Visibility.Collapsed;
+        MusicSearchHost.Visibility = _searchOpen ? Visibility.Visible : Visibility.Collapsed;
 
         double width = _tab == Tab.Chat ? 528 : 440;
         Panel.Width = width - 32;
@@ -505,7 +507,7 @@ public partial class IslandWindow : Window
         double needed = WindowHeightFor(_h.Target);
         if (needed > Height) Height = needed;
         // 要打字的分頁才讓視窗拿鍵盤焦點
-        SetActivatable(_expanded && (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && _queueOpen));
+        SetActivatable(_expanded && (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && (_queueOpen || _searchOpen)));
 
         if (_rendering || (_w.Settled && _h.Settled)) return;
         _rendering = true;
@@ -633,6 +635,7 @@ public partial class IslandWindow : Window
         if (key != _trackKey) return;
         if (all.Count == 0) { Toast(L.T("找不到其他歌詞"), 3); return; }
         var next = all[(all.FindIndex(h => h.Provider == _lyricsFrom) + 1) % all.Count];
+        _lyrics.Unbind(track);
         AppSettings.Current.LyricsPick[LyricsFinder.IdOf(track)] = next.Provider;
         AppSettings.Current.Save();
         _sheet = WithAiTranslation(track, next.Sheet);
@@ -691,6 +694,7 @@ public partial class IslandWindow : Window
     {
         if (_track is not { } track) return;
         var id = LyricsFinder.IdOf(track);
+        _lyrics.Unbind(track);
         AppSettings.Current.LyricsPick.Remove(id);
         AppSettings.Current.LyricsShift.Remove(id);
         AppSettings.Current.Save();

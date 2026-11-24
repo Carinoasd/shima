@@ -84,6 +84,7 @@ public partial class IslandWindow
         ChatPage.Height = IslandFit.Chat(work, _scale);
         SettingsScroll.MaxHeight = IslandFit.Settings(work, _scale);
         RecentScroll.MaxHeight = IslandFit.Recent(work, _scale);
+        QueueHost.Height = MusicSearchHost.Height = IslandFit.MusicDrawer(work, _scale);
     }
 
     // ---------------------------------------------------------------- 聊天分頁的內嵌瀏覽器

@@ -58,6 +58,8 @@ public sealed class AppSettings
     /// <summary>手動選過的歌詞來源、調過的時間（毫秒，正的是提早），以歌為單位記住。</summary>
     public Dictionary<string, string> LyricsPick { get; set; } = [];
     public Dictionary<string, int> LyricsShift { get; set; } = [];
+    /// <summary>音樂搜尋抽屜預設用 YouTube Music（false 是一般 YouTube）。</summary>
+    public bool YouTubeMusic { get; set; }
 
     /// <summary>拖過之後島的位置：中心的 X 與上緣的 Y（null：主螢幕頂端正中間）。</summary>
     public double? IslandX { get; set; }

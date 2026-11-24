@@ -32,18 +32,66 @@ public static class HttpLimits
 
     /// <summary>
     /// 取回文字。整個請求（等標頭加上讀內容）共用 HttpClient.Timeout 這一個期限，超過丟 TimeoutException。
-    /// 回應超過上限（不管有沒有宣告長度）回 null，呼叫端當成沒找到；網路錯誤與非 2xx 照舊丟例外，由 LyricsFinder 記下。
+    /// 回應超過上限（不管有沒有宣告長度）回 null，呼叫端當成沒找到；網路錯誤與非 2xx 照舊丟例外，由呼叫端處理。
     /// </summary>
-    public static async Task<string?> GetStringAsync(HttpClient http, string url)
+    public static async Task<string?> GetStringAsync(HttpClient http, string url, CancellationToken stop = default)
     {
-        using var deadline = new CancellationTokenSource(http.Timeout);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        deadline.CancelAfter(http.Timeout);
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             response.EnsureSuccessStatusCode();
             return await ReadAsync(response, deadline.Token);
         }
-        catch (OperationCanceledException) when (deadline.IsCancellationRequested) { throw new TimeoutException($"{http.Timeout.TotalSeconds:0.#} 秒內沒有收完"); }
+        catch (OperationCanceledException) when (!stop.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException($"{http.Timeout.TotalSeconds:0.#} 秒內沒有收完");
+        }
+    }
+
+    /// <summary>送出請求並取回文字，共用 HttpClient.Timeout 期限與 <see cref="MaxBody"/> 上限。</summary>
+    public static async Task<string?> SendStringAsync(HttpClient http, HttpRequestMessage request, CancellationToken stop = default)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        deadline.CancelAfter(http.Timeout);
+        try
+        {
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            response.EnsureSuccessStatusCode();
+            return await ReadAsync(response, deadline.Token);
+        }
+        catch (OperationCanceledException) when (!stop.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException($"{http.Timeout.TotalSeconds:0.#} 秒內沒有收完");
+        }
+    }
+
+    /// <summary>取回二進位資料（例如縮圖），超過 <paramref name="maxBytes"/> 回 null。</summary>
+    public static async Task<byte[]?> GetBytesAsync(HttpClient http, string url, int maxBytes = MaxBody, CancellationToken stop = default)
+    {
+        int cap = Math.Min(maxBytes, MaxBody);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        deadline.CancelAfter(http.Timeout);
+        try
+        {
+            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > cap) return null;
+            using var stream = await response.Content.ReadAsStreamAsync(deadline.Token).WaitAsync(deadline.Token);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[16 * 1024];
+            int n;
+            while ((n = await stream.ReadAsync(chunk, deadline.Token).AsTask().WaitAsync(deadline.Token)) > 0)
+            {
+                if (buffer.Length + n > cap) return null;
+                buffer.Write(chunk, 0, n);
+            }
+            return buffer.ToArray();
+        }
+        catch (OperationCanceledException) when (!stop.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException($"{http.Timeout.TotalSeconds:0.#} 秒內沒有收完");
+        }
     }
 
     /// <summary>讀出回應內容，超過 <see cref="MaxBody"/> 位元組回 null；超過 limit（預設 <see cref="ReadLimit"/>）還沒讀完丟 TimeoutException。</summary>

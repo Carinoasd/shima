@@ -39,6 +39,8 @@ public class TitlesLimitTests
         Titles.SameArtist(text, text);
         Titles.Clean(text, text, true);
         Titles.Clean(text, text, false);
+        Titles.CleanArtist(text);
+        Titles.Alternates(text, text, true);
         PageTitle.Clean(text);
         Assert.True(sw.ElapsedMilliseconds < 2000, $"{name}: {sw.ElapsedMilliseconds} ms");
     }
