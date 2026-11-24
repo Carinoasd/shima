@@ -160,8 +160,8 @@ public class FuzzMiscTests
     public void Shelf_IsOwned_OnlyDirectChildrenOfTheShelfFolder()
     {
         const string Folder = @"C:\Users\u\AppData\Roaming\Shima\shelf";
-        string[] prefixes = [Folder + @"\", Folder + "/", Folder.ToUpperInvariant() + @"\", Folder + @"\sub\", Folder + @"\..\", Folder + @"\.\", Folder + @"\sub\..\", @"C:\Users\u\AppData\Roaming\Shima\shelf2\", @"C:\Users\u\AppData\Roaming\Shima\", @"C:\", @"\\?\" + Folder + @"\", @"\\srv\share\", "", ".\\", "shelf\\", "/", Folder + "  \\", Folder + @"\\", Folder + @"\..\shelf\"];
-        string[] names = ["a.txt", "a.png", "A.TXT", "a.PNG", "a.lrc", "", ".", "..", "x.txt:stream", "x.txt.", "x.txt ", "CON", "nul.txt", "a\\b.txt", "a/b.txt", "a?.txt", "中文.png", "\uD83D.txt", "a\u0000.txt", "x.txt\\", "x.txt/"];
+        string[] prefixes = [Folder + @"\", Folder + "/", Folder.ToUpperInvariant() + @"\", Folder + @"\sub\", Folder + @"\..\", Folder + @"\.\", Folder + @"\sub\..\", @"C:\Users\u\AppData\Roaming\Shima\shelf2\", @"C:\Users\u\AppData\Roaming\Shima\", @"C:\", @"\\?\" + Folder + @"\", @"\\srv\share\", "", ".\\", "shelf\\", "/", "~/", Folder + "  \\", Folder + @"\\", Folder + @"\..\shelf\"];
+        string[] names = ["a.txt", "a.png", "A.TXT", "a.PNG", "a.lrc", "SHELF~1.TXT", "A~1.PNG", "", ".", "..", "x.txt:stream", "x.txt.", "x.txt ", "CON", "nul.txt", "a\\b.txt", "a/b.txt", "a?.txt", "中文.png", "\uD83D.txt", "a\u0000.txt", "x.txt\\", "x.txt/"];
         Fuzz.Run("Shelf.IsOwned／Classify", 8008, 8000, r => (r.Pick(prefixes) + r.Pick(names), r.Chance(0.05) ? r.Pick(["", "  ", "shelf", @"C:\", Folder + @"\.."]) : Folder), v =>
         {
             var (path, folder) = v;
