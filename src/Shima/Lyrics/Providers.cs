@@ -9,7 +9,7 @@ using System.Text.RegularExpressions;
 
 namespace Shima.Lyrics;
 
-public sealed record SongQuery(string Title, string Artist, string Album, double Duration);
+public sealed record SongQuery(string Title, string Artist, string Album, double Duration, double Tolerance = 2);
 
 /// <param name="Exact">確定是這首歌的這個版本；false 表示只找到同一首歌的原曲。</param>
 public sealed record LyricsHit(LyricSheet Sheet, bool Exact, string Provider);
@@ -19,6 +19,15 @@ public interface ILyricsProvider
 {
     string Name { get; }
     Task<LyricsHit?> FindAsync(SongQuery q);
+}
+
+/// <summary>關鍵字搜尋歌詞時列出的一筆候選：使用者點選之後才去抓整份歌詞。</summary>
+public sealed record LyricsChoice(string Title, string Artist, double Duration, string Provider, bool Synced, Func<CancellationToken, Task<LyricSheet?>> LoadAsync);
+
+/// <summary>支援依關鍵字列出候選清單的歌詞來源，給手動找歌詞用。</summary>
+public interface ILyricsSearchProvider : ILyricsProvider
+{
+    Task<List<LyricsChoice>> SearchAsync(string keyword, CancellationToken stop = default);
 }
 
 /// <summary>
@@ -148,7 +157,7 @@ public sealed partial class LocalProvider : ILyricsProvider
 }
 
 /// <summary>LRCLIB（lrclib.net）：免費、不用金鑰、社群維護的同步歌詞。</summary>
-public sealed class LrclibProvider : ILyricsProvider
+public sealed class LrclibProvider : ILyricsSearchProvider
 {
     public string Name => "lrclib";
     private readonly HttpClient Http;
@@ -170,8 +179,8 @@ public sealed class LrclibProvider : ILyricsProvider
         static string E(string s) => Uri.EscapeDataString(s);
         var artist = Titles.MainArtist(q.Artist);
 
-        // 歌名、藝人、長度完全對上
-        if (q.Artist.Length > 0 && q.Duration > 0)
+        // 歌名、藝人、長度完全對上（放寬容許差時改走搜尋，免得 exact 端點只認 ±2 秒）
+        if (q.Artist.Length > 0 && q.Duration > 0 && q.Tolerance <= 2)
         {
             using var doc = await GetAsync($"get?track_name={E(q.Title)}&artist_name={E(q.Artist)}&duration={Math.Round(q.Duration)}" +
                                            (q.Album.Length > 0 ? $"&album_name={E(q.Album)}" : ""));
@@ -192,7 +201,7 @@ public sealed class LrclibProvider : ILyricsProvider
             using var doc = await GetAsync(path);
             if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) continue;
             var items = doc.RootElement.EnumerateArray().ToList();
-            var (index, exact) = SongPicker.Pick(items.Select(Candidate).ToList(), q.Title, artist, q.Duration);
+            var (index, exact) = SongPicker.Pick(items.Select(Candidate).ToList(), q.Title, artist, q.Duration, q.Tolerance);
             if (index < 0 || Sheet(items[index]) is not { } sheet) continue;
             if (exact) return new LyricsHit(sheet, true, Name);
             approximate ??= new LyricsHit(sheet, false, Name);
@@ -200,11 +209,38 @@ public sealed class LrclibProvider : ILyricsProvider
         return approximate;
     }
 
-    private async Task<JsonDocument?> GetAsync(string path)
+    public async Task<List<LyricsChoice>> SearchAsync(string keyword, CancellationToken stop = default)
     {
-        using var response = await Http.GetAsync("https://lrclib.net/api/" + path, HttpCompletionOption.ResponseHeadersRead);
-        if (!response.IsSuccessStatusCode) return null;
-        return await HttpLimits.ReadAsync(response) is { } body ? JsonDocument.Parse(body) : null;
+        keyword = Titles.Cap(keyword).Trim();
+        if (keyword.Length == 0) return [];
+        using var doc = await GetAsync($"search?q={Uri.EscapeDataString(keyword)}", stop);
+        if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Array) return [];
+        var list = new List<LyricsChoice>();
+        foreach (var item in doc.RootElement.EnumerateArray())
+        {
+            if (list.Count >= 10) break;
+            if (Sheet(item) is not { } sheet) continue;
+            var c = Candidate(item);
+            if (c.Title.Length == 0) continue;
+            list.Add(new LyricsChoice(c.Title, c.Artist, c.Duration, Name, sheet.Synced, _ => Task.FromResult<LyricSheet?>(sheet)));
+        }
+        return list;
+    }
+
+    private async Task<JsonDocument?> GetAsync(string path, CancellationToken stop = default)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        deadline.CancelAfter(Http.Timeout);
+        try
+        {
+            using var response = await Http.GetAsync("https://lrclib.net/api/" + path, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode) return null;
+            return await HttpLimits.ReadAsync(response, deadline.Token) is { } body ? JsonDocument.Parse(body) : null;
+        }
+        catch (OperationCanceledException) when (!stop.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException($"{Http.Timeout.TotalSeconds:0.#} 秒內沒有收完");
+        }
     }
 
     private static string Text(JsonElement e, string name) =>
@@ -225,7 +261,7 @@ public sealed class LrclibProvider : ILyricsProvider
 }
 
 /// <summary>網易雲音樂：ACGN 的歌很齊，同一首歌的各個版本分開收錄。非官方介面，不用帳號。</summary>
-public sealed class NetEaseProvider : ILyricsProvider
+public sealed class NetEaseProvider : ILyricsSearchProvider
 {
     public string Name => "netease";
     private readonly HttpClient Http;
@@ -247,27 +283,55 @@ public sealed class NetEaseProvider : ILyricsProvider
     public async Task<LyricsHit?> FindAsync(SongQuery q)
     {
         var artist = Titles.MainArtist(q.Artist);
-        if (await HttpLimits.GetStringAsync(Http, $"https://music.163.com/api/search/get?s={Uri.EscapeDataString((q.Title + " " + artist).Trim())}&type=1&limit=20") is not { } json) return null;
-        using var doc = JsonDocument.Parse(json);
-        if (!doc.RootElement.TryGetProperty("result", out var result) || !result.TryGetProperty("songs", out var songs) || songs.ValueKind != JsonValueKind.Array) return null;
+        var (ids, items) = await QuerySongsAsync((q.Title + " " + artist).Trim(), 20, CancellationToken.None);
+        var (index, exact) = SongPicker.Pick(items, q.Title, artist, q.Duration, q.Tolerance);
+        if (index < 0) return null;
+        var sheet = await FetchLyricAsync(ids[index], CancellationToken.None);
+        return sheet == null ? null : new LyricsHit(sheet, exact, Name);
+    }
 
+    public async Task<List<LyricsChoice>> SearchAsync(string keyword, CancellationToken stop = default)
+    {
+        keyword = Titles.Cap(keyword).Trim();
+        if (keyword.Length == 0) return [];
+        var (ids, items) = await QuerySongsAsync(keyword, 10, stop);
+        var list = new List<LyricsChoice>(items.Count);
+        for (int i = 0; i < items.Count; i++)
+        {
+            long id = ids[i];
+            var item = items[i];
+            if (item.Title.Length == 0) continue;
+            list.Add(new LyricsChoice(item.Title, item.Artist, item.Duration, Name, true, ct => FetchLyricAsync(id, ct)));
+        }
+        return list;
+    }
+
+    private async Task<(List<long> Ids, List<SongCandidate> Items)> QuerySongsAsync(string keyword, int limit, CancellationToken stop)
+    {
         var ids = new List<long>();
         var items = new List<SongCandidate>();
+        if (await HttpLimits.GetStringAsync(Http, $"https://music.163.com/api/search/get?s={Uri.EscapeDataString(keyword)}&type=1&limit={limit}", stop) is not { } json)
+            return (ids, items);
+        using var doc = JsonDocument.Parse(json);
+        if (!doc.RootElement.TryGetProperty("result", out var result) || !result.TryGetProperty("songs", out var songs) || songs.ValueKind != JsonValueKind.Array)
+            return (ids, items);
         foreach (var s in songs.EnumerateArray())
         {
-            ids.Add(s.GetProperty("id").GetInt64());
+            if (!s.TryGetProperty("id", out var idProp) || idProp.ValueKind != JsonValueKind.Number) continue;
+            ids.Add(idProp.GetInt64());
             var artists = s.TryGetProperty("artists", out var a) && a.ValueKind == JsonValueKind.Array
                 ? string.Join(" ", a.EnumerateArray().Select(x => x.TryGetProperty("name", out var n) ? n.GetString() : "")) : "";
             items.Add(new SongCandidate(
                 s.TryGetProperty("name", out var t) ? t.GetString() ?? "" : "", artists,
                 s.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetDouble() / 1000 : 0));
         }
+        return (ids, items);
+    }
 
-        var (index, exact) = SongPicker.Pick(items, q.Title, artist, q.Duration);
-        if (index < 0) return null;
-
+    private async Task<LyricSheet?> FetchLyricAsync(long id, CancellationToken stop)
+    {
         // yv=1：有逐字歌詞（yrc）的話一起給
-        if (await HttpLimits.GetStringAsync(Http, $"https://music.163.com/api/song/lyric?id={ids[index]}&lv=1&tv=-1&rv=-1&yv=1") is not { } lyric) return null;
+        if (await HttpLimits.GetStringAsync(Http, $"https://music.163.com/api/song/lyric?id={id}&lv=1&tv=-1&rv=-1&yv=1", stop) is not { } lyric) return null;
         using var l = JsonDocument.Parse(lyric);
         if (!l.RootElement.TryGetProperty("lrc", out var lrc) || !lrc.TryGetProperty("lyric", out var text) || text.ValueKind != JsonValueKind.String) return null;
         if (text.GetString()!.Length > HttpLimits.MaxText) return null;
@@ -278,11 +342,10 @@ public sealed class NetEaseProvider : ILyricsProvider
             l.RootElement.TryGetProperty(name, out var e) && e.TryGetProperty("lyric", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() is { } x && x.Length <= HttpLimits.MaxText ? x : "";
         // 句子還是照 LRC，翻譯才對得上；逐字時間只是掛上去
         if (Extra("yrc") is { Length: > 0 } yrc) lines = WordTiming.Attach(lines, WordTiming.ParseYrc(yrc));
-        var sheet = new LyricSheet(lines, true)
+        return new LyricSheet(lines, true)
         {
             Translation = Lrc.Align(lines, Lrc.Parse(Chinese.Localize(Lrc.StripCredits(Extra("tlyric"))))),
             Romaji = Lrc.Align(lines, Lrc.Parse(Lrc.StripCredits(Extra("romalrc")))),
         };
-        return new LyricsHit(sheet, exact, Name);
     }
 }

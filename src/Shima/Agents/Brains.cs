@@ -152,6 +152,13 @@ public sealed record AssistantTool(string Name, string Description, JsonObject P
         new("open", "用預設瀏覽器開網站，或開啟電腦上的常用程式。使用者說「打開 YouTube」「開記事本」「開設定」時使用。" +
                     "只能開 http／https 網址和這些程式：" + string.Join("、", Opener.Names) + "。不能開檔案、資料夾路徑，也不能帶命令列參數。常用網站以外的網址會先請使用者在島上確認。",
             new() { ["target"] = Text("網址（例如 https://www.youtube.com 或 youtube.com），或上面清單裡的程式名稱") }, ["target"]),
+        new("youtube", "在 YouTube 或 YouTube Music 搜尋歌曲、MV 或影片；action 為 play 時直接用預設瀏覽器開啟最相關的結果，search 時只列出前幾個結果。使用者說「在 YouTube 播…」「在 YouTube Music 找…」「幫我找這首歌的 MV」時使用。",
+            new()
+            {
+                ["query"] = Text("要搜尋的歌名、藝人或關鍵字"),
+                ["mode"] = Choice("youtube：一般 YouTube（預設）；music：YouTube Music", "youtube", "music"),
+                ["action"] = Choice("play：搜尋並直接開啟第一個結果（預設）；search：只列出前幾個結果，不開瀏覽器", "play", "search"),
+            }, ["query"]),
         new("alarm", "在指定時間提醒使用者一句話（到時間會顯示在島上並唸出來）。使用者說「十分鐘後提醒我關火」「七點半叫我」「有哪些提醒」「取消提醒」時使用。" +
                      "跟待辦清單不同：有明確時間的用這個，沒有時間的用 todo。",
             new()

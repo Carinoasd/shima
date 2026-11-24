@@ -9,21 +9,25 @@ using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Shima.Lyrics;
+using Shima.Playback;
 
 namespace Shima.Agents;
 
 /// <summary>
-/// 島本身功能以外的助手技能：天氣、開網站或程式、提醒、現在幾點、計算、剪貼簿。
+/// 島本身功能以外的助手技能：天氣、開網站或程式、YouTube 搜尋、提醒、現在幾點、計算、剪貼簿。
 /// 回傳的是給 AI 看的一句事實（跟 IslandWindow 的 Tool 一樣不翻譯）；任何錯誤都變成一句話，不丟例外。
 /// 這裡的 await 全部 ConfigureAwait(false)：呼叫端可能在 UI 執行緒上同步等結果，不能卡住。
 /// </summary>
 public static class Skills
 {
     /// <summary>這裡處理的工具名稱。</summary>
-    public static readonly string[] Names = ["weather", "open", "alarm", "datetime", "calc", "clipboard"];
+    public static readonly string[] Names = ["weather", "open", "youtube", "alarm", "datetime", "calc", "clipboard"];
 
     /// <summary>提醒的清單。由程式啟動時設定；沒設定時 alarm 工具會說還不能用。</summary>
     public static Alarms? Alarms { get; set; }
+
+    /// <summary>YouTube 搜尋實例。測試可換成假的，不會真的連網。</summary>
+    public static YouTubeSearch YouTube { get; set; } = YouTubeSearch.Shared;
 
     /// <summary>認得的工具就執行並回傳結果；不是這裡的工具回傳 null。</summary>
     public static async Task<string?> RunAsync(string tool, JsonObject arguments)
@@ -36,6 +40,7 @@ public static class Skills
             {
                 "weather" => await WeatherAsync(Arg("location"), Arg("country"), CancellationToken.None).ConfigureAwait(false),
                 "open" => await OpenAsync(Arg("target")).ConfigureAwait(false),
+                "youtube" => await YouTubeAsync(Arg("query"), Arg("mode"), Arg("action"), CancellationToken.None).ConfigureAwait(false),
                 "alarm" => Alarms is { } alarms ? Alarm(arguments, alarms, DateTime.Now) : "提醒功能還沒準備好",
                 "datetime" => Now(DateTimeOffset.Now),
                 "calc" => Calculate(Arg("expression")),
@@ -191,6 +196,64 @@ public static class Skills
         if (choice?.GetValue("ProgId") is not string progId || progId.Length == 0) return null;
         using var command = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(progId + @"\shell\open\command");
         return Opener.Executable(command?.GetValue(null) as string ?? "");
+    }
+
+    // ---------------------------------------------------------------- YouTube / YouTube Music 搜尋
+
+    /// <summary>搜尋 YouTube 或 YouTube Music；play 時直接開第一筆（走 OpenAsync 的安全檢查），查不到或失敗退回瀏覽器搜尋頁。</summary>
+    public static async Task<string> YouTubeAsync(string query, string mode = "youtube", string action = "play", CancellationToken stop = default)
+    {
+        query = Titles.Cap(query).Trim();
+        if (query.Length == 0) return "沒有給要搜尋的關鍵字";
+        if (query.Length > 120) return "搜尋關鍵字太長，請縮短一點再試";
+
+        bool music = mode.Equals("music", StringComparison.OrdinalIgnoreCase);
+        bool play = !action.Equals("search", StringComparison.OrdinalIgnoreCase);
+        string service = music ? "YouTube Music" : "YouTube";
+
+        List<YouTubeItem> items;
+        string? failed = null;
+        try
+        {
+            items = await YouTube.SearchAsync(query, music, Loc.Lang, limit: 5, stop).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            Log.Write($"{service} 搜尋失敗: {e.Message}");
+            items = [];
+            failed = e.Message;
+        }
+
+        if (play)
+        {
+            if (items.Count > 0)
+            {
+                var top = items[0];
+                var opened = await OpenAsync(top.WatchUrl).ConfigureAwait(false);
+                var label = top.Channel.Length > 0 ? $"{top.Title} — {top.Channel}" : top.Title;
+                return opened.StartsWith("已用瀏覽器開啟", StringComparison.Ordinal)
+                    ? $"已在 {service} 開啟：{label}（{top.WatchUrl}）"
+                    : opened;
+            }
+            var fallback = YouTubeSearch.SearchUrl(query, music);
+            var openedSearch = await OpenAsync(fallback).ConfigureAwait(false);
+            return openedSearch.StartsWith("已用瀏覽器開啟", StringComparison.Ordinal)
+                ? $"在 {service} 找不到直接結果，已開啟搜尋頁：{query}"
+                : openedSearch;
+        }
+
+        if (items.Count == 0)
+            return failed != null ? $"{service} 搜尋失敗：{failed}" : $"在 {service} 找不到「{query}」的相關結果";
+
+        var lines = new StringBuilder($"{service} 搜尋「{query}」的結果：");
+        for (int i = 0; i < items.Count; i++)
+        {
+            var it = items[i];
+            lines.Append($"\n{i + 1}. {it.Title}");
+            if (it.Channel.Length > 0) lines.Append($" — {it.Channel}");
+            if (it.Duration.Length > 0) lines.Append($" ({it.Duration})");
+        }
+        return lines.ToString();
     }
 
     // ---------------------------------------------------------------- 提醒

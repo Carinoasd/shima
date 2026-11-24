@@ -29,18 +29,23 @@ public sealed class LyricsFinder
 
     private readonly List<ILyricsProvider> _providers;
     private readonly Dictionary<string, LyricsHit?> _memory = [];
+    private readonly Dictionary<string, LyricsHit> _manual = new(StringComparer.Ordinal);
 
     private readonly string? _cacheFolder;
+    private readonly string? _manualFolder;
 
     public LyricsFinder() : this(
         AppSettings.Current.LyricsProviders.Where(Known.ContainsKey).Distinct().Select(n => Known[n]()).ToList(),
-        Path.Combine(AppSettings.Folder, "cache")) { }
+        Path.Combine(AppSettings.Folder, "cache"),
+        Path.Combine(AppSettings.Folder, "lyrics-manual")) { }
 
-    /// <param name="cacheFolder">null：不存磁碟（測試用）。</param>
-    public LyricsFinder(List<ILyricsProvider> providers, string? cacheFolder = null)
+    /// <param name="cacheFolder">null：不存磁碟快取（測試用）。</param>
+    /// <param name="manualFolder">null：手動綁定只留記憶體（測試用）。</param>
+    public LyricsFinder(List<ILyricsProvider> providers, string? cacheFolder = null, string? manualFolder = null)
     {
         _providers = providers;
         _cacheFolder = cacheFolder;
+        _manualFolder = manualFolder;
     }
 
     private static SongQuery? Query(Track track)
@@ -57,9 +62,13 @@ public sealed class LyricsFinder
     /// </summary>
     public void Forget(Track track)
     {
-        var id = "|" + IdOf(track) + "|";
-        lock (_memory)
-            foreach (var key in _memory.Keys.Where(k => k.Contains(id, StringComparison.Ordinal)).ToList()) _memory.Remove(key);
+        var id = IdOf(track);
+        if (id.Length > 0)
+        {
+            var marker = "|" + id + "|";
+            lock (_memory)
+                foreach (var key in _memory.Keys.Where(k => k.Contains(marker, StringComparison.Ordinal)).ToList()) _memory.Remove(key);
+        }
         foreach (var local in _providers.OfType<LocalProvider>()) local.Reindex();
     }
 
@@ -67,16 +76,81 @@ public sealed class LyricsFinder
     public static string IdOf(Track track) =>
         Query(track) is { } q ? $"{Titles.Norm(q.Artist)}|{Titles.Norm(q.Title)}" : "";
 
+    /// <summary>未經標題拆解的原始身分：手動關鍵字綁定歌詞記在這個鍵下，就算標題解析規則改了或解析不到仍認得這支影片。</summary>
+    public static string RawId(Track track) =>
+        $"{Titles.Norm(track.Artist)}|{Titles.Norm(track.Title)}";
+
+    /// <summary>把使用者手動搜尋挑中的歌詞綁到這首歌上，之後再播到同一首會直接套用。</summary>
+    public void Bind(Track track, LyricsHit hit)
+    {
+        var raw = RawId(track);
+        if (raw == "|") return;
+        lock (_manual) _manual[raw] = hit;
+        Forget(track);
+        WriteManual(raw, hit);
+    }
+
+    /// <summary>移除這首歌的手動綁定歌詞（還原、存成 .lrc 或換一份時呼叫）。</summary>
+    public void Unbind(Track track)
+    {
+        var raw = RawId(track);
+        if (raw == "|") return;
+        lock (_manual) _manual.Remove(raw);
+        DeleteManual(raw);
+        Forget(track);
+    }
+
+    /// <summary>以關鍵字同時問所有支援搜尋的歌詞來源，供使用者手動挑選。</summary>
+    public async Task<List<LyricsChoice>> SearchAsync(string keyword, CancellationToken stop = default)
+    {
+        keyword = Titles.Cap(keyword).Trim();
+        if (keyword.Length == 0) return [];
+        var searchable = _providers.OfType<ILyricsSearchProvider>().ToList();
+        if (searchable.Count == 0) return [];
+
+        var lists = await Task.WhenAll(searchable.Select(async p =>
+        {
+            try { return await p.SearchAsync(keyword, stop); }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested) { throw; }
+            catch (Exception e) { Log.Write($"歌詞搜尋 ({p.Name}): {e.Message}"); return new List<LyricsChoice>(); }
+        }));
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var merged = new List<LyricsChoice>();
+        // 先排有時間軸的，再補純文字；同一來源同歌名同藝人同長度去重
+        foreach (var synced in new[] { true, false })
+            foreach (var list in lists)
+                foreach (var c in list)
+                {
+                    if (c.Synced != synced) continue;
+                    var dedup = $"{c.Provider}|{Titles.Norm(c.Title)}|{Titles.Norm(c.Artist)}|{Math.Round(c.Duration)}";
+                    if (!seen.Add(dedup)) continue;
+                    merged.Add(c);
+                    if (merged.Count >= 24) return merged;
+                }
+        return merged;
+    }
+
     /// <summary>每個來源各問一次，把找到的全部列出來（同版本的排前面），給「換一份」用。</summary>
     public async Task<List<LyricsHit>> AllAsync(Track track)
     {
         if (Query(track) is not { } q) return [];
-        var hits = await Task.WhenAll(_providers.Select(p => AskAsync(p, q)));
-        return hits.OfType<LyricsHit>().OrderByDescending(h => h.Exact).ToList();
+        var hits = (await Task.WhenAll(_providers.Select(p => AskAsync(p, q))))
+            .OfType<LyricsHit>().OrderByDescending(h => h.Exact).ToList();
+        if (hits.Count == 0 && track.AppId != RoonSource.AppId && q.Duration > 0)
+        {
+            var relaxed = q with { Tolerance = 15 };
+            hits = (await Task.WhenAll(_providers.Where(p => p is not LocalProvider).Select(p => AskAsync(p, relaxed))))
+                .OfType<LyricsHit>().OrderByDescending(h => h.Exact).ToList();
+        }
+        return hits;
     }
 
     public async Task<LyricsHit?> FindAsync(Track track)
     {
+        // 使用者曾經手動搜尋並綁定給這首歌的歌詞最優先（永遠不過期，也不受標題拆解結果影響）
+        if (ReadManual(track) is { } manual) return manual;
+
         if (Query(track) is not { } q) return null;
         string artist = q.Artist, title = q.Title;
 
@@ -98,18 +172,54 @@ public sealed class LyricsFinder
 
         if (Read(key) is { } stored) return Remember(key, stored.Hit, save: false);
 
+        var online = _providers.Where(p => p is not LocalProvider).ToList();
+        var (hit1, failed) = await QueryProvidersAsync(online, q);
+        if (hit1 is { Exact: true }) return Remember(key, await WithSecondLineAsync(hit1, q), save: true);
+        LyricsHit? approximate = hit1;
+
+        // 瀏覽器 / YouTube 標題常夾雜多個藝人、聲優、作品名，或 MV 片頭片尾多幾秒：第一輪沒中時再放寬重試
+        if (approximate == null && !failed && track.AppId != RoonSource.AppId)
+        {
+            foreach (var fq in FallbackQueries(track, q))
+            {
+                var (hit2, failed2) = await QueryProvidersAsync(online, fq);
+                if (failed2) failed = true;
+                if (hit2 is { Exact: true }) return Remember(key, await WithSecondLineAsync(hit2, fq), save: true);
+                if (hit2 != null) { approximate = hit2; break; }
+            }
+        }
+
+        // 有來源連不上時先不記「找不到」，下次再試
+        return Remember(key, approximate, save: approximate != null || !failed);
+    }
+
+    private static async Task<(LyricsHit? Hit, bool Failed)> QueryProvidersAsync(List<ILyricsProvider> providers, SongQuery q)
+    {
         LyricsHit? approximate = null;
         bool failed = false;
-        foreach (var provider in _providers.Where(p => p is not LocalProvider))
+        foreach (var provider in providers)
         {
             LyricsHit? hit;
             try { hit = await provider.FindAsync(q); }
             catch (Exception e) { Log.Write($"歌詞 ({provider.Name}): {e.Message}"); failed = true; continue; }
-            if (hit is { Exact: true }) return Remember(key, await WithSecondLineAsync(hit, q), save: true);
+            if (hit is { Exact: true }) return (hit, failed);
             approximate ??= hit;
         }
-        // 有來源連不上時先不記「找不到」，下次再試
-        return Remember(key, approximate, save: approximate != null || !failed);
+        return (approximate, failed);
+    }
+
+    private static List<SongQuery> FallbackQueries(Track track, SongQuery primary)
+    {
+        var list = new List<SongQuery>(4);
+        // 先用原本整理出的藝人＋歌名放寬長度容許（MV 常見片頭片尾多幾秒）
+        if (primary.Duration > 0) list.Add(primary with { Tolerance = 15 });
+        foreach (var (altArtist, altTitle) in Titles.Alternates(track.Artist, track.Title, split: true))
+        {
+            if (list.Count >= 4) break;
+            if (altArtist.Length == 0 && primary.Duration <= 0) continue;
+            list.Add(new SongQuery(altTitle, altArtist, "", primary.Duration, altArtist.Length > 0 ? 15 : 10));
+        }
+        return list;
     }
 
     /// <summary>第二行要翻譯或羅馬拼音（讀音是自己算的，不用另外找有翻譯的版本）。</summary>
@@ -177,8 +287,54 @@ public sealed class LyricsFinder
         return (new LyricsHit(new LyricSheet(lines, s.Synced) { Translation = s.Translation, Romaji = s.Romaji }, s.Exact, s.Provider), s.At);
     }
 
-    private string FileFor(string key) =>
-        Path.Combine(_cacheFolder!, Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(key)))[..20] + ".json");
+    private static string HashFile(string folder, string key) =>
+        Path.Combine(folder, Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(key)))[..20] + ".json");
+
+    private string FileFor(string key) => HashFile(_cacheFolder!, key);
+
+    private LyricsHit? ReadManual(Track track)
+    {
+        var raw = RawId(track);
+        if (raw == "|") return null;
+        lock (_manual) if (_manual.TryGetValue(raw, out var mem)) return mem;
+        if (_manualFolder == null) return null;
+        try
+        {
+            var path = HashFile(_manualFolder, raw);
+            if (!File.Exists(path)) return null;
+            if (Unpack(File.ReadAllText(path)) is { Hit: { } hit })
+            {
+                lock (_manual) _manual[raw] = hit;
+                return hit;
+            }
+        }
+        catch (Exception e) { Log.Write("手動歌詞快取: " + e.Message); }
+        return null;
+    }
+
+    private void WriteManual(string raw, LyricsHit hit)
+    {
+        if (_manualFolder == null || AppSettings.Frozen) return;
+        try
+        {
+            Directory.CreateDirectory(_manualFolder);
+            var path = HashFile(_manualFolder, raw);
+            File.WriteAllText(path + ".tmp", Pack(hit, DateTime.Now));
+            File.Move(path + ".tmp", path, overwrite: true);
+        }
+        catch (Exception e) { Log.Write("手動歌詞寫入: " + e.Message); }
+    }
+
+    private void DeleteManual(string raw)
+    {
+        if (_manualFolder == null || AppSettings.Frozen) return;
+        try
+        {
+            var path = HashFile(_manualFolder, raw);
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception e) { Log.Write("手動歌詞移除: " + e.Message); }
+    }
 
     private (LyricsHit? Hit, bool _)? Read(string key)
     {
@@ -199,7 +355,7 @@ public sealed class LyricsFinder
 
     private void Write(string key, LyricsHit? hit)
     {
-        if (_cacheFolder == null) return;
+        if (_cacheFolder == null || AppSettings.Frozen) return;
         try
         {
             Directory.CreateDirectory(_cacheFolder);

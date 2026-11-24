@@ -27,7 +27,11 @@ public partial class IslandWindow
     private void Queue_Click(object sender, RoutedEventArgs e)
     {
         _queueOpen = !_queueOpen;
-        if (_queueOpen && _queue == null) QueueHost.Children.Add(_queue = new QueueView(_media.Roon));
+        if (_queueOpen)
+        {
+            _searchOpen = false;
+            if (_queue == null) QueueHost.Children.Add(_queue = new QueueView(_media.Roon));
+        }
         Morph();
     }
 

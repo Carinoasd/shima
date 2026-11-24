@@ -173,6 +173,7 @@
           <MenuItem x:Name="SecondLineMenu" Header="歌詞第二行"/>
           <MenuItem Header="這首歌的歌詞" SubmenuOpened="LyricsMenu_SubmenuOpened">
             <MenuItem Header="換一份" Click="LyricsOther_Click"/>
+            <MenuItem x:Name="LyricsSearchItem" Header="搜尋歌詞…" Click="LyricsSearch_Click"/>
             <MenuItem Header="提早 0.1 秒" Click="LyricsEarlier_Click"/>
             <MenuItem Header="延後 0.1 秒" Click="LyricsLater_Click"/>
             <MenuItem Header="還原" Click="LyricsReset_Click"/>
@@ -304,12 +305,14 @@
                 <Button x:Name="PlayButton" Style="{StaticResource Key}" FontSize="18" Width="52" Content="&#xE768;" Click="Play_Click"/>
                 <Button Style="{StaticResource Key}" Content="&#xE893;" Click="Next_Click"/>
                 <Button x:Name="FavoriteButton" Style="{StaticResource Key}" FontSize="13" Content="&#xEB51;" ToolTip="收藏這句歌詞" Click="Favorite_Click"/>
+                <Button x:Name="SearchButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE721;" ToolTip="搜尋 YouTube" Click="MusicSearch_Click"/>
                 <Button x:Name="QueueButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE8FD;" ToolTip="接下來播放" Click="Queue_Click"/>
                 <Button x:Name="AudioButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE767;" ToolTip="播放裝置" Visibility="Collapsed" Click="Audio_Click"/>
                 <Button x:Name="SleepButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE708;" ToolTip="睡眠定時" Click="Sleep_Click"/>
               </StackPanel>
 
               <Grid x:Name="QueueHost" Grid.Row="5" Margin="0,10,0,0" Height="300" Visibility="Collapsed"/>
+              <Grid x:Name="MusicSearchHost" Grid.Row="5" Margin="0,10,0,0" Height="300" Visibility="Collapsed"/>
               <StackPanel x:Name="LyricsBox" Grid.Row="5" Margin="0,10,0,0" Visibility="Collapsed">
                 <s:LyricsView x:Name="LyricsList" Height="150"/>
             </StackPanel>

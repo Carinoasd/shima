@@ -22,11 +22,14 @@ public static class IslandFit
     /// <summary>通知頁在清單上下多出來的間距與「全部清除」按鈕。</summary>
     public const double RecentExtra = 58;
 
+    /// <summary>音樂頁在佇列／搜尋抽屜上面佔的固定高度（封面＋進度列＋按鈕列＋間距）。</summary>
+    public const double MusicDrawerExtra = 164;
+
     /// <summary>再矮就沒法用了：螢幕小到這個地步寧可超出，也不要把頁面壓成一條。</summary>
-    public const double MinPage = 240;
+    public const double MinPage = 240, MinMusicDrawer = 180;
 
     /// <summary>各頁原本的高度（100% 時不變）。</summary>
-    public const double ChatHeight = 560, SettingsMax = 540, RecentMax = 440;
+    public const double ChatHeight = 560, SettingsMax = 540, RecentMax = 440, MusicDrawerHeight = 300;
 
     /// <summary>視窗上緣到工作區下緣的高度；上緣不合理（NaN）時當成貼在工作區最上面（座標 0）。</summary>
     public static double Below(double workBottom, double windowTop) =>
@@ -47,4 +50,12 @@ public static class IslandFit
     public static double Chat(double workHeight, double scale) => Page(workHeight, scale, 0, ChatHeight);
     public static double Settings(double workHeight, double scale) => Page(workHeight, scale, SettingsExtra, SettingsMax);
     public static double Recent(double workHeight, double scale) => Page(workHeight, scale, RecentExtra, RecentMax);
+
+    public static double MusicDrawer(double workHeight, double scale)
+    {
+        if (!double.IsFinite(workHeight) || workHeight <= 0) return MusicDrawerHeight;
+        scale = IslandScale.Sanitize(scale);
+        double room = Math.Floor(workHeight / scale - TopGap - Chrome - MusicDrawerExtra);
+        return Math.Min(MusicDrawerHeight, Math.Max(MinMusicDrawer, room));
+    }
 }

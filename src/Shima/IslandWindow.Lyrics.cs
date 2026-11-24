@@ -15,6 +15,7 @@ public partial class IslandWindow
     /// <summary>子選單打開時才決定哪幾項能按：要看當下這首歌有沒有同步歌詞。</summary>
     private void LyricsMenu_SubmenuOpened(object sender, RoutedEventArgs e)
     {
+        LyricsSearchItem.IsEnabled = _track != null;
         LyricsSaveItem.IsEnabled = _sheet is { Synced: true };
         LyricsCopyItem.IsEnabled = _sheet is { Lines.Count: > 0 };
         // AI 翻的可以再翻一次（翻壞了、錯位了）；歌詞來源自己帶的翻譯就不用
@@ -37,7 +38,7 @@ public partial class IslandWindow
             AppSettings.Current.LyricsShift.Remove(id);
             AppSettings.Current.LyricsPick.Remove(id);
             AppSettings.Current.Save();
-            _lyrics.Forget(track);
+            _lyrics.Unbind(track);
             // 畫面改用存出去的那份：時間已經含偏移，偏移歸零後才不會跳一下
             _lyricShift = TimeSpan.Zero;
             _sheet = Lrc.ParseSheet(lrc);
@@ -57,6 +58,27 @@ public partial class IslandWindow
         // Windows 的文字用 CRLF 換行，舊程式才不會貼成一整行；別的程式正開著剪貼簿時會丟例外
         try { Clipboard.SetText(text.Replace("\n", "\r\n")); Toast(L.T("已複製"), 2); }
         catch (Exception x) { Log.Write("複製歌詞: " + x.Message); }
+    }
+
+    /// <summary>使用者從關鍵字搜尋結果挑中一份歌詞：立即套用並記住給這首歌，之後再播同一支影片直接沿用。</summary>
+    private void ApplySearchedLyrics(Track track, LyricsChoice choice, LyricSheet sheet)
+    {
+        var hit = new LyricsHit(sheet, true, choice.Provider);
+        _lyrics.Bind(track, hit);
+        var id = LyricsFinder.IdOf(track);
+        if (id.Length > 0)
+        {
+            AppSettings.Current.LyricsPick.Remove(id);
+            AppSettings.Current.LyricsShift.Remove(id);
+            AppSettings.Current.Save();
+        }
+        _lyricShift = TimeSpan.Zero;
+        _sheet = WithAiTranslation(track, sheet);
+        _lyricsFrom = choice.Provider;
+        _lyricIndex = int.MinValue;
+        UpdateTexts();
+        Morph();
+        Toast(L.F("已套用歌詞（{0}）", choice.Provider), 3);
     }
 
     // ---------------------------------------------------------------- AI 翻譯
