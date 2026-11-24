@@ -101,10 +101,12 @@ public class StalledDownloadTests : IDisposable
     [Fact]
     public async Task 更新_慢但一直有資料_不算停住()
     {
-        // 每 100 毫秒一個位元組、總共約一秒：比「多久沒有資料」的 300 毫秒久得多，但一直有在收
-        using var http = new HttpClient(new Fake(() => new Trickle(0, TimeSpan.FromMilliseconds(100), 10)));
-        Assert.True(await Updater.DownloadAsync(http, Release(10), Target, Short).WaitAsync(Bound));
-        Assert.Equal(10, new FileInfo(Target).Length);
+        // 每 100 毫秒一個位元組、總共約兩秒半：比「多久沒有資料」的兩秒久，但一直有在收。
+        // 兩次資料之間留二十倍的餘裕：CI 的機器慢，只留三倍的時候（100 對 300 毫秒）偶爾會被當成停住
+        var idle = TimeSpan.FromSeconds(2);
+        using var http = new HttpClient(new Fake(() => new Trickle(0, TimeSpan.FromMilliseconds(100), 25)));
+        Assert.True(await Updater.DownloadAsync(http, Release(25), Target, idle).WaitAsync(TimeSpan.FromSeconds(30)));
+        Assert.Equal(25, new FileInfo(Target).Length);
         Assert.Equal(TimeSpan.FromSeconds(60), Updater.Stalled);
     }
 }
