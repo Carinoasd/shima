@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.IO;
 using System.Text;
 using Shima.Agents;
 using Xunit;
@@ -80,6 +81,34 @@ public class UsageMemoryTests(ITestOutputHelper output)
         Assert.NotEmpty(Pool(ledger));
         ledger.Clear();
         Assert.Empty(Pool(ledger));
+    }
+
+    [Fact]
+    public async Task 先問今天再問趨勢只列一次目錄()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "shima-usage-mem-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var folder = Path.Combine(root, ".claude");
+            var dir = Path.Combine(folder, "projects", "p");
+            Directory.CreateDirectory(dir);
+            var now = DateTime.Today.AddHours(12);
+            string Stamp(DateTime local) => local.ToUniversalTime().ToString("o");
+            var today = Path.Combine(dir, "today.jsonl");
+            var older = Path.Combine(dir, "older.jsonl");
+            File.WriteAllText(today, Of("t", "s1", "/x/p", Stamp(now.AddMinutes(-5))) + "\n");
+            File.WriteAllText(older, Of("o", "s2", "/x/p", Stamp(now.AddDays(-5))) + "\n");
+            File.SetLastWriteTime(today, now.AddMinutes(-5));
+            File.SetLastWriteTime(older, now.AddDays(-5));
+            var usage = new AgentUsage(() => [folder], () => now);
+            var field = typeof(AgentUsage).GetField("_listing", Flags)!;
+
+            Assert.Equal(6, (await usage.TodayAsync()).Tokens.Total);   // 今天只算今天改過的那個檔
+            var first = field.GetValue(usage);
+            Assert.Equal(12, (await usage.TrendAsync()).Tokens.Total);   // 趨勢也有五天前的那個檔
+            Assert.Same(first, field.GetValue(usage));
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     private static object EntryExtra(UsageLedger ledger)

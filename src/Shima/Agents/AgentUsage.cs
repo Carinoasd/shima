@@ -472,7 +472,7 @@ public sealed class AgentUsage
     {
         var files = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (path, written) in Listing(since))
+        foreach (var (path, written) in Listing(since, now))
             if (written >= since && seen.Add(path)) files.Add(path);
         List<string> watched;
         lock (_watched) watched = [.. _watched];
@@ -490,12 +490,18 @@ public sealed class AgentUsage
         return files;
     }
 
-    /// <summary>列舉 projects 底下的紀錄檔（路徑與修改時間）。幾秒內、範圍夠大的上一份清單直接沿用。</summary>
-    private List<(string Path, DateTime Written)> Listing(DateTime since)
+    /// <summary>
+    /// 列舉 projects 底下的紀錄檔（路徑與修改時間）。幾秒內、範圍夠大的上一份清單直接沿用。
+    /// 一律至少列到趨勢的範圍（14 天）：刷新時先問今天、再問趨勢，只列今天的話第二次一定不夠大又要再掃一遍（WSL 那份走網路，很慢）。
+    /// 反正每個檔案都要看過修改時間，範圍大一點不會多讀；呼叫的人自己再篩。
+    /// </summary>
+    private List<(string Path, DateTime Written)> Listing(DateTime since, DateTime now)
     {
+        var floor = now.Date.AddDays(-13);
+        if (since < floor) floor = since;
         lock (_listLock)
         {
-            if (_listing != null && since >= _listingSince && Environment.TickCount64 - _listingTick < 5000) return _listing;
+            if (_listing != null && floor >= _listingSince && Environment.TickCount64 - _listingTick < 5000) return _listing;
             var list = new List<(string, DateTime)>();
             foreach (var folder in Folders())
             {
@@ -505,11 +511,11 @@ public sealed class AgentUsage
                     if (!Directory.Exists(projects)) continue;
                     var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
                     foreach (var file in new DirectoryInfo(projects).EnumerateFiles("*.jsonl", options))
-                        if (file.LastWriteTime >= since) list.Add((file.FullName, file.LastWriteTime));
+                        if (file.LastWriteTime >= floor) list.Add((file.FullName, file.LastWriteTime));
                 }
                 catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }   // 訊息裡有含專案名稱的完整路徑，不寫進紀錄檔
             }
-            _listing = list; _listingSince = since; _listingTick = Environment.TickCount64;
+            _listing = list; _listingSince = floor; _listingTick = Environment.TickCount64;
             return list;
         }
     }
