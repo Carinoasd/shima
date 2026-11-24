@@ -46,8 +46,14 @@ public sealed class AgentBridge
 {
     public const int Port = 47813;
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(570);
+    /// <summary>每個 agent 同時等人回答的權限請求最多幾則；再來的回終端機照常問。</summary>
+    public const int MaxWaiting = 8;
+    /// <summary>整個伺服器同時處理中的連線最多幾條（每個 agent 等回答的那幾條、外掛輪詢、通知，綽綽有餘）。</summary>
+    public const int MaxOpen = 64;
 
     private HttpListener? _listener;
+    private readonly Slots _open = new(MaxOpen);
+    private readonly Dictionary<AgentKind, Slots> _waiting = Enum.GetValues<AgentKind>().ToDictionary(a => a, _ => new Slots(MaxWaiting));
 
     public event Action<PermissionRequest>? Asked;
     /// <summary>Claude Code 做完了：專案名稱、最後一句話。</summary>
@@ -270,7 +276,17 @@ public sealed class AgentBridge
             HttpListenerContext context;
             try { context = await listener.GetContextAsync(); }
             catch { return; }
-            _ = Task.Run(() => HandleAsync(context, tokens));
+            if (!_open.TryTake())
+            {
+                // 太多了：不讀內容、馬上回。hook 拿到空的回應，Claude Code 照常在終端機問
+                try { context.Response.StatusCode = 503; context.Response.Close(); } catch { }
+                continue;
+            }
+            _ = Task.Run(async () =>
+            {
+                try { await HandleAsync(context, tokens); }
+                finally { _open.Give(); }
+            });
         }
     }
 
@@ -404,21 +420,31 @@ public sealed class AgentBridge
 
         Touch(json, agent);
         if (Asked == null) return null;
-        Asked.Invoke(ask);
-        // 人按了之後就把計時器取消，不然每問一次就留一個活九分多鐘的計時器
-        using var giveUp = new CancellationTokenSource();
-        var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience, giveUp.Token));
-        giveUp.Cancel();
-        var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
-        ask.Decision.TrySetResult(null);
-        if (behavior == PermissionRequest.Always)
+        // 同一個 agent 已經有好幾則在等：不再排上島，照「Shima 不處理」回終端機問
+        var waiting = _waiting[agent];
+        if (!waiting.TryTake()) return null;
+        try
         {
-            if (claude && ask.Remember is { } remember) Rules.Add(remember);
-            behavior = "allow";
+            Asked.Invoke(ask);
+            // 人按了之後就把計時器取消，不然每問一次就留一個活九分多鐘的計時器
+            using var giveUp = new CancellationTokenSource();
+            var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience, giveUp.Token));
+            giveUp.Cancel();
+            var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
+            ask.Decision.TrySetResult(null);
+            if (behavior == PermissionRequest.Always)
+            {
+                if (claude && ask.Remember is { } remember) Rules.Add(remember);
+                behavior = "allow";
+            }
+            if (behavior is "allow" or "deny") Change(s => s.Resumed(key));
+            return behavior;
         }
-        if (behavior is "allow" or "deny") Change(s => s.Resumed(key));
-        return behavior;
+        finally { waiting.Give(); }
     }
+
+    /// <summary>這個 agent 此刻有幾則權限請求在等人回答。</summary>
+    public int Waiting(AgentKind agent) => _waiting[agent].Taken;
 
     /// <summary>不用等回答的 hook：Stop、PostToolUse、Notification、SessionStart、SessionEnd…</summary>
     public void Notify(JsonObject json, AgentKind agent = AgentKind.Claude)

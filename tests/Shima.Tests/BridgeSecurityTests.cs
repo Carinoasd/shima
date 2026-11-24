@@ -184,3 +184,75 @@ public class TranscriptPathTests
         Assert.Equal("", Assert.Single(bridge.Sessions).TranscriptPath);
     }
 }
+
+/// <summary>權限請求與連線都有上限。</summary>
+public class BridgeLimitTests
+{
+    private static JsonObject Permission(int n) => new()
+    {
+        ["session_id"] = "s" + n, ["hook_event_name"] = "PermissionRequest", ["cwd"] = @"C:\src\alpha",
+        ["tool_name"] = "Bash", ["tool_input"] = new JsonObject { ["command"] = "echo " + n },
+    };
+
+    [Fact]
+    public async Task 每個_agent_最多八則在等_再來的回終端機()
+    {
+        var bridge = new AgentBridge(new AgentRules(Path.Combine(Path.GetTempPath(), "shima-sec-" + Guid.NewGuid().ToString("N") + ".json")));
+        var asked = new List<PermissionRequest>();
+        bridge.Asked += ask => { lock (asked) asked.Add(ask); };
+
+        var pending = Enumerable.Range(0, AgentBridge.MaxWaiting).Select(i => bridge.PermissionAsync(Permission(i))).ToList();
+        Assert.Equal(AgentBridge.MaxWaiting, bridge.Waiting(AgentKind.Claude));
+        Assert.All(pending, t => Assert.False(t.IsCompleted));
+
+        // 第九則：不排上島，馬上回「不處理」（hook 拿到 204，Claude Code 在終端機問）
+        var extra = bridge.PermissionAsync(Permission(99));
+        Assert.True(extra.IsCompleted);
+        Assert.Null(await extra);
+        Assert.Equal(AgentBridge.MaxWaiting, asked.Count);
+
+        // 別的 agent 各算各的
+        var codex = bridge.PermissionAsync(Permission(100), AgentKind.Codex);
+        Assert.Equal(AgentBridge.MaxWaiting + 1, asked.Count);
+        asked[^1].Decision.TrySetResult("deny");
+        Assert.Equal("deny", await codex);
+
+        // 回答掉一則就空出一個位子
+        asked[0].Decision.TrySetResult("allow");
+        Assert.Equal("allow", await pending[0]);
+        Assert.Equal(AgentBridge.MaxWaiting - 1, bridge.Waiting(AgentKind.Claude));
+        var again = bridge.PermissionAsync(Permission(200));
+        Assert.False(again.IsCompleted);
+        asked[^1].Decision.TrySetResult("allow");
+        Assert.Equal("allow", await again);
+
+        foreach (var ask in asked) ask.Decision.TrySetResult(null);
+        await Task.WhenAll(pending);
+        Assert.Equal(0, bridge.Waiting(AgentKind.Claude));
+        Assert.Equal(0, bridge.Waiting(AgentKind.Codex));
+    }
+
+    [Fact]
+    public void 位子滿了就不收_還了才有()
+    {
+        var slots = new Slots(3);
+        Assert.True(slots.TryTake());
+        Assert.True(slots.TryTake());
+        Assert.True(slots.TryTake());
+        Assert.False(slots.TryTake());
+        Assert.Equal(3, slots.Taken);   // 沒拿到的不佔位子
+        slots.Give();
+        Assert.True(slots.TryTake());
+        Assert.False(slots.TryTake());
+    }
+
+    [Fact]
+    public void 同時搶也不會超過()
+    {
+        var slots = new Slots(AgentBridge.MaxOpen);
+        int got = 0;
+        Parallel.For(0, 1000, _ => { if (slots.TryTake()) Interlocked.Increment(ref got); });
+        Assert.Equal(AgentBridge.MaxOpen, got);
+        Assert.Equal(AgentBridge.MaxOpen, slots.Taken);
+    }
+}
