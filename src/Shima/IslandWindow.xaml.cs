@@ -55,8 +55,7 @@ public partial class IslandWindow : Window
         FontFamily = Loc.Font;
         Loc.Translate(this);
         ApplyLyricsLines();
-
-        Place();
+        ApplyScale();   // 視窗的大小跟著島的大小，也會呼叫 Place()
 
         SourceInitialized += (_, _) =>
         {
@@ -68,6 +67,7 @@ public partial class IslandWindow : Window
         Deactivated += (_, _) => { if (_expanded && _tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && !Host.IsMouseOver) SetExpanded(false); };
         InitChat();
         InitTools();
+        InitRecent();
         InitSettings();
         InitStatus();
         InitAgents();
@@ -313,6 +313,7 @@ public partial class IslandWindow : Window
     private void UpdateTexts()
     {
         UpdateNotice();
+        UpdateRecentDot();
         ObserveListening();
         _musicPlaying = _track?.Playing == true;
         // 佇列是 Roon 才有的東西
@@ -334,8 +335,12 @@ public partial class IslandWindow : Window
             if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
             Spectrum.Active = false;
             if (_desk != null && _deskTitle.Length > 0) { _deskTitle = ""; _deskSheet = null; FeedDesktopLyrics(); }
-            PillLine.Say(TimerLine() ?? DateTime.Now.ToString("HH:mm"));
-            double idle = Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
+            var line = IdleLine.Text(AppSettings.Current.IdleShows, DateTime.Now, TimerLine(), _alarms?.List ?? [], Loc.Culture, L.T("明天"));
+            PillLine.Say(line);
+            // 不顯示：只剩角色，左右邊距一樣、寬度縮到剛好包住它（邊距 8＋8、角色 5＋26）
+            Pill.Margin = line.Length == 0 ? new Thickness(8, 0, 8, 0) : new Thickness(12, 0, 8, 0);
+            double idle = line.Length == 0 ? (Buddy.Kind == "none" ? 36 : 47)
+                : Math.Max(IdleWidth, Math.Ceiling(PillLine.TextWidth) + 40) + (Buddy.Kind == "none" ? 0 : 30);
             if (Math.Abs(idle - _pillWidth) > 0.5) { _pillWidth = idle; Morph(); }
             return;
         }
@@ -423,6 +428,7 @@ public partial class IslandWindow : Window
         // 權限請求顯示中不能收起來。要先擋，再改狀態：不然狀態說「收著」、畫面卻還開著，之後就再也收不起來
         if (!expanded && _tab == Tab.Ask) return;
         _expanded = expanded;
+        if (expanded) SeeRecent();
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
     }
@@ -436,6 +442,12 @@ public partial class IslandWindow : Window
     private void ShowTab(Tab tab)
     {
         _tab = tab;
+        if (tab == Tab.Tools)
+        {
+            // 收著期間跨了日：重畫月曆與圓點；清單已經攤開的話也算看過了
+            if (Month.Today.Date != DateTime.Today) RefreshAlarms();
+            SeeRecent();
+        }
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
         if (tab == Tab.Ai) RefreshAi();
         if (tab == Tab.Settings) RefreshSettings();
@@ -475,7 +487,7 @@ public partial class IslandWindow : Window
         Panel.IsHitTestVisible = _expanded;
 
         // 透明視窗有東西在動就要整塊重畫，所以平常只留夠用的高度，要展開更大時才長高
-        double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
+        double needed = WindowHeightFor(_h.Target);
         if (needed > Height) Height = needed;
         // 要打字的分頁才讓視窗拿鍵盤焦點
         SetActivatable(_expanded && (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings || _tab == Tab.Music && _queueOpen));
@@ -531,7 +543,7 @@ public partial class IslandWindow : Window
             // 完全展開後膠囊被面板蓋住、透明度是 0，但裡面的角色、音量條、歌詞還在動，每動一次整個透明視窗都要重畫。
             // 收起來不佔位置，它們自己就會停。（面板不能這樣做：展開前要先量它有多大。）
             if (_expanded && Pill.Opacity < 0.01) Pill.Visibility = Visibility.Collapsed;
-            double needed = Math.Max(BaseWindowHeight, 8 + _h.Target + 48);
+            double needed = WindowHeightFor(_h.Target);
             if (Math.Abs(Height - needed) > 1) Height = needed;
         }
     }
@@ -679,16 +691,10 @@ public partial class IslandWindow : Window
     private void Place()
     {
         var s = AppSettings.Current;
-        double left = SystemParameters.WorkArea.Left + (SystemParameters.WorkArea.Width - Width) / 2, top = SystemParameters.WorkArea.Top;
-        if (s.IslandX is { } x && s.IslandY is { } y &&
-            x > SystemParameters.VirtualScreenLeft && x < SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth &&
-            y >= SystemParameters.VirtualScreenTop && y < SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight - 40)
-        {
-            left = x - Width / 2;
-            top = y;
-        }
-        Left = _smoke ? -5000 : left;
-        Top = top;
+        var screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, 440 * _scale);
+        Left = _smoke ? -5000 : at.X;
+        Top = at.Y;
     }
 
     private Point? _dragFrom;

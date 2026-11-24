@@ -23,8 +23,8 @@ public sealed record Alarm(int Id, DateTime At, string Text, string? Repeat = nu
 /// </summary>
 public sealed class Alarms : IDisposable
 {
-    /// <summary>最多排多遠以後：一星期。再遠的應該放行事曆。</summary>
-    public static readonly TimeSpan Farthest = TimeSpan.FromDays(7);
+    /// <summary>最多排多遠以後：六十天。月曆上點得到的日子都要排得進去；再遠的應該放行事曆。</summary>
+    public static readonly TimeSpan Farthest = TimeSpan.FromDays(60);
     /// <summary>超過這麼久才發現到期（程式關著）就算錯過。</summary>
     public static readonly TimeSpan Late = TimeSpan.FromMinutes(2);
 
@@ -199,7 +199,7 @@ public sealed class Alarms : IDisposable
 
     /// <summary>
     /// 什麼時候響：minutes 是幾分鐘後；at 是幾點幾分（「07:30」「19:05」「7點半」「明天 08:00」「2026-11-24 07:30」）。
-    /// 只給幾點、而那個時間今天已經過了，就是明天。看不懂、在過去、或超過一星期是 null。
+    /// 只給幾點、而那個時間今天已經過了，就是明天。看不懂、在過去、或超過六十天是 null。
     /// </summary>
     public static DateTime? When(string? at, double? minutes, DateTime now)
     {
@@ -213,7 +213,8 @@ public sealed class Alarms : IDisposable
         var text = at.Normalize(System.Text.NormalizationForm.FormKC).Trim();
 
         DateTime? result = null;
-        string[] formats = ["yyyy-MM-dd HH:mm", "yyyy-MM-dd H:mm", "yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm", "yyyy/M/d H:mm"];
+        // M、d、H 都收一到兩位：「2026-11-8 07:30」跟補零的寫法一樣
+        string[] formats = ["yyyy-M-d H:mm", "yyyy-M-dTH:mm", "yyyy-M-dTH:mm:ss", "yyyy-M-d H:mm:ss", "yyyy/M/d H:mm", "yyyy/M/dTH:mm", "yyyy/M/d H:mm:ss", "yyyy/M/dTH:mm:ss"];
         if (DateTime.TryParseExact(text, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var full)) result = full;
         else
         {
@@ -225,8 +226,10 @@ public sealed class Alarms : IDisposable
             result = now.Date.AddDays(days) + time;
             if (days == 0 && result <= now) result = result.Value.AddDays(1);
         }
-        return result > now && result - now <= Farthest ? result : null;
+        return InRange(result, now);
     }
+
+    private static DateTime? InRange(DateTime? at, DateTime now) => at > now && at - now <= Farthest ? at : null;
 
     /// <summary>「07:30」「7:30」「7點」「7點半」「7點05分」「下午3點」「3pm」→ 一天裡的時間。</summary>
     private static TimeSpan? Clock(string text)
@@ -250,13 +253,17 @@ public sealed class Alarms : IDisposable
         return new TimeSpan(hour, minute, 0);
     }
 
+    // 只寫日期：「2026-11-28 交報告」。月曆點一天會填成這個開頭
+    private static readonly Regex DateOnly = new(@"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)", RegexOptions.CultureInvariant);
+    /// <summary>日期後面沒寫時間就當早上九點。</summary>
+    public static readonly TimeSpan DefaultTime = TimeSpan.FromHours(9);
     private static readonly Regex Duration = new(@"^(\d+(?:\.\d+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex FullDate = new(@"^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?", RegexOptions.CultureInvariant);
     private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?\d{1,2}(?::\d{2}|[點点時时](?:半|\d{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。
-    /// 時間的部分交給 <see cref="When"/>（所以今天已過的時刻算明天、超過一星期不收）；看不懂是 null。
+    /// 時間的部分交給 <see cref="When"/>（所以今天已過的時刻算明天、超過六十天不收）；看不懂是 null。
     /// </summary>
     public static (DateTime At, string Text, string? Repeat)? ParseLine(string? line, DateTime now)
     {
@@ -281,9 +288,58 @@ public sealed class Alarms : IDisposable
             return When(null, minutes, now) is { } soon ? (soon, rel.Groups[3].Value.Trim(), null) : null;
         }
 
+        // 只有日期、或日期加「7點半」這種寫法（FullDate 只吃 HH:mm）：沒寫時間就是九點
+        if (!FullDate.IsMatch(text) && DateOnly.Match(text) is { Success: true } day
+            && int.Parse(day.Groups[1].Value, CultureInfo.InvariantCulture) is var y && int.Parse(day.Groups[2].Value, CultureInfo.InvariantCulture) is var mo
+            && int.Parse(day.Groups[3].Value, CultureInfo.InvariantCulture) is var d)
+        {
+            if (y < 1 || mo is < 1 or > 12 || d < 1 || d > DateTime.DaysInMonth(y, mo)) return null;
+            var rest = text[day.Length..].TrimStart();
+            var time = DefaultTime;
+            bool given = false;
+            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock && Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } stated)
+            { time = stated; given = true; rest = rest[clock.Length..].TrimStart(); }
+            var target = new DateTime(y, mo, d) + time;
+            // 沒寫時間的「今天」而九點已經過了（月曆點今天最常見）：取現在之後的下一個整點，不然一定被當成過去
+            if (!given && target.Date == now.Date && target <= now && now.Hour < 23) target = now.Date.AddHours(now.Hour + 1);
+            return InRange(target, now) is { } result ? (result, rest, null) : null;
+        }
+
         var head = (FullDate.Match(text) is { Success: true } full ? full : ClockPrefix.Match(text));
         if (!head.Success) return null;
         return When(head.Value, null, now) is { } at ? (at, text[head.Length..].Trim(), null) : null;
+    }
+
+    /// <summary>
+    /// 這個月哪幾天有提醒（月曆畫圓點用），每天的提醒照時間排。只看「現在之後」的：已經過去的不算。
+    /// 單次的看 At；重複的從下一次開始用 <see cref="NextAfter"/> 一次一次往後推，直到這個月結束。
+    /// </summary>
+    public static SortedDictionary<int, List<Alarm>> InMonth(IEnumerable<Alarm> alarms, DateTime month, DateTime now)
+    {
+        var first = new DateTime(month.Year, month.Month, 1);
+        var end = first.AddMonths(1);
+        var days = new SortedDictionary<int, List<Alarm>>();
+        void Mark(Alarm a, DateTime at)
+        {
+            if (at < first || at >= end) return;
+            if (!days.TryGetValue(at.Day, out var list)) days[at.Day] = list = [];
+            list.Add(a with { At = at });
+        }
+        foreach (var a in alarms)
+        {
+            if (NormalizeRepeat(a.Repeat) is not { } repeat) { if (a.At > now) Mark(a, a.At); continue; }
+            var at = a.At > now ? a.At : NextAfter(a.At, repeat, now);
+            // 每個月最多三十一次；NextAfter 認不得的重複方式會原地不動，所以另外擋住
+            for (int i = 0; i < 40 && at < end && at > now; i++)
+            {
+                Mark(a, at);
+                var next = NextAfter(at, repeat, at);
+                if (next <= at) break;
+                at = next;
+            }
+        }
+        foreach (var list in days.Values) list.Sort((x, y) => x.At.CompareTo(y.At));
+        return days;
     }
 
     /// <summary>畫面上的時間：今天只寫幾點，明天前面加 <paramref name="tomorrow"/>，再遠的寫月／日。</summary>

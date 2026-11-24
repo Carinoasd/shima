@@ -143,13 +143,24 @@ public partial class IslandWindow
             () => s.Opacity >= 0.95 ? "1" : s.Opacity >= 0.8 ? "0.85" : s.Opacity >= 0.65 ? "0.7" : "0.55",
             v => { s.Opacity = double.Parse(v, CultureInfo.InvariantCulture); ApplyTheme(); }));
         rows.Add(AccentRow());
-        rows.Add(Toggle("跟著聲音動", s.AudioReactive, v => s.AudioReactive = v));
+        rows.Add(Choice("大小", [("0.9", "90%"), ("1", "100%"), ("1.15", "115%"), ("1.3", "130%")],
+            () => IslandScale.Nearest(s.Scale).ToString(CultureInfo.InvariantCulture),
+            v => { s.Scale = double.Parse(v, CultureInfo.InvariantCulture); ApplyScale(); }));
+
+        // 膠囊
+        rows.Add(Gap());
         rows.Add(CharacterImageRow());
-        rows.Add(Toggle("全螢幕時換歌提示", s.FullscreenToast, v => s.FullscreenToast = v));
+        rows.Add(Toggle("跟著聲音動", s.AudioReactive, v => s.AudioReactive = v));
         rows.Add(Toggle("膠囊顯示進度", s.PillProgress, v => { s.PillProgress = v; UpdatePillProgress(); }));
+        rows.Add(Choice("沒在播歌時顯示", [("clock", "時間"), ("date", "日期與時間"), ("alarm", "下一個提醒"), ("none", "不顯示")],
+            () => IdleLine.Normalize(s.IdleShows), v => { s.IdleShows = v; UpdateTexts(); }));
+
+        // 歌詞與換歌
+        rows.Add(Gap());
         rows.Add(Choice("歌詞行數", [("3", "少"), ("5", "中"), ("7", "多")],
             () => s.LyricsLines <= 3 ? "3" : s.LyricsLines >= 7 ? "7" : "5",
             v => { s.LyricsLines = int.Parse(v, CultureInfo.InvariantCulture); ApplyLyricsLines(); }));
+        rows.Add(Toggle("全螢幕時換歌提示", s.FullscreenToast, v => s.FullscreenToast = v));
 
         // —— 其他功能的設定列接在這裡（外觀）——
     }

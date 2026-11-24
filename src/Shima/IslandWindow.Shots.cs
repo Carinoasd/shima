@@ -65,6 +65,19 @@ public partial class IslandWindow
                 Say(Demo.Answer);
             }
 
+            // 最近的通知：打開清單拍一張，拍完關掉
+            if (Demo.On)
+            {
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                SetRecentOpen(true);
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-recent");
+                SetRecentOpen(false);
+            }
+
             // 設定頁：四個子分頁各一張
             _expanded = true;
             TabSettings.IsChecked = true;
@@ -132,6 +145,39 @@ public partial class IslandWindow
                 _expanded = true;
             }
 
+            // 島的大小：只改記憶體裡的值，拍完改回 1，不存檔
+            {
+                var look = AppSettings.Current;
+                look.Scale = 1.3;
+                _expanded = false;
+                Pill.Visibility = Visibility.Visible;
+                ApplyScale();
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-130-pill");
+
+                _expanded = true;
+                TabMusic.IsChecked = true; _tab = Tab.Music;
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-130-music");
+
+                TabSettings.IsChecked = true; _tab = Tab.Settings;
+                _settingsSection = SettingsSection.Look;
+                RefreshSettings();
+                SettingsScroll.ScrollToVerticalOffset(0);
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-130-settings");
+                _settingsSection = SettingsSection.General;
+
+                look.Scale = 0.9;
+                ApplyScale();
+                TabMusic.IsChecked = true; _tab = Tab.Music;
+                Snap(); UpdateTexts();
+                await Save(folder, "c-scale-90-music");
+
+                look.Scale = 1;
+                ApplyScale();
+            }
+
             // 聆聽放最後：後面的引導卡片與收藏截圖都接著這一頁
             TabLibrary.IsChecked = true;
             _tab = Tab.Library;
@@ -187,6 +233,42 @@ public partial class IslandWindow
             _tab = Tab.Ask;
             Snap();
             await Save(folder, "6-ask");
+
+            // 沒在播歌的膠囊：示範模式永遠有歌，暫時拿掉，四種顯示各拍一張；只動記憶體，拍完還原
+            if (Demo.On)
+            {
+                var song = _media.Demo;
+                var shows = AppSettings.Current.IdleShows;
+                _media.Demo = null;
+                _expanded = false;
+                foreach (var (mode, name) in new[] { (IdleLine.Clock, "c-idle-clock"), (IdleLine.Date, "c-idle-date"), (IdleLine.Alarm, "c-idle-alarm"), (IdleLine.None, "c-idle-none") })
+                {
+                    AppSettings.Current.IdleShows = mode;
+                    Refresh();
+                    Snap();
+                    await Task.Delay(500);   // 換字的動畫看不見的視窗不會自己走：等它過了再重畫一次
+                    PillLine.InvalidateVisual();
+                    await Save(folder, name);
+                }
+                AppSettings.Current.IdleShows = shows;
+                _media.Demo = song;
+                Refresh();
+                Snap();
+            }
+
+            // 月曆：滑鼠停在有提醒的那一天
+            if (Demo.On && _alarms?.List.Count > 0)
+            {
+                var days = Shima.Agents.Alarms.InMonth(_alarms.List, DateTime.Today, DateTime.Now);
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                RefreshTools();
+                Snap();
+                if (days.Count > 0) Month.Peek(days.Keys.First());
+                await Save(folder, "c-month-tip");
+                Month.Peek(0);
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }
@@ -208,7 +290,7 @@ public partial class IslandWindow
         var open = OpenSize();
         _w.Jump(_expanded ? open.Width : _pillWidth);
         _h.Jump(_expanded ? open.Height : PillHeight);
-        Height = Math.Max(BaseWindowHeight, 8 + _h.Value + 48);
+        Height = WindowHeightFor(_h.Value);
         Panel.IsHitTestVisible = _expanded;
         Apply();
         LyricsList.Active = _expanded && _tab == Tab.Music;
@@ -241,13 +323,16 @@ public partial class IslandWindow
         for (int i = 0; i < (Spectrum.Active ? 12 : 80); i++) Spectrum.Step();
         UpdateLayout();
         const double pad = 28, scale = 2;
-        double w = Host.ActualWidth + pad * 2, h = Host.ActualHeight + pad * 2;
+        // 島的大小不是 100% 時：VisualBrush 只畫 Host 自己，不含 Root 上的縮放，要自己乘回去（連墊的邊一起，陰影也跟著變大）
+        double w = (Host.ActualWidth + pad * 2) * _scale, h = (Host.ActualHeight + pad * 2) * _scale;
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())
         {
             // 墊一塊桌面色，島的陰影和圓角才看得出來
             dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x3A, 0x48, 0x5C)), null, new Rect(0, 0, w, h));
+            if (_scale != 1) dc.PushTransform(new ScaleTransform(_scale, _scale));
             dc.DrawRectangle(new VisualBrush(Host) { Stretch = Stretch.None }, null, new Rect(pad, pad, Host.ActualWidth, Host.ActualHeight));
+            if (_scale != 1) dc.Pop();
         }
         var bitmap = new RenderTargetBitmap((int)(w * scale), (int)(h * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         bitmap.Render(visual);

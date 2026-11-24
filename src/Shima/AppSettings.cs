@@ -115,10 +115,17 @@ public sealed class AppSettings
 
     /// <summary>膠囊裡的小角色：claude、eyes、cat、ghost 或 none。</summary>
     public string Character { get; set; } = "claude";
+    /// <summary>沒有歌在播時膠囊顯示什麼：clock（時間）、date（日期與時間）、alarm（下一個提醒）、none（不顯示）。</summary>
+    public string IdleShows { get; set; } = "clock";
     /// <summary>`Character` 是 `custom` 時用的圖片（GIF 或水平排列的 PNG 精靈圖）。</summary>
     public string CharacterImage { get; set; } = "";
     /// <summary>島的底色有多不透明（0.55–1）。</summary>
     public double Opacity { get; set; } = 1;
+    /// <summary>整座島的大小（0.9–1.3，1 是原本的大小）。讀進來不合理的值（NaN、太小、太大）當成 1。</summary>
+    /// <remarks>設定檔裡被手改成 "NaN" 這種字也要讀得進來：不然整個設定檔讀不了，所有設定都會回到預設。</remarks>
+    [System.Text.Json.Serialization.JsonNumberHandling(System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals | System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString)]
+    public double Scale { get => _scale; set => _scale = IslandScale.Sanitize(value); }
+    private double _scale = 1;
     /// <summary>掃光與進度條的顏色：`cover`（取自封面）、`Accent.Presets` 裡的 id（`white`、`clay`…）、`custom`。</summary>
     public string AccentMode { get; set; } = "cover";
     /// <summary>`AccentMode` 是 `custom` 時用的色碼（`#RRGGBB`）。換回別的顏色時留著，下次點自訂還在。</summary>

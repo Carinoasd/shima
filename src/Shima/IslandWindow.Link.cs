@@ -210,7 +210,9 @@ public partial class IslandWindow
     private void AnnounceTrack(Track track)
     {
         if (!_hiddenForFullscreen || !AppSettings.Current.FullscreenToast) return;
-        (_mini ??= NewMini()).Show(track.Cover, track.Title, track.Artist, ThemeAccent(track.Cover));
+        var mini = _mini ??= NewMini();
+        mini.Scale = _scale;
+        mini.Show(track.Cover, track.Title, track.Artist, ThemeAccent(track.Cover));
     }
 
     private MiniToast NewMini()
@@ -353,12 +355,15 @@ public partial class IslandWindow
         var alarms = new Alarms();
         alarms.Due += (alarm, missed) => Dispatcher.BeginInvoke(() =>
         {
-            Toast(alarm.Text.Length > 0 ? alarm.Text : L.T("時間到了"), 20);
+            var due = alarm.Text.Length > 0 ? alarm.Text : L.T("時間到了");
+            Remember(RecentKind.Reminder, L.T("提醒"), due, "");
+            Toast(due, 20);
             if (!_expanded) SetExpanded(false);
         });
         Skills.Alarms = alarms;
         _alarms = alarms;
         alarms.Changed += () => Dispatcher.BeginInvoke(RefreshAlarms);
+        Month.DayPicked += Month_DayPicked;
         RefreshAlarms();
         alarms.Start();
         Closed += (_, _) => alarms.Dispose();

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -92,10 +93,17 @@ public partial class IslandWindow
         RefreshTodos();
         RefreshAlarms();
         UpdateTimer();
-        Month.Today = DateTime.Today;
-        MonthTitle.Text = DateTime.Today.ToString("Y", Loc.Culture);
+        SyncMonth();
         Month.InvalidateVisual();
         if (_tab == Tab.Tools && _expanded) Morph();
+    }
+
+    /// <summary>月曆的「今天」跟著日期走：島開著跨日、跨月之後，格子與標題才不會還是上個月的。</summary>
+    private void SyncMonth()
+    {
+        var today = DateTime.Today;
+        if (Month.Today.Date != today) Month.Today = today;
+        MonthTitle.Text = today.ToString("Y", Loc.Culture);
     }
 
     private static readonly Brush DropLine = Frozen(Color.FromRgb(0xD9, 0x77, 0x57));
@@ -382,6 +390,8 @@ public partial class IslandWindow
             AlarmBox.Children.Add(row);
         }
         AlarmBox.Visibility = list.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        SyncMonth();
+        Month.AlarmDays = Alarms.InMonth(list, DateTime.Today, now);
         if (_tab == Tab.Tools && _expanded) Morph();
     }
 
@@ -391,6 +401,14 @@ public partial class IslandWindow
         "weekdays" => L.T("平日"),
         _ => L.T("週" + "日一二三四五六"[Alarms.WeeklyDay(repeat) ?? 0]),
     };
+
+    /// <summary>點月曆上的一天：輸入框填成那天的日期，接著打時間與內容。</summary>
+    private void Month_DayPicked(DateTime day)
+    {
+        AlarmInput.Text = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + " ";
+        AlarmInput.Focus();
+        AlarmInput.CaretIndex = AlarmInput.Text.Length;
+    }
 
     private void AlarmInput_KeyDown(object sender, KeyEventArgs e)
     {

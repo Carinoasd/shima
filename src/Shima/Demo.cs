@@ -67,6 +67,16 @@ public static class Demo
         favorites.Add("Keep the porch light on for me", "", "Porch Light", "Harbor & Pine", "Small Hours", TimeSpan.FromSeconds(74), now.AddDays(-9));
     }
 
+    /// <summary>示範用的通知（內容是編的）：兩筆已讀、最新兩筆還沒看。</summary>
+    public static void FillRecent(RecentLog log, DateTime now)
+    {
+        log.Add(now.Date.AddDays(-1).AddHours(15).AddMinutes(30), RecentKind.Reminder, "提醒", "跟設計開會", "");
+        log.Add(now.AddMinutes(-95), RecentKind.Message, "LINE", "讀書會", "明天的進度我先整理好了，晚點把連結貼給大家。");
+        log.MarkRead();
+        log.Add(now.AddMinutes(-21), RecentKind.Message, "Discord", "#週末企劃", "有人提議週六下午去看新的展覽，大家覺得幾點集合比較好？要不要先訂位？順便問一下有沒有人想一起吃晚餐。");
+        log.Add(now.AddMinutes(-6), RecentKind.Agent, "Claude Code", "完成了", "shima");
+    }
+
     private const string Title = "ひかりの汽水域", Artist = "潮見ノート", Album = "汽水域";
 
     /// <summary>正在播的那首：一分多鐘的地方，照實際時間往後走。</summary>
