@@ -89,7 +89,10 @@ public static partial class AiTranslation
     private static string Unquote(string s)
     {
         s = s.Trim();
-        return s.Length >= 2 && (s[0], s[^1]) is ('「', '」') or ('"', '"') or ('“', '”') ? s[1..^1].Trim() : s;
+        if (s.Length < 2 || (s[0], s[^1]) is not (('「', '」') or ('"', '"') or ('“', '”'))) return s;
+        // 「愛」與「痛」、"Yes" or "No"：頭尾剛好各一個引號，但不是整句被包住
+        var inner = s[1..^1];
+        return inner.Contains(s[0]) || inner.Contains(s[^1]) ? s : inner.Trim();
     }
 
     // ---------------------------------------------------------------- 存起來
@@ -133,7 +136,10 @@ public static partial class AiTranslation
     [GeneratedRegex(@"<think>.*?</think>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex Think();
 
-    /// <summary>「1. 」「1) 」「1、」「1：」「(1) 」「[1] 」「#1 」：編號後面一定要有標點或括號，免得「1999年」被當成編號。</summary>
-    [GeneratedRegex(@"^(?:[\(\[（【#]\s*(\d{1,4})\s*[\)\]）】.:：]?|(\d{1,4})\s*[.．、:：\)）])\s*(.*)$")]
+    /// <summary>
+    /// 「1. 」「1) 」「1、」「1：」「(1) 」「[1] 」：編號後面一定要有標點或括號，免得「1999年」被當成編號；
+    /// 標點後面緊接著數字的是時間、小數（10:30、1.5、1、2、3），括號要成對，「#1 你是唯一」這種句子也不算。
+    /// </summary>
+    [GeneratedRegex(@"^(?:[\(\[（【]\s*(\d{1,4})\s*[\)\]）】]|(\d{1,4})\s*[.．、:：\)）](?!\d))\s*(.*)$")]
     private static partial Regex Numbered();
 }
