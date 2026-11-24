@@ -107,19 +107,21 @@ public sealed class UsageView : FrameworkElement
         }
 
         // 前三個模型：名稱在左，花費與 token 靠右對齊成兩欄
-        const double CostCol = 288;
         for (int i = 0; i < Math.Min(3, _trend.Models.Count); i++)
         {
             var m = _trend.Models[i];
             double y = ListY + i * RowH;
             var tokens = Text(Amount(m.Tokens.Total, culture), 11, Dim);
             dc.DrawText(tokens, new Point(width - tokens.Width, y + (RowH - tokens.Height) / 2));
+            // 名稱可以用到花費（沒有花費就是 token 數）左邊為止，不要寫死寬度
+            double room = width - tokens.Width - 10;
             if (m.Cost is { } cost)
             {
                 var money = Text(Money(cost, true, culture), 11.5, Brushes.White);
                 dc.DrawText(money, new Point(width - 62 - money.Width, y + (RowH - money.Height) / 2));
+                room = width - 62 - money.Width - 10;
             }
-            var name = Text(Pretty(m.Model), 12, Brushes.White, CostCol - 100);
+            var name = Text(Pretty(m.Model), 12, Brushes.White, Math.Max(10, room));
             dc.DrawText(name, new Point(0, y + (RowH - name.Height) / 2));
         }
 
