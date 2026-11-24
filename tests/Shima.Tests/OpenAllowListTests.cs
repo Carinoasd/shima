@@ -127,6 +127,17 @@ public class OpenAllowListTests
     public void 會把資料帶到別處的用法要確認(string url) => Assert.False(Trusted(url));
 
     [Fact]
+    public void 路徑先解開跳脫再比對()
+    {
+        // .NET 的 Uri.AbsolutePath 會不會解開 %61 不重要：比對前自己解開，跳脫過的允許用法照常放行、跳脫過的轉址照常擋
+        Assert.Equal("/amp/s/x", new Uri("https://www.google.com/%61mp/s/x").AbsolutePath);   // 目前的 .NET 會把不保留字元的跳脫解開
+        Assert.Equal("/%2561mp/s/x", new Uri("https://www.google.com/%2561mp/s/x").AbsolutePath);   // 疊兩層的不會
+        Assert.True(Opener.Trusted("https://www.google.com/%73earch?q=lovelive"));
+        Assert.True(Opener.Trusted("https://www.youtube.com/%77atch?v=abc"));
+        Assert.False(Opener.Trusted("https://www.google.com/%75rl?q=x"));
+    }
+
+    [Fact]
     public void 查詢字串太長要確認()
     {
         Assert.True(Trusted("https://www.google.com/search?q=" + new string('a', 150)));
