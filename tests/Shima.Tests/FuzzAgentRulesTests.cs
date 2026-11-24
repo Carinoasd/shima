@@ -161,7 +161,7 @@ public class FuzzAgentRulesTests
                 if (!covered) continue;
                 Interlocked.Increment(ref allowed);
 
-                Assert.Equal(rule.Cwd == null || string.Equals(rule.Cwd, cwd, StringComparison.OrdinalIgnoreCase) || AgentRules.SameFolder(rule.Cwd, cwd), true);
+                Assert.True(rule.Cwd == null || AgentRules.SameFolder(rule.Cwd, cwd), "規則的專案跟請求的不是同一個資料夾");
                 Assert.True(command.IndexOfAny(ShellChars) < 0, "有串接／替換／重新導向／引號");
                 Assert.DoesNotContain(command, c => char.IsControl(c) && c != '\t');
                 Assert.DoesNotContain(command, c => char.IsWhiteSpace(c) && c is not (' ' or '\t'));
