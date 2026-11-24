@@ -55,6 +55,7 @@ public static class Demo
         File.WriteAllText(notes, "# 會議記錄\n");
         s.Shelf.Add(notes);
         if (Shelf.SaveText("週五前把簡報的第三頁換成新的數字", Shelf.Folder, now) is { } text) s.Shelf.Add(text);
+        s.HistoryExcluded = ["Chrome"];   // 設定頁看得到一亮一暗，排行裡也沒有影片
         s.Save();
 
         File.WriteAllLines(HistoryFile.DefaultPath, Listens(now).Select(HistoryFile.ToLine));
@@ -166,8 +167,35 @@ public static class Demo
 
     public static float Level => 0.45f + 0.2f * (float)Math.Sin((DateTimeOffset.Now - Started).TotalSeconds * 2.1);
 
-    /// <summary>過去約十個月的聆聽紀錄：固定的亂數種子，每次產生的都一樣。</summary>
-    private static IEnumerable<Listen> Listens(DateTime now)
+    /// <summary>
+    /// 過去約十個月的聆聽紀錄：固定的亂數種子，每次產生的都一樣。
+    /// 上午（尤其每月 1 號的早上）今天還沒排到任何一筆，回顧卡片與今天的統計就沒東西可畫：
+    /// 最近三小時內不到三筆時，在最後一筆之後、現在之前補幾首歌（不動原本的紀錄與亂數）。
+    /// </summary>
+    public static IEnumerable<Listen> Listens(DateTime now)
+    {
+        var list = Recorded(now).ToList();
+        // 只數今天 0 點之後、不是 Chrome 的：跨過午夜的、之後會被排除的影片都不算，不然 1 號凌晨會誤以為夠了
+        var since = now.AddHours(-3) > now.Date ? now.AddHours(-3) : now.Date;
+        int recent = list.Count(l => l.Source != "Chrome" && l.Start.DateTime >= since && l.Start.DateTime < now);
+        if (recent < 3)
+        {
+            var from = since;
+            if (list.Count > 0 && list[^1].Start.DateTime.AddSeconds(list[^1].Listened + 60) is var after && after > from) from = after;
+            var fill = new[] { ("午後四時の窓辺", "Minato Loop", "Slow Window", 214), ("Porch Light", "Harbor & Pine", "Small Hours", 198), ("Tidewater", "Harbor & Pine", "Small Hours", 266) };
+            for (int i = 0, at = 0; i < 6; i++)
+            {
+                var song = fill[i % fill.Length];
+                var start = from.AddSeconds(at);
+                if (start.AddSeconds(song.Item4) >= now) break;
+                list.Add(new Listen(new DateTimeOffset(start), song.Item1, song.Item2, song.Item3, "Roon", song.Item4, song.Item4 * 0.9));
+                at += song.Item4 + 120;
+            }
+        }
+        return list;
+    }
+
+    private static IEnumerable<Listen> Recorded(DateTime now)
     {
         (string Title, string Artist, string Album, int Seconds, int Weight)[] songs =
         [
@@ -181,6 +209,13 @@ public static class Demo
             ("Tidewater", "Harbor & Pine", "Small Hours", 266, 3),
             ("カーテンコール", "Aoi Kessel", "幕間", 221, 2),
         ];
+        (string Title, string Channel, int Seconds)[] videos =
+        [
+            ("【實況】週末的深夜閒聊 #12", "夜貓工作室", 1260),
+            ("How to bake the softest bread at home", "Slow Kitchen", 780),
+            ("今日のひとこと：雨の日の過ごし方", "ほしぞらチャンネル", 540),
+        ];
+        int count = 0;
         var random = new Random(20261123);
         int total = songs.Sum(s => s.Weight);
         for (int day = 300; day >= 0; day--)
@@ -195,6 +230,14 @@ public static class Demo
                 at = at.AddSeconds(song.Seconds + random.Next(600));
                 if (at >= now) yield break;
                 yield return new Listen(new DateTimeOffset(at), song.Title, song.Artist, song.Album, "Roon", song.Seconds, song.Seconds * (0.7 + random.NextDouble() * 0.3));
+                // 約一成是瀏覽器裡的影片：被排除之後不會進統計。固定的次數，不多抽亂數，原本那些紀錄才不會變
+                if (++count % 10 == 0)
+                {
+                    at = at.AddSeconds(900);
+                    if (at >= now) yield break;
+                    var video = videos[count / 10 % videos.Length];
+                    yield return new Listen(new DateTimeOffset(at), video.Title, video.Channel, "", "Chrome", video.Seconds, video.Seconds);
+                }
             }
         }
     }

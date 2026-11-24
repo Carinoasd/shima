@@ -28,7 +28,8 @@ public partial class IslandWindow
         _updateTimer.Tick += async (_, _) =>
         {
             _updateTimer.Interval = TimeSpan.FromHours(24);
-            if (!AppSettings.Current.CheckUpdates || _updateItem != null || await Updater.CheckAsync() is not { } found) return;
+            // 示範模式不查也不裝新版：套用更新會換掉執行檔本身，那是平常那一份在用的
+            if (Demo.On || !AppSettings.Current.CheckUpdates || _updateItem != null || await Updater.CheckAsync() is not { } found) return;
             if (_closed) return;   // 查的時候視窗已經關了，系統匣的選單也釋放了
             string version = found.Version.ToString(3);
             Log.Write("update: 有新版 " + version);
@@ -76,6 +77,7 @@ public partial class IslandWindow
             _tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) ToggleHidden(); };
         }
         catch (Exception e) { Log.Write("tray: " + e.Message); }
+        AnnounceUpdate();
     }
 
     /// <summary>勿擾中：喝水、通訊軟體通知、系統狀態先不顯示。權限請求、提醒、番茄鐘、換歌照常。</summary>
@@ -91,17 +93,21 @@ public partial class IslandWindow
     {
         _userHidden = !_userHidden;
         Root.Visibility = _userHidden || _hiddenForFullscreen ? Visibility.Hidden : Visibility.Visible;
+        AskRevealed();
     }
 
     private void Deck_Click(object sender, RoutedEventArgs e)
     {
         if (_loadingSettings) return;
+        if (RefuseInDemo()) { DeckSwitch.IsChecked = !DeckSwitch.IsChecked; return; }   // 開關還原成點之前的樣子，不假裝改了
         if (DeckSwitch.IsChecked == true)
         {
             DeckSwitch.IsChecked = Agents.StreamDock.Install();
             if (DeckSwitch.IsChecked == true) Toast(L.T("重新開啟 Stream Dock 後，把 Shima 拖到按鍵上"), 6);
         }
         else Agents.StreamDock.Remove();
+        DeckAllowSwitch.Visibility = DeckSwitch.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (_tab == Tab.Settings && _expanded) Morph();
     }
 
     private async void Notify_Click(object sender, RoutedEventArgs e)

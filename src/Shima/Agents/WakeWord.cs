@@ -283,7 +283,7 @@ public sealed class WakeGate
     /// </summary>
     public static string Normalize(string text)
     {
-        var t = Chinese.ToTraditional(text.Normalize(NormalizationForm.FormKC)).ToLowerInvariant();
+        var t = Chinese.ToTraditional(Lyrics.Titles.Wellformed(text).Normalize(NormalizationForm.FormKC)).ToLowerInvariant();
         var output = new StringBuilder(t.Length);
         foreach (var c in t)
         {

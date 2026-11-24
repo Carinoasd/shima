@@ -62,7 +62,7 @@ public static class RecapCard
         var culture = Loc.Culture;
         if (Content(summary, period, now, culture) is not { } content) return null;
         var accent = light ?? Accent.From(cover);
-        var bars = Stats.Bars(summary.Daily, period);
+        var bars = Stats.Fill(Stats.Bars(summary.Daily, period), period);   // 週初、月初不補滿就只剩孤零零幾根
 
         var visual = new DrawingVisual();
         using (var dc = visual.RenderOpen())

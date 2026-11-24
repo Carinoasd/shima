@@ -57,6 +57,21 @@ public sealed class MediaHub
     /// <summary>音量加減（目前只有 Roon 支援）。</summary>
     public int? Nudge(int steps) => ReferenceEquals(Active(out _), _roon) ? _roon.Nudge(steps) : null;
 
+    public int? SetVolume(int percent) => ReferenceEquals(Active(out _), _roon) ? _roon.SetVolume(percent) : null;
+
+    /// <summary>島上現在顯示的是 Roon。</summary>
+    public bool OnRoon => ReferenceEquals(Active(out _), _roon);
+
+    /// <summary>調音量的結果：調好的音量（null 是沒調），以及沒調是不是因為 Roon 的這個輸出不能這樣調。</summary>
+    public readonly record struct VolumeResult(int? Level, bool RoonCannot);
+
+    /// <summary>
+    /// 音量要調誰：現在在播的是 Roon 就只調 Roon。它的輸出只能加減、或根本不能調音量時，不退回去改這台電腦的系統音量——
+    /// 不然 /vol 100 會把系統主音量一下子開到 100%（完全不受 Roon「往上一次最多一成」的限制），Roon 卻沒動。
+    /// 不是 Roon 才調系統音量。
+    /// </summary>
+    public static VolumeResult Route(bool onRoon, Func<int?> roon, Func<int?> system) =>
+        onRoon ? roon() is { } level ? new(level, false) : new(null, true) : new(system(), false);
     public (double Value, double Min, double Max, bool Muted)? Sound => ReferenceEquals(Active(out _), _roon) ? _roon.Sound : null;
     public bool? ToggleMute() => ReferenceEquals(Active(out _), _roon) ? _roon.ToggleMute() : null;
 
@@ -74,6 +89,12 @@ public sealed class MediaHub
         _roon.PauseAll();
         _smtc.PauseAll();
     }
+
+    /// <summary>
+    /// 有沒有任何東西在出聲（睡眠定時到點時問）：沒有標題的串流、島上沒顯示的那一邊也算。
+    /// Roon 顯示的 zone 本來就優先挑正在播的，所以它沒在播就是每個 zone 都沒在播。
+    /// </summary>
+    public bool AnyPlaying => Demo != null ? Demo.Playing : _roon.Current?.Playing == true || _smtc.AnyPlaying;
     public void Next() => Active(out _)?.Next();
     public void Previous() => Active(out _)?.Previous();
     public void Seek(TimeSpan position) => Active(out _)?.Seek(position);

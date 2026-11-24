@@ -35,7 +35,7 @@ public static class Skills
             return tool switch
             {
                 "weather" => await WeatherAsync(Arg("location"), Arg("country"), CancellationToken.None).ConfigureAwait(false),
-                "open" => Open(Arg("target")),
+                "open" => await OpenAsync(Arg("target")).ConfigureAwait(false),
                 "alarm" => Alarms is { } alarms ? Alarm(arguments, alarms, DateTime.Now) : "提醒功能還沒準備好",
                 "datetime" => Now(DateTimeOffset.Now),
                 "calc" => Calculate(Arg("expression")),
@@ -117,21 +117,59 @@ public static class Skills
 
     // ---------------------------------------------------------------- 開網站或程式
 
-    private static string Open(string target)
+    /// <summary>
+    /// 不在常用網站清單裡的網址，開之前在島上問使用者：網址 → 開（true）、取消（false），或現在沒辦法問（null，
+    /// 例如島因為全螢幕藏起來、正在問 Claude Code 的權限、已經有一個網址在等）。
+    /// 由程式啟動時設定；沒設定就一律當作沒辦法問。逾時的時候 token 會取消，畫面要把確認收起來。
+    /// </summary>
+    public static Func<string, CancellationToken, Task<bool?>>? Confirm { get; set; }
+
+    /// <summary>使用者多久沒按就當作取消。</summary>
+    public static TimeSpan Patience { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>真的去開網址或程式。測試換成記下來的假動作，不會開瀏覽器。</summary>
+    public static Action<string> Launcher { get; set; } = Launch;
+
+    /// <summary>
+    /// AI 讀得到外來的文字（網頁設的歌名、匿名上傳的歌詞、剪貼簿），被注入時可能想把剪貼簿之類的內容帶在網址上送出去。
+    /// 常用網站（Opener.Trusted）照舊直接開：資料頂多到那個網站本身。其他的要使用者在島上看過完整網址、按了才開。
+    /// </summary>
+    public static async Task<string> OpenAsync(string target)
     {
         var what = Opener.Classify(target);
         switch (what.Kind)
         {
             case OpenKind.Url:
-                Launch(what.Target);
+                if (!Opener.Trusted(what.Target))
+                {
+                    var allowed = await AskAsync(what.Target).ConfigureAwait(false);
+                    if (allowed == null) return $"這個網址要使用者自己確認才能開，現在沒辦法在島上問他，所以沒有開。請把網址原樣告訴使用者，讓他自己決定要不要複製去開：{what.Target}";
+                    if (allowed == false) return "使用者沒有同意開啟這個網址（或沒有在時間內回應），網址沒有開。不要再試著開它。";
+                }
+                Launcher(what.Target);
                 return $"已用瀏覽器開啟 {what.Target}";
             case OpenKind.App:
-                try { Launch(what.Target); }
+                try { Launcher(what.Target); }
                 catch { return $"打不開{what.Name}（這台電腦可能沒有安裝）"; }
                 return $"已開啟{what.Name}";
             default:
                 return what.Name.Length > 0 ? what.Name : "不認得這個程式";
         }
+    }
+
+    /// <summary>在島上問；逾時當作取消。問的那一端出錯就當作沒辦法問。</summary>
+    private static async Task<bool?> AskAsync(string url)
+    {
+        if (Confirm is not { } confirm) return null;
+        using var giveUp = new CancellationTokenSource(Patience);
+        try
+        {
+            var asked = confirm(url, giveUp.Token);
+            var done = await Task.WhenAny(asked, Task.Delay(Patience)).ConfigureAwait(false);
+            if (done != asked) { giveUp.Cancel(); return false; }
+            return await asked.ConfigureAwait(false);
+        }
+        catch (Exception e) { Log.Write("open confirm: " + e.GetType().Name); return null; }
     }
 
     /// <summary>只會拿到白名單的固定字串或檢查過的網址，不會有使用者給的參數。</summary>
@@ -206,7 +244,7 @@ public static class Skills
 
     private static HttpClient CreateHttp()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10), MaxResponseContentBufferSize = 1024 * 1024 };   // 天氣的回應很小
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Shima");
         return http;
     }
@@ -344,7 +382,7 @@ public sealed record OpenTarget(OpenKind Kind, string Target, string Name);
 /// 判斷要開的是網址、白名單裡的程式，還是不允許。保守：只有 http／https 的網址和固定的幾個程式，
 /// 不接受路徑、命令列參數或其他協定（file:、javascript:、ms-settings: 直接寫等等）。
 /// </summary>
-public static class Opener
+public static partial class Opener
 {
     private sealed record App(string Name, string Target, string[] Aliases);
 
@@ -394,6 +432,8 @@ public static class Opener
     /// <summary>
     /// 本機或區域網路的位址。AI 讀得到剪貼簿與歌詞，裡面如果藏著「幫我開 http://localhost:…」這種話，
     /// 不該真的用使用者已經登入的瀏覽器去開本機的服務或路由器的管理頁。
+    /// 只看字面：127.0.0.1.nip.io、localtest.me 這種會解析到本機的名稱擋不到，但它們不在常用網站裡（Trusted），
+    /// 會落到「要使用者確認」，確認時看得到完整的網址。
     /// </summary>
     public static bool Local(Uri uri)
     {
@@ -406,6 +446,161 @@ public static class Opener
         if (b.Length != 4) return ip.Equals(System.Net.IPAddress.IPv6Any);
         return b[0] is 0 or 10 or 127 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127;
     }
+
+    /// <summary>
+    /// 常用網站的一種用法：哪些主機（「*.」開頭的是那個網域底下的任何主機）、允許哪些路徑。
+    /// 路徑的寫法：「/」只有首頁；「/watch」只有這一頁；結尾是「/」的是那一層底下的任何頁（不含那一層本身）；
+    /// 「*」是任何一段、「@*」是 @ 開頭的一段、「**」是後面任何幾段。結尾加「?」才可以帶查詢字串。
+    /// Extra 是這個網站額外要擋的寫法（解開跳脫之後的路徑＋查詢字串＋片段；回 true 表示要確認）。
+    /// </summary>
+    private sealed record Site(string[] Hosts, string[] Paths, Func<string, bool>? Extra = null);
+
+    /// <summary>
+    /// 常用網站：只有列出的主機與路徑直接開。挑的是「資料送到這裡也只會到那個網站本身」的用法，所以只列看影片、搜尋、查條目、聽歌這種頁面；
+    /// 會替你去抓別的網址的（Google 翻譯、以圖搜圖、favicon、網頁快照）、會轉到別的網站的（/url?q=、/redirect、/amp/、l.php）、
+    /// 縮網址、任何人都能架頁面的主機（github.io、blogspot、sites.google.com）、能收表單的（docs.google.com）都不在裡面，落到「要使用者確認」。
+    /// 說不出哪些路徑安全的主機整個不放（translate.google.com、images.google.com）。
+    /// </summary>
+    private static readonly Site[] Sites =
+    [
+        // 搜尋
+        new(["google.com", "www.google.com", "google.co.jp", "www.google.co.jp", "google.com.tw", "www.google.com.tw"],
+            ["/", "/search?", "/maps?", "/maps/?"]),
+        new(["maps.google.com"], ["/?", "/maps?", "/maps/?"]),
+        new(["news.google.com"], ["/", "/search?"]),
+        new(["bing.com", "www.bing.com", "cn.bing.com"], ["/", "/search?", "/images/search?", "/videos/search?", "/news/search?", "/maps?"]),
+        // !bang 與「\」開頭會把查詢轉給別的網站
+        new(["duckduckgo.com"], ["/?"], rest => Regex.IsMatch(rest, @"(?:^|[\s=+&])!")),
+        new(["baidu.com", "www.baidu.com", "m.baidu.com"], ["/", "/s?"]),
+        new(["www.yahoo.co.jp"], ["/"]),
+        new(["search.yahoo.co.jp"], ["/search?", "/image/search?"]),
+        new(["www.yahoo.com"], ["/"]),
+        new(["search.yahoo.com"], ["/search?"]),
+        // 百科、字典、翻譯：維基的條目名稱帶冒號的是特殊頁或跨站連結（Special:GoToInterwiki 之類），要確認
+        new(["wikipedia.org", "*.wikipedia.org", "wiktionary.org", "*.wiktionary.org"], ["/", "/wiki/"], rest => rest.Contains(':')),
+        new(["www.weblio.jp", "ejje.weblio.jp"], ["/", "/content/"]),
+        new(["jisho.org"], ["/", "/search/", "/word/"]),
+        new(["www.deepl.com"], ["/translator", "/*/translator"]),
+        // 影音、串流
+        new(["youtube.com", "www.youtube.com", "m.youtube.com"],
+            ["/", "/watch?", "/results?", "/playlist?", "/@*", "/@*/", "/channel/", "/shorts/", "/live/", "/feed/"]),
+        new(["music.youtube.com"], ["/", "/watch?", "/search?", "/playlist?", "/browse/", "/channel/"]),
+        new(["youtu.be"], ["/*?"]),   // 只會轉到 YouTube 的影片
+        new(["bilibili.com", "www.bilibili.com", "m.bilibili.com"], ["/", "/video/?", "/bangumi/?"]),
+        new(["search.bilibili.com"], ["/all?"]),
+        new(["space.bilibili.com", "live.bilibili.com"], ["/*"]),
+        new(["nicovideo.jp", "www.nicovideo.jp", "sp.nicovideo.jp"], ["/", "/watch/", "/search/?", "/tag/?", "/user/"]),
+        new(["twitch.tv", "www.twitch.tv", "m.twitch.tv"], ["/", "/*", "/directory/", "/videos/", "/search?"]),
+        new(["netflix.com", "www.netflix.com"], ["/", "/browse", "/title/", "/watch/", "/search?", "/*/title/"]),
+        new(["abema.tv"], ["/", "/video/", "/now-on-air/", "/channels/"]),
+        new(["crunchyroll.com", "www.crunchyroll.com"], ["/", "/series/", "/watch/", "/search?", "/*/series/", "/*/watch/"]),
+        new(["tver.jp"], ["/", "/episodes/", "/series/"]),
+        new(["animestore.docomo.ne.jp"], ["/animestore/?"]),
+        // 音樂
+        new(["open.spotify.com"], ["/", "/track/?", "/album/?", "/artist/?", "/playlist/?", "/show/?", "/episode/?", "/search/", "/*/track/?", "/*/album/?", "/*/artist/?", "/*/playlist/?"]),
+        new(["www.spotify.com"], ["/"]),
+        new(["music.apple.com"], ["/", "/search?", "/*/album/?", "/*/artist/?", "/*/playlist/?", "/*/song/?", "/*/search?"]),
+        new(["music.163.com"], ["/", "/song?", "/album?", "/artist?", "/playlist?"]),
+        new(["y.qq.com"], ["/", "/n/ryqq/?"]),
+        new(["www.kugou.com"], ["/", "/song/", "/mixsong/", "/yy/?"]),
+        new(["www.kkbox.com"], ["/", "/*/*/song/", "/*/*/album/", "/*/*/artist/", "/*/*/playlist/", "/*/*/search?"]),
+        new(["last.fm", "www.last.fm"], ["/", "/music/", "/user/", "/search?", "/*/music/", "/*/user/"]),
+        new(["roonlabs.com", "www.roonlabs.com"], ["/"]),
+        new(["community.roonlabs.com"], ["/", "/t/", "/c/", "/latest", "/search?"]),   // Discourse 的 /clicks/track?url= 會轉址
+        new(["recochoku.jp", "www.recochoku.jp"], ["/", "/song/", "/album/", "/artist/", "/search/?"]),
+        new(["mora.jp"], ["/", "/package/", "/artist/", "/search/?"]),
+        new(["uta-net.com", "www.uta-net.com"], ["/", "/song/", "/artist/", "/search/?"]),
+        new(["utaten.com"], ["/", "/lyric/", "/artist/", "/search?"]),
+        new(["j-lyric.net"], ["/", "/artist/"]),
+        new(["vgmdb.net"], ["/", "/album/", "/artist/", "/product/", "/org/", "/search?"]),
+        // 動畫、插畫、LoveLive（官方網站本身沒有放使用者的東西，任何頁都可以，但不帶查詢字串）
+        new(["pixiv.net", "www.pixiv.net"], ["/", "/artworks/", "/users/", "/tags/", "/*/artworks/", "/*/users/", "/*/tags/"]),
+        new(["myanimelist.net"], ["/", "/anime/", "/manga/", "/people/", "/character/", "/search/?"]),
+        new(["anilist.co"], ["/", "/anime/", "/manga/", "/character/", "/staff/", "/search/?"]),
+        new(["bangumi.tv", "bgm.tv"], ["/", "/subject/", "/person/", "/character/", "/subject_search/?"]),
+        new(["lovelive-anime.jp", "www.lovelive-anime.jp"], ["/**"]),
+        // 社群、購物、開發：X 的個人頁不帶查詢字串（/share?text= 會把文字放進發文框）；GitHub 只到儲存庫首頁
+        new(["x.com", "twitter.com", "mobile.x.com", "mobile.twitter.com"], ["/", "/*", "/*/status/", "/search?", "/hashtag/?"]),
+        new(["amazon.com", "www.amazon.com", "amazon.co.jp", "www.amazon.co.jp"], ["/", "/dp/", "/*/dp/", "/gp/product/", "/s?"]),
+        new(["github.com"], ["/", "/*", "/*/*", "/*/*/releases", "/search?"]),
+        // 地圖
+        new(["openstreetmap.org", "www.openstreetmap.org"], ["/", "/search?", "/node/", "/way/", "/relation/"]),
+    ];
+
+    /// <summary>解開跳脫之後超過這麼長（路徑＋查詢字串＋片段）就要確認：正常的「搜尋某首歌」不會這麼長，夾帶剪貼簿的才會。</summary>
+    public const int LongestTrusted = 200;
+
+    /// <summary>
+    /// 這個網址可以不問使用者就開：https、主機（照 IDN 轉成 punycode、小寫、去掉結尾的點）與路徑是常用網站列出的用法、
+    /// 沒有帳號密碼、用預設的埠號、不是 IP 位址；而且解開跳脫之後不夾著別的網址或主機名稱、也不會太長。
+    /// 長得像的（google.com.evil.example、evil-google.com、gооgle.com 用西里爾字母）都不算。
+    /// 其他的都要使用者在島上看過完整網址、按了才開。
+    /// </summary>
+    public static bool Trusted(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return false;
+        if (uri.UserInfo.Length > 0 || !uri.IsDefaultPort || uri.HostNameType != UriHostNameType.Dns) return false;
+        var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+        var site = Sites.FirstOrDefault(s => s.Hosts.Any(h => h.StartsWith("*.", StringComparison.Ordinal) ? host.EndsWith(h[1..], StringComparison.Ordinal) : host == h));
+        if (site == null) return false;
+
+        // 先解開再比：「/%61mp/s/…」比對前要先變回「/amp/s/…」
+        if (Unescape(uri.AbsolutePath) is not { } path || Unescape(uri.Query) is not { } query || Unescape(uri.Fragment) is not { } fragment) return false;
+        if (path.Contains('\\') || path.Contains("//", StringComparison.Ordinal)) return false;
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(s => s is "." or "..")) return false;
+        bool hasQuery = uri.Query.Length > 1;
+        if (!site.Paths.Any(p => Allows(p, segments, hasQuery))) return false;
+
+        var rest = path + query + fragment;
+        if (rest.Length > LongestTrusted) return false;
+        var folded = Titles.Wellformed(rest).Normalize(NormalizationForm.FormKC).Replace('。', '.');
+        if (folded.Contains("//", StringComparison.Ordinal) || folded.Contains('\\') || Hostish().IsMatch(folded)) return false;
+        return site.Extra?.Invoke(folded) != true;
+    }
+
+    /// <summary>解開百分比跳脫到不再變為止（%252F 這種疊了幾層的）；疊太多層就當作不正常，回 null。</summary>
+    private static string? Unescape(string text)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            var next = Uri.UnescapeDataString(text);
+            if (next == text) return text;
+            text = next;
+        }
+        return null;
+    }
+
+    /// <summary>路徑（已經切成一段一段）符不符合一種寫法。</summary>
+    private static bool Allows(string pattern, string[] path, bool hasQuery)
+    {
+        bool query = pattern.EndsWith('?');
+        if (query) pattern = pattern[..^1];
+        if (hasQuery && !query) return false;
+        bool below = pattern.Length > 1 && pattern.EndsWith('/');
+        var parts = pattern.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts is [.., "**"]) return path.Length >= parts.Length - 1 && Same(parts[..^1], path);
+        if (below ? path.Length <= parts.Length : path.Length != parts.Length) return false;
+        return Same(parts, path);
+
+        static bool Same(string[] parts, string[] path)
+        {
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var (want, got) = (parts[i], path[i]);
+                bool ok = want == "*" || (want.EndsWith('*') && want.Length > 1 ? got.Length > want.Length - 1 && got.StartsWith(want[..^1], StringComparison.Ordinal) : got == want);
+                if (!ok) return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 長得像主機名稱或位址的字：「evil.example」「a.b.xn--p1ai」、IPv4、方括號裡的 IPv6。
+    /// 會連「Mr.Children」「Node.js」也算進去：搜尋關鍵字裡剛好有點的話多按一下，換來的是代抓、轉址的服務都帶不走資料。
+    /// </summary>
+    [GeneratedRegex(@"(?<![\p{L}\p{N}\-])(?:[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9\-]{1,59})(?![\p{L}\p{N}\-])|(?<!\d)\d{1,3}(?:\.\d{1,3}){3}(?!\d)|\[[0-9a-f:.]*:[0-9a-f:.]*\]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex Hostish();
 
     /// <summary>代表「預設瀏覽器」：開的時候才從登錄檔查是哪一個。</summary>
     public const string Browser = "default-browser";
@@ -428,7 +623,7 @@ public static class Opener
         var raw = input.Trim();
         if (raw.Length == 0) return new(OpenKind.Refused, "", "沒有說要開什麼");
         if (raw.Length > 2048) return new(OpenKind.Refused, "", "網址太長");
-        var text = raw.Normalize(NormalizationForm.FormKC);
+        var text = Titles.Wellformed(raw).Normalize(NormalizationForm.FormKC);   // 孤立的代理字元會讓 Normalize 丟例外
 
         // 先看是不是白名單的名字（整個字串就是名字，不能多帶東西）
         var key = Regex.Replace(text.ToLowerInvariant(), @"\s+", " ");
@@ -481,7 +676,7 @@ public static class Calculator
         value = 0;
         problem = "";
         if (expression.Length > 300) { problem = "算式太長"; return false; }
-        var text = expression.Normalize(NormalizationForm.FormKC)
+        var text = Titles.Wellformed(expression).Normalize(NormalizationForm.FormKC)
             .Replace('×', '*').Replace('÷', '/').Replace('−', '-').Replace("**", "^")
             .Replace("（", "(").Replace("）", ")");
         // 千分位的逗號拿掉：1,000 → 1000

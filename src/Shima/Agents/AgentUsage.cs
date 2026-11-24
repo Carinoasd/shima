@@ -128,7 +128,28 @@ public sealed class UsageLedger
         public List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> Extra = NoExtra;   // 共用的空清單：絕不就地修改，只整個換掉
     }
 
-    private readonly Dictionary<string, Entry> _entries = [];
+    private Dictionary<string, Entry> _entries = [];
+
+    /// <summary>
+    /// 帳本自己的字串池：同一個工作階段、專案、模型的幾千則共用一個字串物件。
+    /// 不用 string.Intern：那是整個程序共用、永遠不回收的池子，常駐跑久了每個工作階段的 UUID 都會留著；這個池子跟著帳本清掉。
+    /// </summary>
+    private HashSet<string> _strings = new(StringComparer.Ordinal);
+
+    private string Share(string s)
+    {
+        if (s.Length == 0) return "";
+        if (_strings.TryGetValue(s, out var have)) return have;
+        _strings.Add(s);
+        return s;
+    }
+
+    /// <summary>拿掉紀錄之後，池子只留還有人用的字串。</summary>
+    private void Reshare()
+    {
+        _strings = new(StringComparer.Ordinal);
+        foreach (var e in _entries.Values) { Share(e.Session); Share(e.Project); Share(e.Model); }
+    }
 
     public int Count => _entries.Count;
 
@@ -145,7 +166,11 @@ public sealed class UsageLedger
         if (!Worth(line)) return false;
         try
         {
-            using var doc = JsonDocument.Parse(line.ToArray());
+            // 直接在原本的緩衝區上解析：line.ToArray() 會為每一行（常有幾百 KB）在 LOH 配一份。
+            // ParseValue 把這個值複製進從 ArrayPool 借的緩衝區，doc 釋放時還回去；取出來的字串都是另外的 string
+            var reader = new Utf8JsonReader(line);
+            using var doc = JsonDocument.ParseValue(ref reader);
+            if (reader.Read()) return false;   // 後面還有東西：跟以前的 JsonDocument.Parse 一樣不收（多半會直接丟 JsonException）
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object || Str(root, "type") != "assistant") return false;
             if (root.TryGetProperty("isApiErrorMessage", out var error) && error.ValueKind == JsonValueKind.True) return false;
@@ -162,9 +187,9 @@ public sealed class UsageLedger
             if (stamp < Oldest) return false;
             if (!_entries.TryGetValue(id, out var e)) _entries[id] = e = new Entry();
             // 字串共用：同一個模型、工作階段、專案的幾千則不用各配一份
-            e.Session = string.Intern(Str(root, "sessionId") is { Length: > 0 } s ? s : e.Session.Length > 0 ? e.Session : fallbackSession);
-            if (Str(root, "cwd") is { Length: > 0 } cwd) e.Project = string.Intern(AgentSessions.ProjectOf(cwd));
-            e.Model = string.Intern(model);
+            e.Session = Share(Str(root, "sessionId") is { Length: > 0 } s ? s : e.Session.Length > 0 ? e.Session : fallbackSession);
+            if (Str(root, "cwd") is { Length: > 0 } cwd) e.Project = Share(AgentSessions.ProjectOf(cwd));
+            e.Model = Share(model);
             if (stamp != null) e.Time = stamp.Value;
             e.Speed = Str(usage, "speed") ?? e.Speed;
             e.Geo = Str(usage, "inference_geo") ?? e.Geo;
@@ -179,14 +204,14 @@ public sealed class UsageLedger
             // 模型備援：usage 本身是最後成功的那個模型；先前用別的模型跑過的那一段在 iterations 裡
             if (usage.TryGetProperty("iterations", out var iterations) && iterations.ValueKind == JsonValueKind.Array)
             {
-                var extra = new List<(string, long, long, long, long, long)>();
+                List<(string, long, long, long, long, long)>? extra = null;   // 多半沒有備援：有才配置，空的就繼續共用 NoExtra
                 foreach (var it in iterations.EnumerateArray())
                     if (it.ValueKind == JsonValueKind.Object && Str(it, "model") is { Length: > 0 } other && other != model)
                     {
                         var c = Counts(it);
-                        extra.Add((other, c.Input, c.Output, c.Write5m, c.Write1h, c.Read));
+                        (extra ??= []).Add((other, c.Input, c.Output, c.Write5m, c.Write1h, c.Read));
                     }
-                if (extra.Count >= e.Extra.Count) e.Extra = extra;
+                if (extra != null && extra.Count >= e.Extra.Count) e.Extra = extra;
             }
             return true;
         }
@@ -218,14 +243,21 @@ public sealed class UsageLedger
     {
         var last = _entries.Values.GroupBy(e => e.Session).ToDictionary(g => g.Key, g => g.Max(e => e.Time));
         foreach (var key in _entries.Where(p => last[p.Value.Session] < before).Select(p => p.Key).ToList()) _entries.Remove(key);
+        Reshare();
     }
 
-    public void Clear() => _entries.Clear();
+    /// <summary>全部清掉；換成新的空集合，連原本撐大的容量一起放掉（Clear() 會留著）。</summary>
+    public void Clear()
+    {
+        _entries = [];
+        _strings = new(StringComparer.Ordinal);
+    }
 
     /// <summary>拿掉有時間、而且早於 before 的紀錄（已經收進來、後來超出範圍的）。</summary>
     public void Trim(DateTime before)
     {
         foreach (var key in _entries.Where(p => p.Value.Time != default && p.Value.Time < before).Select(p => p.Key).ToList()) _entries.Remove(key);
+        Reshare();
     }
 
     /// <summary>
@@ -362,7 +394,7 @@ public sealed class AgentUsage
     /// </summary>
     public void Watch(string transcriptPath)
     {
-        if (transcriptPath.Length == 0) return;
+        if (!AgentSessions.TranscriptOk(transcriptPath)) return;   // 呼叫的人應該已經擋過；這裡再擋一次，之後才會去碰檔案
         lock (_watched) _watched.Add(transcriptPath);
     }
 
@@ -440,7 +472,7 @@ public sealed class AgentUsage
     {
         var files = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (path, written) in Listing(since))
+        foreach (var (path, written) in Listing(since, now))
             if (written >= since && seen.Add(path)) files.Add(path);
         List<string> watched;
         lock (_watched) watched = [.. _watched];
@@ -458,12 +490,18 @@ public sealed class AgentUsage
         return files;
     }
 
-    /// <summary>列舉 projects 底下的紀錄檔（路徑與修改時間）。幾秒內、範圍夠大的上一份清單直接沿用。</summary>
-    private List<(string Path, DateTime Written)> Listing(DateTime since)
+    /// <summary>
+    /// 列舉 projects 底下的紀錄檔（路徑與修改時間）。幾秒內、範圍夠大的上一份清單直接沿用。
+    /// 一律至少列到趨勢的範圍（14 天）：刷新時先問今天、再問趨勢，只列今天的話第二次一定不夠大又要再掃一遍（WSL 那份走網路，很慢）。
+    /// 反正每個檔案都要看過修改時間，範圍大一點不會多讀；呼叫的人自己再篩。
+    /// </summary>
+    private List<(string Path, DateTime Written)> Listing(DateTime since, DateTime now)
     {
+        var floor = now.Date.AddDays(-13);
+        if (since < floor) floor = since;
         lock (_listLock)
         {
-            if (_listing != null && since >= _listingSince && Environment.TickCount64 - _listingTick < 5000) return _listing;
+            if (_listing != null && floor >= _listingSince && Environment.TickCount64 - _listingTick < 5000) return _listing;
             var list = new List<(string, DateTime)>();
             foreach (var folder in Folders())
             {
@@ -473,11 +511,11 @@ public sealed class AgentUsage
                     if (!Directory.Exists(projects)) continue;
                     var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
                     foreach (var file in new DirectoryInfo(projects).EnumerateFiles("*.jsonl", options))
-                        if (file.LastWriteTime >= since) list.Add((file.FullName, file.LastWriteTime));
+                        if (file.LastWriteTime >= floor) list.Add((file.FullName, file.LastWriteTime));
                 }
                 catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }   // 訊息裡有含專案名稱的完整路徑，不寫進紀錄檔
             }
-            _listing = list; _listingSince = since; _listingTick = Environment.TickCount64;
+            _listing = list; _listingSince = floor; _listingTick = Environment.TickCount64;
             return list;
         }
     }

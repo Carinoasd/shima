@@ -320,10 +320,19 @@
               <Grid.RowDefinitions>
                 <RowDefinition Height="28"/>
                 <RowDefinition Height="8"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
               <StackPanel x:Name="ChatSites" Orientation="Horizontal" HorizontalAlignment="Center"/>
-              <Border x:Name="ChatHost" Grid.Row="2" CornerRadius="12" Background="#1A1A1A"/>
+              <!-- 最上層的網頁離開了聊天網站自己的網域：島裡沒有網址列，這一列讓人看得到自己在哪裡 -->
+              <Border x:Name="ChatAway" Grid.Row="2" Height="30" Margin="0,0,0,8" CornerRadius="15" Background="#26FFFFFF" Padding="14,0,0,0" Visibility="Collapsed">
+                <DockPanel>
+                  <Button x:Name="ChatAwayOpen" DockPanel.Dock="Right" Style="{StaticResource Pill}" Background="Transparent" Padding="12,0"
+                          FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Content="&#xE8A7;" ToolTip="在瀏覽器開啟" Click="ChatAwayOpen_Click"/>
+                  <TextBlock x:Name="ChatAwayHost" FontSize="13" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+              </Border>
+              <Border x:Name="ChatHost" Grid.Row="3" CornerRadius="12" Background="#1A1A1A"/>
             </Grid>
 
             <!-- AI：語音助手、API 金鑰、Claude Code -->
@@ -338,8 +347,11 @@
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="VoiceButton" Style="{StaticResource Key}" Width="52" Height="52" FontSize="20" Content="&#xE720;" ToolTip="語音助手" Click="Voice_Click"/>
-                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 AI，按 Enter"/>
+                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" PreviewKeyDown="AskBox_PreviewKeyDown" KeyDown="AskBox_KeyDown" TextChanged="AskBox_TextChanged" ToolTip="問 AI，按 Enter"/>
               </Grid>
+              <Border x:Name="CommandHints" Margin="0,8,0,0" Padding="4" CornerRadius="10" Background="#1FFFFFFF" Visibility="Collapsed">
+                <StackPanel x:Name="CommandList"/>
+              </Border>
               <WrapPanel x:Name="ExamplesBox" Margin="0,10,0,-4"/>
               <s:AnswerView x:Name="VoiceText" Margin="4,10,4,0" Visibility="Collapsed"/>
               <DockPanel Height="30" Margin="0,12,0,0">

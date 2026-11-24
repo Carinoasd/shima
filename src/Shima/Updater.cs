@@ -17,7 +17,7 @@ public static class Updater
 
     private static HttpClient Client()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5), MaxResponseContentBufferSize = 2 * 1024 * 1024 };   // 只管 releases/latest 的 JSON；安裝檔是邊收邊寫，另外用 release.Size 擋
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Shima");
         return http;
     }
@@ -34,6 +34,26 @@ public static class Updater
         var now = new Version(current.Major, current.Minor, Math.Max(0, current.Build));
         return new Version(version.Major, version.Minor, Math.Max(0, version.Build)) > now ? version : null;
     }
+
+    public enum VersionChange { First, Same, Upgraded, Downgraded }
+
+    /// <summary>
+    /// 現在的版本跟上次記下的比：沒記過（或認不得）是 First，一樣是 Same。
+    /// 記下的可以帶 v 或「0.7.1+commit」「0.8.0-beta」這種後綴；比的方式跟 <see cref="Newer"/> 一樣只看前三段。
+    /// </summary>
+    public static VersionChange Compare(string? last, Version current)
+    {
+        var text = (last ?? "").Trim().TrimStart('v', 'V');
+        int cut = text.IndexOfAny(['+', '-', ' ']);
+        if (cut >= 0) text = text[..cut];
+        if (!Version.TryParse(text, out var before)) return VersionChange.First;
+        var then = new Version(before.Major, before.Minor, Math.Max(0, before.Build));
+        var now = new Version(current.Major, current.Minor, Math.Max(0, current.Build));
+        return now > then ? VersionChange.Upgraded : now < then ? VersionChange.Downgraded : VersionChange.Same;
+    }
+
+    /// <summary>這一版的更新說明頁。</summary>
+    public static string NotesUrl(Version version) => $"https://github.com/Carinoasd/shima/releases/tag/v{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
 
     /// <summary>一個可以裝的新版：下載網址，以及 GitHub 記錄的檔案大小與 SHA-256。</summary>
     public sealed record Release(Version Version, string Url, long Size, string Sha256);
@@ -86,12 +106,7 @@ public static class Updater
         string fresh = exe + ".new", old = exe + ".old";
         try
         {
-            using (var response = await Http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead))
-            {
-                response.EnsureSuccessStatusCode();
-                await using var to = File.Create(fresh);
-                await response.Content.CopyToAsync(to);
-            }
+            if (!await DownloadAsync(Http, release, fresh)) { Log.Write("update: 下載的內容比發佈的大小還大，中止"); return false; }
             if (!Matches(fresh, release.Size, release.Sha256)) { TryDelete(fresh); Log.Write("update: 下載到的檔案跟發佈的不一樣（大小或雜湊不符），不安裝"); return false; }
 
             await RetryAsync(() => { if (File.Exists(old)) File.Delete(old); });
@@ -107,6 +122,48 @@ public static class Updater
         }
         catch (Exception e) { Log.Write("update: " + e.Message); TryDelete(fresh); return false; }
         finally { Interlocked.Exchange(ref _applying, 0); }
+    }
+
+    /// <summary>下載時多久沒有收到任何資料就放棄。下載本身可以很久（慢的網路），但不能停住不動。</summary>
+    public static readonly TimeSpan Stalled = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// 下載到 <paramref name="path"/>，邊收邊算：超過 GitHub 回報的大小（<see cref="Release.Size"/>）就中止、刪掉暫存檔，回 false。
+    /// 不能等寫完才比，不然對方（或中間人）送多大就寫多大到磁碟。網路錯誤照舊丟例外（暫存檔也會刪）。
+    /// 用 ResponseHeadersRead 時 HttpClient.Timeout 只管到收到標頭為止：之後 <paramref name="idle"/>（預設 <see cref="Stalled"/>）沒有收到任何資料，
+    /// 丟 TimeoutException，不然「正在更新」的狀態永遠不會結束。
+    /// </summary>
+    public static async Task<bool> DownloadAsync(HttpClient http, Release release, string path, TimeSpan? idle = null)
+    {
+        var patience = idle ?? Stalled;
+        using var quiet = new CancellationTokenSource();
+        try
+        {
+            using var response = await http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            if (response.Content.Headers.ContentLength > release.Size) return false;
+            quiet.CancelAfter(patience);
+            await using var from = await response.Content.ReadAsStreamAsync(quiet.Token).WaitAsync(quiet.Token);
+            await using var to = File.Create(path);
+            var chunk = new byte[80 * 1024];
+            long total = 0;
+            int n;
+            // 每次讀都另外用 WaitAsync 等：底下的串流不理會 token 的話也不會卡住
+            while ((n = await from.ReadAsync(chunk, quiet.Token).AsTask().WaitAsync(quiet.Token)) > 0)
+            {
+                quiet.CancelAfter(patience);   // 有收到資料就重新計時
+                total += n;
+                if (total > release.Size) { to.Close(); TryDelete(path); return false; }
+                await to.WriteAsync(chunk.AsMemory(0, n));
+            }
+            return true;
+        }
+        catch (OperationCanceledException) when (quiet.IsCancellationRequested)
+        {
+            TryDelete(path);
+            throw new TimeoutException($"下載停住超過 {patience.TotalSeconds:0.#} 秒");
+        }
+        catch { TryDelete(path); throw; }
     }
 
     /// <summary>檔案是不是發佈的那一個：大小一樣、SHA-256 一樣，而且是 Windows 執行檔。</summary>

@@ -13,7 +13,7 @@ Una pequeña isla en la parte superior de la pantalla de Windows: muestra la mú
 - **Fuentes de música**: Roon (posición, volumen, zonas) y cualquier reproductor que aparezca en el panel de volumen de Windows: YouTube en el navegador, Spotify, Apple Music…
 - **Letras**: tus `.lrc`, LRCLIB, NetEase, QQ Music y Kugou; distingue las versiones de una misma canción (`104期Ver.`, `SAKURA Ver.`)
 - **Letras en movimiento**: la letra se desplaza con suavidad y una luz sigue el canto; haz clic en una línea para saltar a ella; puedes cambiar de fuente o ajustar el tiempo
-- **Segunda línea**: traducción al chino o romaji bajo las canciones japonesas
+- **Segunda línea**: traducción al chino o romaji bajo las canciones japonesas, o furigana sobre los kanji
 - **Personaje**: vive en la cápsula y baila con el sonido real; por defecto, un Claude en píxeles en homenaje a la mascota de Claude Code
 - **Estado de Discord**: canción, carátula y progreso
 - **Herramientas**: pomodoro, bandeja de archivos, lista de tareas, calendario, recordatorio de agua
@@ -29,6 +29,8 @@ Una pequeña isla en la parte superior de la pantalla de Windows: muestra la mú
 - **Guardar y traducir letras**: guarda la letra ajustada como `.lrc`; si una canción no tiene traducción, la IA la traduce verso a verso
 - **Codex CLI y Gemini CLI**: como con Claude Code, la isla muestra el estado y avisa al terminar; las solicitudes de permiso de Codex se responden en la isla
 - **Last.fm**: registra lo que escuchas en Last.fm (compatible con ListenBrainz a la vez)
+- **Comandos rápidos**: escribe `/next`, `/vol 30`, `/sleep 30` o `/remind 15:30 reunión` en el cuadro de la IA; se ejecutan al instante, sin clave de API
+- **Copia de seguridad**: exporta ajustes, historial, favoritos, recordatorios y letras a un zip y restáuralos en otro PC (sin claves)
 - Arrástrala a cualquier sitio; se oculta ante aplicaciones a pantalla completa; 11 idiomas
 
 ## Instalación

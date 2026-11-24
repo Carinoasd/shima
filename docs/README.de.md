@@ -13,7 +13,7 @@ Eine kleine Insel am oberen Rand des Windows-Bildschirms: Sie zeigt die laufende
 - **Musikquellen**: Roon (Position, Lautstärke, Zonen) und jeder Player, der im Windows-Lautstärkefeld erscheint – YouTube im Browser, Spotify, Apple Music …
 - **Songtexte**: eigene `.lrc`, LRCLIB, NetEase, QQ Music und Kugou; unterscheidet Versionen desselben Titels (`104期Ver.`, `SAKURA Ver.`)
 - **Bewegte Songtexte**: Der Text scrollt weich, ein Licht folgt dem Gesang; Klick auf eine Zeile springt dorthin; Quelle wechseln oder Timing feinjustieren
-- **Zweite Zeile**: chinesische Übersetzung oder Romaji unter japanischen Titeln
+- **Zweite Zeile**: chinesische Übersetzung oder Romaji unter japanischen Titeln, oder Furigana über den Kanji
 - **Figur**: wohnt in der Kapsel und bewegt sich zum tatsächlichen Ton; Standard ist ein Pixel-Claude als Hommage an das Claude-Code-Maskottchen
 - **Discord-Status**: Titel, Cover und Fortschritt
 - **Werkzeuge**: Pomodoro, Dateiablage, Aufgabenliste, Kalender, Trinkerinnerung
@@ -29,6 +29,8 @@ Eine kleine Insel am oberen Rand des Windows-Bildschirms: Sie zeigt die laufende
 - **Songtexte speichern und übersetzen**: angepasste Songtexte als `.lrc` speichern; fehlt eine Übersetzung, übersetzt die KI Zeile für Zeile
 - **Codex CLI und Gemini CLI**: wie bei Claude Code zeigt die Insel den Status und meldet das Ende; Berechtigungsanfragen von Codex lassen sich auf der Insel beantworten
 - **Last.fm**: Gehörtes an Last.fm melden (auch zusammen mit ListenBrainz)
+- **Schnellbefehle**: `/next`, `/vol 30`, `/sleep 30` oder `/remind 15:30 Meeting` ins KI-Feld tippen – wird sofort ausgeführt, ohne API-Schlüssel
+- **Sicherung**: Einstellungen, Hörverlauf, Favoriten, Erinnerungen und Liedtexte als zip exportieren und auf einem anderen PC wiederherstellen (ohne Schlüssel)
 - Frei verschiebbar; blendet sich vor Vollbild-Apps aus; 11 Sprachen
 
 ## Installation

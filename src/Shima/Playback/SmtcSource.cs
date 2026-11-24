@@ -152,8 +152,8 @@ public sealed class SmtcSource : IMediaSource
             {
                 if (s != _session) return;
                 _title = PageTitle.Clean(p.Title);
-                _artist = p.Artist ?? "";
-                _album = p.AlbumTitle ?? "";
+                _artist = Lyrics.Titles.Cap(p.Artist);
+                _album = Lyrics.Titles.Cap(p.AlbumTitle);
                 _cover = cover;
             }
             Changed?.Invoke();
@@ -184,17 +184,42 @@ public sealed class SmtcSource : IMediaSource
     public static List<int> PausePicks(IReadOnlyList<(string AppId, bool Playing)> sessions, Func<string, bool>? skip) =>
         Enumerable.Range(0, sessions.Count).Where(i => sessions[i].Playing && skip?.Invoke(sessions[i].AppId) != true).ToList();
 
-    /// <summary>所有正在播的都暫停（睡眠定時用），不只是島上跟著的那一個。</summary>
-    public async void PauseAll()
+    /// <summary>
+    /// 同上，但每個工作階段的狀態各自讀：讀狀態是跨程序呼叫，剛關掉的分頁會丟例外，
+    /// 讀不到的那個當成沒在播，不能讓它害其他正在播的一個都沒暫停。
+    /// </summary>
+    public static List<int> PausePicks<T>(IReadOnlyList<T> sessions, Func<T, (string AppId, bool Playing)> read, Func<string, bool>? skip)
+    {
+        var states = new (string AppId, bool Playing)[sessions.Count];
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            try { states[i] = read(sessions[i]); }
+            catch { states[i] = ("", false); }
+        }
+        return PausePicks(states, skip);
+    }
+
+    private static (string AppId, bool Playing) ReadState(Session s) =>
+        (s.SourceAppUserModelId ?? "", s.GetPlaybackInfo()?.PlaybackStatus == Status.Playing);
+
+    private List<Session> SessionsToPause()
     {
         try
         {
-            if (_manager?.GetSessions() is not { } all) return;
+            if (_manager?.GetSessions() is not { } all) return [];
             var list = all.ToList();
-            var picks = PausePicks([.. list.Select(s => (s.SourceAppUserModelId ?? "", s.GetPlaybackInfo()?.PlaybackStatus == Status.Playing))], Skip);
-            foreach (int i in picks) { try { await list[i].TryPauseAsync(); } catch { } }
+            return [.. PausePicks(list, ReadState, Skip).Select(i => list[i])];
         }
-        catch { /* 播放器剛關掉 */ }
+        catch { return []; /* 清單本身拿不到 */ }
+    }
+
+    /// <summary>有沒有任何會被 PauseAll 暫停的工作階段正在播：不看標題，也不限島上跟著的那一個。</summary>
+    public bool AnyPlaying => SessionsToPause().Count > 0;
+
+    /// <summary>所有正在播的都暫停（睡眠定時用），不只是島上跟著的那一個。</summary>
+    public async void PauseAll()
+    {
+        foreach (var s in SessionsToPause()) { try { await s.TryPauseAsync(); } catch { /* 播放器剛關掉 */ } }
     }
 
     public async void Next() { try { if (_session is { } s) await s.TrySkipNextAsync(); } catch { } }

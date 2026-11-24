@@ -13,11 +13,16 @@ namespace Shima.Lyrics;
 public sealed class QQProvider : ILyricsProvider
 {
     public string Name => "qq";
-    private static readonly HttpClient Http = Client();
+    private readonly HttpClient Http;
 
-    private static HttpClient Client()
+    private static readonly Lazy<HttpClient> Shared = new(() => Client(null));
+
+    /// <param name="handler">測試用：換掉真的網路。</param>
+    public QQProvider(HttpMessageHandler? handler = null) => Http = handler == null ? Shared.Value : Client(handler);
+
+    private static HttpClient Client(HttpMessageHandler? handler)
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var http = HttpLimits.Create(TimeSpan.FromSeconds(10), handler);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
         http.DefaultRequestHeaders.Referrer = new Uri("https://y.qq.com/");
         return http;
@@ -35,8 +40,9 @@ public sealed class QQProvider : ILyricsProvider
                 param = new { num_per_page = 20, page_num = 1, query = (q.Title + " " + artist).Trim(), search_type = 0 },
             },
         });
-        using var response = await Http.PostAsync("https://u.y.qq.com/cgi-bin/musicu.fcg", new StringContent(body, Encoding.UTF8, "application/json"));
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var response = await Http.SendAsync(new HttpRequestMessage(HttpMethod.Post, "https://u.y.qq.com/cgi-bin/musicu.fcg") { Content = new StringContent(body, Encoding.UTF8, "application/json") }, HttpCompletionOption.ResponseHeadersRead);
+        if (await HttpLimits.ReadAsync(response) is not { } found) return null;
+        using var doc = JsonDocument.Parse(found);
         if (!doc.RootElement.TryGetProperty("req", out var req) || !req.TryGetProperty("data", out var data) || !data.TryGetProperty("body", out var b) ||
             !b.TryGetProperty("song", out var song) || !song.TryGetProperty("list", out var list) || list.ValueKind != JsonValueKind.Array) return null;
 
@@ -55,9 +61,9 @@ public sealed class QQProvider : ILyricsProvider
         var (index, exact) = SongPicker.Pick(items, q.Title, artist, q.Duration);
         if (index < 0 || mids[index].Length == 0) return null;
 
-        var json = await Http.GetStringAsync($"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={mids[index]}&format=json&nobase64=1&g_tk=5381");
+        if (await HttpLimits.GetStringAsync(Http, $"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={Uri.EscapeDataString(mids[index])}&format=json&nobase64=1&g_tk=5381") is not { } json) return null;
         using var l = JsonDocument.Parse(json);
-        string Lyric(string name) => l.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? WebUtility.HtmlDecode(v.GetString() ?? "") : "";
+        string Lyric(string name) => l.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { } raw && raw.Length <= HttpLimits.MaxText ? WebUtility.HtmlDecode(raw) : "";
         var lines = Lrc.Parse(Lrc.StripCredits(Lyric("lyric"), items[index].Title));
         if (lines.Count == 0) return null;
         var sheet = new LyricSheet(lines, true) { Translation = Lrc.Align(lines, Lrc.Parse(Chinese.Localize(Lrc.StripCredits(Lyric("trans"))))) };
@@ -69,43 +75,70 @@ public sealed class QQProvider : ILyricsProvider
 public sealed class KugouProvider : ILyricsProvider
 {
     public string Name => "kugou";
-    private static readonly HttpClient Http = Client();
+    private readonly HttpClient Http;
 
-    private static HttpClient Client()
+    private static readonly Lazy<HttpClient> Shared = new(() => Client(null));
+
+    /// <param name="handler">測試用：換掉真的網路。</param>
+    public KugouProvider(HttpMessageHandler? handler = null) => Http = handler == null ? Shared.Value : Client(handler);
+
+    private static HttpClient Client(HttpMessageHandler? handler)
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var http = HttpLimits.Create(TimeSpan.FromSeconds(10), handler);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
         return http;
+    }
+
+    /// <summary>搜尋結果標示關鍵字的 &lt;em&gt;、&lt;/em&gt; 拿掉。</summary>
+    public static string StripEm(string s) => s.Replace("<em>", "", StringComparison.OrdinalIgnoreCase).Replace("</em>", "", StringComparison.OrdinalIgnoreCase);
+
+    private static JsonDocument? TryParse(string json)
+    {
+        try { return JsonDocument.Parse(json); }
+        catch (JsonException) { return null; }
     }
 
     public async Task<LyricsHit?> FindAsync(SongQuery q)
     {
         var artist = Titles.MainArtist(q.Artist);
-        var found = await Http.GetStringAsync($"http://mobilecdn.kugou.com/api/v3/search/song?keyword={Uri.EscapeDataString((q.Title + " " + artist).Trim())}&page=1&pagesize=20&format=json");
-        using var doc = JsonDocument.Parse(found);
-        if (!doc.RootElement.TryGetProperty("data", out var data) || !data.TryGetProperty("info", out var info) || info.ValueKind != JsonValueKind.Array) return null;
+        // mobilecdn.kugou.com 沒有有效的 HTTPS 憑證，改用 songsearch；全部走 HTTPS，免得同網路的人看得到、改得到歌詞
+        if (await HttpLimits.GetStringAsync(Http, $"https://songsearch.kugou.com/song_search_v2?keyword={Uri.EscapeDataString((q.Title + " " + artist).Trim())}&page=1&pagesize=20&platform=WebFilter") is not { } found) return null;
+        using var doc = TryParse(found);
+        if (doc == null || doc.RootElement.ValueKind != JsonValueKind.Object ||
+            !doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("lists", out var list) || list.ValueKind != JsonValueKind.Array) return null;
 
         var hashes = new List<string>();
         var items = new List<SongCandidate>();
-        foreach (var s in info.EnumerateArray())
+        foreach (var s in list.EnumerateArray())
         {
-            string Get(string name) => s.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
-            hashes.Add(Get("hash"));
-            items.Add(new SongCandidate(Get("songname"), Get("singername"), s.TryGetProperty("duration", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetDouble() : 0));
+            if (s.ValueKind != JsonValueKind.Object) continue;
+            string Get(string name) => s.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? StripEm(v.GetString() ?? "") : "";
+            hashes.Add(Get("FileHash"));
+            items.Add(new SongCandidate(Get("SongName"), Get("SingerName"), s.TryGetProperty("Duration", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetDouble() : 0));
         }
         var (index, exact) = SongPicker.Pick(items, q.Title, artist, q.Duration);
         if (index < 0 || hashes[index].Length == 0) return null;
 
         // 兩步：先用歌的雜湊查到歌詞的編號與金鑰，再下載
-        var search = await Http.GetStringAsync($"http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration={(long)(items[index].Duration * 1000)}&hash={hashes[index]}");
-        using var s2 = JsonDocument.Parse(search);
-        if (!s2.RootElement.TryGetProperty("candidates", out var candidates) || candidates.ValueKind != JsonValueKind.Array || candidates.GetArrayLength() == 0) return null;
+        if (await HttpLimits.GetStringAsync(Http, $"https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration={(long)(items[index].Duration * 1000)}&hash={Uri.EscapeDataString(hashes[index])}") is not { } search) return null;
+        using var s2 = TryParse(search);
+        if (s2 == null || s2.RootElement.ValueKind != JsonValueKind.Object ||
+            !s2.RootElement.TryGetProperty("candidates", out var candidates) || candidates.ValueKind != JsonValueKind.Array || candidates.GetArrayLength() == 0) return null;
         var first = candidates[0];
-        string Field(string name) => first.TryGetProperty(name, out var v) ? v.ToString() : "";
-        var download = await Http.GetStringAsync($"http://lyrics.kugou.com/download?ver=1&client=pc&id={Field("id")}&accesskey={Field("accesskey")}&fmt=lrc&charset=utf8");
-        using var d2 = JsonDocument.Parse(download);
-        if (!d2.RootElement.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.String) return null;
-        var lrc = Encoding.UTF8.GetString(Convert.FromBase64String(content.GetString() ?? ""));
+        if (first.ValueKind != JsonValueKind.Object) return null;
+        string Field(string name) => first.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.String or JsonValueKind.Number ? v.ToString() : "";
+        string id = Field("id"), key = Field("accesskey");
+        if (id.Length == 0 || key.Length == 0) return null;
+        if (await HttpLimits.GetStringAsync(Http, $"https://lyrics.kugou.com/download?ver=1&client=pc&id={Uri.EscapeDataString(id)}&accesskey={Uri.EscapeDataString(key)}&fmt=lrc&charset=utf8") is not { } download) return null;
+        using var d2 = TryParse(download);
+        if (d2 == null || d2.RootElement.ValueKind != JsonValueKind.Object ||
+            !d2.RootElement.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.String) return null;
+        var base64 = content.GetString() ?? "";
+        string lrc;
+        try { lrc = Encoding.UTF8.GetString(Convert.FromBase64String(base64)); }
+        catch (FormatException) { return null; }
+        if (lrc.Length > HttpLimits.MaxText) return null;
         var lines = Lrc.Parse(Lrc.StripCredits(lrc, items[index].Title));
         return lines.Count > 0 ? new LyricsHit(new LyricSheet(lines, true), exact, Name) : null;
     }

@@ -63,6 +63,7 @@ public partial class IslandWindow
     /// <summary>連接或中斷一個 agent（裝好了就拿掉，沒裝或是舊版就裝上），再重新查一次每個 agent 的狀態。</summary>
     private async Task ToggleAgent(AgentKind agent)
     {
+        if (RefuseInDemo()) return;   // 示範模式不改真正的 ~/.claude/settings.json 等；按鈕文字維持原樣
         var (problem, connected) = await Task.Run(() =>
         {
             var installer = AgentInstaller.For(agent);

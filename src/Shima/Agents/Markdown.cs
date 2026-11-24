@@ -197,7 +197,7 @@ public static partial class Markdown
         // 不然串流時每次更新都在畫面的執行緒上花掉幾百毫秒
         if (text.Length > MaxInline) { spans.Add(new MdSpan(text, MdStyle.None)); return spans; }
         var code = CodeSpans(text);
-        Walk(text, 0, text.Length, MdStyle.None, code, spans, 0);
+        Walk(text, 0, text.Length, MdStyle.None, code, spans, 0, new Work());
         return spans;
     }
 
@@ -244,12 +244,24 @@ public static partial class Markdown
     /// <summary>標記最多套幾層（連結裡的連結、粗體裡的斜體…）：再深就當普通文字，不讓遞迴沒有上限。</summary>
     private const int MaxDepth = 12;
 
-    private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth)
+    /// <summary>
+    /// 找收尾要掃過的字數上限（整個區塊共用）。沒收尾的 [ 或 * 每一個都掃到區塊結尾，兩萬字全是這種標記要花上好幾秒；
+    /// 正常的回答連這個數字的百分之一都用不到。用完之後剩下的標記都當普通文字。
+    /// </summary>
+    private sealed class Work
+    {
+        public long Left = 1_000_000;
+        /// <summary>到目前為止加進去的字數（片段會合併，所以不能用片段的個數判斷某個連結加了什麼）。</summary>
+        public int Chars;
+    }
+
+    private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth, Work work)
     {
         var plain = new StringBuilder();
         void Add(string text, MdStyle st)
         {
             if (text.Length == 0) return;
+            work.Chars += text.Length;
             if (spans.Count > 0 && spans[^1].Style == st) spans[^1] = new MdSpan(spans[^1].Text + text, st);
             else spans.Add(new MdSpan(text, st));
         }
@@ -268,14 +280,14 @@ public static partial class Markdown
             }
             if (c == '\\' && i + 1 < to && Escapable.Contains(s[i + 1])) { plain.Append(s[i + 1]); i += 2; continue; }
             if (c == '`') { int n = Run(s, i, to); plain.Append(s, i, n); i += n; continue; }   // 沒收尾的反引號
-            if (depth < MaxDepth && c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code) is { } link)
+            if (depth < MaxDepth && c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code, work) is { } link)
             {
                 Flush();
-                int before = spans.Count;
-                Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans, depth + 1);
+                int before = work.Chars;
+                Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans, depth + 1, work);
                 // 網址留在後面：只顯示文字的話，「參考某頁」看不出連到哪裡，也沒辦法從畫面上選取複製
                 string url = s[(link.TextEnd + 2)..(link.End - 1)];
-                string shown = string.Concat(spans.Skip(before).Select(x => x.Text));
+                string shown = Tail(spans, work.Chars - before);
                 if ((url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) && !shown.Contains(url, StringComparison.OrdinalIgnoreCase))
                     spans.Add(new MdSpan($" ({url})", style));
                 i = link.End;
@@ -284,11 +296,11 @@ public static partial class Markdown
             if (c is '*' or '_')
             {
                 int n = Run(s, i, to);
-                if (depth < MaxDepth && Closer(s, i, n, to, code) is { } close)
+                if (depth < MaxDepth && Closer(s, i, n, to, code, work) is { } close)
                 {
                     Flush();
                     var add = c == '_' || n == 1 ? MdStyle.Italic : n == 2 ? MdStyle.Bold : MdStyle.Bold | MdStyle.Italic;
-                    Walk(s, i + n, close, style | add, code, spans, depth + 1);
+                    Walk(s, i + n, close, style | add, code, spans, depth + 1, work);
                     i = close + n;
                     continue;
                 }
@@ -302,13 +314,24 @@ public static partial class Markdown
         Flush();
     }
 
+    /// <summary>片段串起來之後的最後 length 個字（相鄰的連結文字會併成同一個片段，所以不能按片段的個數取）。</summary>
+    private static string Tail(List<MdSpan> spans, int length)
+    {
+        var parts = new List<string>();
+        int have = 0;
+        for (int k = spans.Count - 1; k >= 0 && have < length; k--) { parts.Add(spans[k].Text); have += spans[k].Text.Length; }
+        parts.Reverse();
+        var all = string.Concat(parts);
+        return all[Math.Max(0, all.Length - length)..];
+    }
+
     private static bool AsciiWord(char c) => c < 128 && char.IsLetterOrDigit(c);
 
     /// <summary>
     /// 從 i 開始、長度 n 的一排星號或底線：找跟它配對、長度一樣的收尾，找不到回傳 null。
     /// 長度一定要一樣，<c>**粗*</c> 在串流途中才不會先閃成斜體。
     /// </summary>
-    private static int? Closer(string s, int i, int n, int to, Dictionary<int, (int End, string Content)> code)
+    private static int? Closer(string s, int i, int n, int to, Dictionary<int, (int End, string Content)> code, Work work)
     {
         char c = s[i];
         if (c == '_' ? n != 1 : n > 3) return null;   // __init__ 這種不是標記
@@ -322,8 +345,11 @@ public static partial class Markdown
         int j = i + n;
         while (j < to)
         {
+            if ((work.Left -= 1) < 0) return null;
             if (code.TryGetValue(j, out var span) && span.End <= to) { j = span.End; continue; }
             if (s[j] == '\\' && j + 1 < to && Escapable.Contains(s[j + 1])) { j += 2; continue; }
+            // 連結的網址裡常有 * 與 _：整段跳過，不然粗體會在網址中間收尾、把連結拆壞
+            if (s[j] == '[' && !(j > 0 && s[j - 1] == '!') && Link(s, j, to, code, work) is { } link) { j = link.End; continue; }
             if (s[j] != c) { j++; continue; }
             int m = Run(s, j, to);
             if (m == n && !char.IsWhiteSpace(s[j - 1]))
@@ -338,11 +364,12 @@ public static partial class Markdown
     }
 
     /// <summary>收了尾的 [文字](網址)：回傳文字的結束位置與整段的結束位置。網址不能有空白。</summary>
-    private static (int TextEnd, int End)? Link(string s, int i, int to, Dictionary<int, (int End, string Content)> code)
+    private static (int TextEnd, int End)? Link(string s, int i, int to, Dictionary<int, (int End, string Content)> code, Work work)
     {
         int depth = 0;
         for (int j = i + 1; j < to; j++)
         {
+            if ((work.Left -= 1) < 0) return null;
             if (code.TryGetValue(j, out var span) && span.End <= to) { j = span.End - 1; continue; }
             if (s[j] == '\\') { j++; continue; }
             if (s[j] == '[') depth++;
@@ -350,12 +377,21 @@ public static partial class Markdown
             {
                 if (depth-- > 0) continue;
                 if (j == i + 1 || j + 1 >= to || s[j + 1] != '(') return null;
+                // 網址裡成對的括號要一起算（wiki/C_(programming_language)），不然在第一個 ) 就截斷
+                // 括號沒配對完（少一個 )）就退回第一個 ) 當結尾；串流到一半、連 ) 都還沒出現時仍然不是連結
+                int paren = 0, firstClose = -1;
                 for (int k = j + 2; k < to; k++)
                 {
-                    if (char.IsWhiteSpace(s[k])) return null;
-                    if (s[k] == ')') return k == j + 2 ? null : (j, k + 1);
+                    if ((work.Left -= 1) < 0) return null;
+                    if (char.IsWhiteSpace(s[k])) break;
+                    if (s[k] == '(') paren++;
+                    else if (s[k] == ')')
+                    {
+                        if (firstClose < 0) firstClose = k;
+                        if (paren-- == 0) return k == j + 2 ? null : (j, k + 1);
+                    }
                 }
-                return null;
+                return firstClose > j + 2 ? (j, firstClose + 1) : null;
             }
         }
         return null;

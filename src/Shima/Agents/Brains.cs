@@ -25,10 +25,11 @@ public interface IBrain
     /// </param>
     Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null);
     /// <summary>
-    /// 單純問一段文字、拿回一段文字（例如翻譯歌詞）：不帶工具、不串流，也不記進這段對話。
+    /// 單純問一段文字、拿回一段文字（翻譯歌詞、解釋一句歌詞）：不帶工具，也不記進這段對話。
+    /// 給了 progress 就串流，跟 ThinkAsync 一樣收到「目前為止的全文」；不給就是一般的請求。
     /// 拒絕回答時回空字串。
     /// </summary>
-    Task<string> CompleteAsync(string system, string text, CancellationToken stop);
+    Task<string> CompleteAsync(string system, string text, CancellationToken stop, Action<string>? progress = null);
     /// <summary>出錯時給人看的一句話。</summary>
     string Explain(Exception e);
     /// <summary>這把金鑰能用的模型。</summary>
@@ -92,6 +93,29 @@ public sealed record AiService(string Id, string Name, string BaseUrl, bool Need
     };
 
     public static AiService Of(string id) => All.FirstOrDefault(s => s.Id == id) ?? All[0];
+
+    /// <summary>
+    /// 自訂的網址能不能送：http:// 會把金鑰與對話用明文送出去，只給本機與區網——在自己電腦、NAS 或家裡另一台機器跑模型是常見的用法：
+    /// localhost、沒有點的單一名稱（http://nas:11434）、.local／.lan／.home.arpa／.internal 結尾的名稱；
+    /// 127/8、10/8、172.16/12、192.168/16、169.254/16、Tailscale 的 100.64/10；IPv6 的 ::1、ULA（fc00::/7）、link-local（fe80::/10）。
+    /// 其他的 http:// 一律不送。IP 只看字面：「192.168.1.5.example.com」「127.0.0.1.nip.io」是公開的網域名稱，不算。
+    /// https:// 與看不懂的網址照舊（看不懂的反正連不上）。
+    /// </summary>
+    public static bool Sendable(string url)
+    {
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp) return true;
+        if (uri.HostNameType == UriHostNameType.Dns)
+        {
+            var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+            return host == "localhost" || host.Length > 0 && !host.Contains('.') ||
+                   new[] { ".local", ".lan", ".home.arpa", ".internal" }.Any(end => host.EndsWith(end, StringComparison.Ordinal) && host.Length > end.Length);
+        }
+        if (!IPAddress.TryParse(uri.DnsSafeHost, out var ip)) return false;
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (IPAddress.IsLoopback(ip) || ip.IsIPv6UniqueLocal || ip.IsIPv6LinkLocal) return true;
+        var b = ip.GetAddressBytes();
+        return b.Length == 4 && (b[0] == 10 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127);
+    }
 }
 
 /// <summary>助手能用的一個工具。Properties 是 JSON Schema 的 properties。</summary>
@@ -126,7 +150,7 @@ public sealed record AssistantTool(string Name, string Description, JsonObject P
         new("weather", "查某個地方現在的天氣和今明兩天的預報。使用者問天氣、氣溫、會不會下雨、要不要帶傘時使用。使用者沒說地點就先問他要查哪裡，不要自己猜。",
             new() { ["location"] = Text("地名，請一律轉成英文寫法，例如 Taipei、Kaohsiung、Osaka、New York"), ["country"] = Text("可省略。同名地點很多時用兩個字母的國家代碼縮小範圍，例如 TW、JP、US") }, ["location"]),
         new("open", "用預設瀏覽器開網站，或開啟電腦上的常用程式。使用者說「打開 YouTube」「開記事本」「開設定」時使用。" +
-                    "只能開 http／https 網址和這些程式：" + string.Join("、", Opener.Names) + "。不能開檔案、資料夾路徑，也不能帶命令列參數。",
+                    "只能開 http／https 網址和這些程式：" + string.Join("、", Opener.Names) + "。不能開檔案、資料夾路徑，也不能帶命令列參數。常用網站以外的網址會先請使用者在島上確認。",
             new() { ["target"] = Text("網址（例如 https://www.youtube.com 或 youtube.com），或上面清單裡的程式名稱") }, ["target"]),
         new("alarm", "在指定時間提醒使用者一句話（到時間會顯示在島上並唸出來）。使用者說「十分鐘後提醒我關火」「七點半叫我」「有哪些提醒」「取消提醒」時使用。" +
                      "跟待辦清單不同：有明確時間的用這個，沒有時間的用 todo。",
@@ -155,7 +179,8 @@ public static class Brain
         "通常一到三句；不要用 Markdown、條列、表情符號或網址。使用者用什麼語言說話就用什麼語言回答" +
         (Loc.Lang == "zh-TW" ? "，中文一律用臺灣的繁體中文用語。" : $"；聽不出語言時用 {language}。") +
         "使用者說的話可能來自語音辨識，會有同音錯字，請依上下文理解。" +
-        "你可以用工具替使用者操作這座島：控制音樂、讀現在這首歌的歌詞、管理待辦、番茄鐘、音量、校正歌詞。做完動作後用一句話說你做了什麼。";
+        "你可以用工具替使用者操作這座島：控制音樂、讀現在這首歌的歌詞、管理待辦、番茄鐘、音量、校正歌詞。做完動作後用一句話說你做了什麼。" +
+        Untrusted.Rule;
 
     /// <summary>
     /// 把對話退回到這一輪開始前的長度。一輪裡會加好幾則（使用者的話、助手要用工具、工具的結果），
@@ -169,6 +194,24 @@ public static class Brain
     /// <summary>執行一個工具：名稱、參數 → 給 AI 看的結果。</summary>
     public delegate string Run(string tool, JsonObject arguments);
 
+    /// <summary>兩家共用的工具呼叫：寫一行紀錄、執行，帶外來文字的結果包成資料（Untrusted）。</summary>
+    public static string Call(Run run, string tool, JsonObject arguments)
+    {
+        Log.Write(LogLine(tool, arguments));
+        return Untrusted.Guard(tool, run(tool, arguments));
+    }
+
+    /// <summary>
+    /// 紀錄檔裡的一行：只有工具名稱與 action。其他參數是待辦的文字、提醒的內容、要開的網址，不該留在 log.txt；
+    /// 名稱與 action 也是模型給的，不是預期的短字就換成「?」，免得整段話從這裡溜進紀錄檔。
+    /// </summary>
+    public static string LogLine(string tool, JsonObject arguments)
+    {
+        static string Word(string? s, int max) => s != null && s.Length <= max && s.Length > 0 && s.All(c => c is >= 'a' and <= 'z' or '_') ? s : "?";
+        var action = arguments["action"] is JsonValue v && v.TryGetValue(out string? a) ? Word(a, 20) : "";
+        return $"tool: {Word(tool, 32)}{(action.Length > 0 ? " " + action : "")}";
+    }
+
     /// <summary>照設定建立目前選的服務；金鑰或模型還沒填好就是 null，problem 說缺什麼。</summary>
     public static IBrain? Create(Run run, string language, out string problem)
     {
@@ -181,6 +224,8 @@ public static class Brain
         if (service.Id == "claude") return new ClaudeBrain(key, model, language, run);
         var url = service.Id == AiService.Custom ? s.AiCustomUrl.Trim().TrimEnd('/') : service.BaseUrl;
         if (url.Length == 0) { problem = L.T("先填 API 網址"); return null; }
+        // 擋在建立之前：聊天、列出模型、翻譯歌詞都從這裡拿，一個請求都不會送出去
+        if (!AiService.Sendable(url)) { problem = L.T("http:// 只能用在本機或區網，其他網址請用 https://"); return null; }
         if (model.Length == 0) { problem = L.T("先選模型"); return null; }
         return new OpenAiBrain(url, key, model, language, run);
     }
@@ -261,7 +306,7 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
                     echo.Add(new ToolUseBlockParam { ID = use.ID, Name = use.Name, Input = use.Input });
                     var arguments = new JsonObject();
                     foreach (var (key, value) in use.Input) arguments[key] = JsonNode.Parse(value.GetRawText());
-                    results.Add(new ToolResultBlockParam { ToolUseID = use.ID, Content = run(use.Name, arguments) });
+                    results.Add(new ToolResultBlockParam { ToolUseID = use.ID, Content = Brain.Call(run, use.Name, arguments) });
                 }
             }
             _messages.Add(new AssistantMessageParam { Content = echo });
@@ -317,16 +362,17 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         }
     }
 
-    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop, Action<string>? progress = null)
     {
-        var response = await Client.Messages.Create(new MessageCreateParams
+        // 沒有 Tools：模型想用也沒得用。串流與「不給串流就改一般請求」都跟 ThinkAsync 走同一條
+        var response = await Send(new MessageCreateParams
         {
             Model = model.Length > 0 ? model : DefaultModel,
             MaxTokens = 16000,
             System = system,
             OutputConfig = new OutputConfig { Effort = Effort.Low },
             Messages = [new UserMessageParam { Content = text }],
-        }, stop);
+        }, stop, progress);
         if (response.StopReason == "refusal") return "";
         return string.Concat(response.Content.Select(b => b.TryPickText(out TextBlock? t) ? t.Text : ""));
     }
@@ -349,7 +395,9 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
 /// <summary>OpenAI 相容的 Chat Completions：OpenAI、Gemini、DeepSeek、Ollama 等等。</summary>
 public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, string language, Brain.Run run) : IBrain
 {
-    private static readonly HttpClient Shared = new() { Timeout = TimeSpan.FromSeconds(90) };
+    // 逾時要比呼叫端自己訂的期限長（AI 翻譯給 3 分鐘）：長歌詞配上慢的模型，該由呼叫端的期限決定，不是在這裡 90 秒就先切斷。
+    // 不走串流的回應是整包讀進記憶體的，設個上限。
+    private static readonly HttpClient Shared = new() { Timeout = TimeSpan.FromSeconds(190), MaxResponseContentBufferSize = 16 * 1024 * 1024 };
 
     /// <summary>送請求用的 HttpClient；不給就用共用的那一個。測試用來換成假的，不經過真的網路。</summary>
     public HttpClient Http { get; init; } = Shared;
@@ -475,7 +523,7 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             {
                 JsonObject arguments = [];
                 try { arguments = JsonNode.Parse(call?["function"]?["arguments"]?.ToString() is { Length: > 0 } raw ? raw : "{}") as JsonObject ?? []; } catch { }
-                _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = run(call?["function"]?["name"]?.ToString() ?? "", arguments) });
+                _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = Brain.Call(run, call?["function"]?["name"]?.ToString() ?? "", arguments) });
             }
         }
         // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
@@ -483,12 +531,30 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 
-    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop, Action<string>? progress = null)
     {
         var body = Body(model, system, [new JsonObject { ["role"] = "user", ["content"] = text }], tools: false);
-        using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), stop);
+        bool streaming = progress != null && !_noStream;
+        if (streaming) body["stream"] = true;
+        using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), streaming ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead, stop);
+        if (streaming && response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType != "application/json")
+        {
+            var chat = await Read(response, progress!, stop);
+            if (chat.Error is { } failure)
+            {
+                var status = failure["code"] is JsonValue code && code.TryGetValue(out int number) && number is >= 400 and < 600 ? (HttpStatusCode)number : HttpStatusCode.InternalServerError;
+                if (!chat.Started && StreamRefused(status, failure.ToJsonString())) return await CompleteAsync(system, text, stop, progress);
+                throw new ApiError(status, failure.ToJsonString());
+            }
+            if (!chat.Finished) throw new HttpRequestException("串流沒有結束就斷了");
+            return chat.Text;
+        }
         var raw = await response.Content.ReadAsStringAsync(stop);
-        if (!response.IsSuccessStatusCode) throw new ApiError(response.StatusCode, raw);
+        if (!response.IsSuccessStatusCode)
+        {
+            if (streaming && StreamRefused(response.StatusCode, raw)) return await CompleteAsync(system, text, stop, progress);
+            throw new ApiError(response.StatusCode, raw);
+        }
         var plain = JsonNode.Parse(raw);
         // 出錯照樣回 200、錯誤放在內文裡的代理：跟 ThinkAsync 一樣當成錯誤
         if ((plain as JsonObject)?["error"] is { } refused)
@@ -497,6 +563,16 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             throw new ApiError(kind, refused.ToJsonString());
         }
         return plain?["choices"]?[0]?["message"]?["content"]?.ToString() ?? "";
+    }
+
+    /// <summary>不帶工具的串流請求被拒：大概是不給串流，之後這個物件都改用一般的請求（只試一次，不會一直重來）。</summary>
+    private bool StreamRefused(HttpStatusCode status, string error)
+    {
+        if (_noStream || error.Contains("key", StringComparison.OrdinalIgnoreCase)) return false;
+        if (status is not (HttpStatusCode.BadRequest or HttpStatusCode.UnsupportedMediaType or HttpStatusCode.UnprocessableEntity or HttpStatusCode.NotImplemented)) return false;
+        _noStream = true;
+        Log.Write($"ai: {baseUrl} 回 {(int)status}，改用不串流的請求");
+        return true;
     }
 
     /// <summary>

@@ -9,6 +9,7 @@ const url = (path, extra = '') => `http://localhost:${SHIMA.port}/deck/${path}?t
 const shown = new Map();          // context → { kind, settings, strip, last }
 let socket, now = null, lines = [], key = '\0', at = 0, cover = null, coverFor = '';
 let notice = { kind: '', title: '', text: '' }, noticeSince = 0, timer = '', alive = false, stale = false;
+let drawnAsk = '';                // 畫在按鍵或長條上的那一則權限請求的識別碼；按允許／拒絕時送回去，Shima 只認那一則
 let dials = { volume: -1, volumeText: '', muted: false, zone: '', shift: 0 }, heard = -1, loud = 0, touched = {};
 const BANDS = 64;
 let spectrum = null, eq = new Array(BANDS).fill(0), caps = new Array(BANDS).fill(0), bass = 0, hop = 0, hopAt = 0, lastFrame = 0;
@@ -23,7 +24,7 @@ window.connectElgatoStreamDeckSocket = window.connectSocket = window.connectSDSo
 
 const log = text => fetch(url('log', '&m=' + encodeURIComponent(text))).catch(() => {});
 // 會改變狀態的請求用 POST。不帶內容、不加任何標頭：這樣瀏覽器不會先發一個 OPTIONS 去問能不能送
-const press = action => fetch(url('press', '&do=' + action), { method: 'POST' }).catch(() => {});
+const press = action => fetch(url('press', '&do=' + action + (action === 'allow' || action === 'deny' ? '&id=' + encodeURIComponent(drawnAsk || '-') : '')), { method: 'POST' }).catch(() => {});
 const now_notice = () => notice;
 
 const send = (path, extra) => fetch(url(path, extra), { method: 'POST' }).catch(() => {});
@@ -268,6 +269,7 @@ function drawStrip(item) {
   };
 
   if (notice.kind === 'ask') {                      // Claude Code 要權限：右邊兩顆按鈕，允許、拒絕
+    drawnAsk = notice.id || '';
     claude(g, left, Math.round((h - 4) / 2 - 22), 2); left += 52;
     if (w >= 300) {
       const bw = Math.min(54, w * 0.14);
@@ -388,6 +390,7 @@ function drawKey(item) {
   if (item.kind === 'tile') { drawTile(item, g, n); return c.toDataURL('image/jpeg', 0.9); }
   if (item.kind === 'allow' || item.kind === 'deny') {      // 有權限請求在等的時候才亮
     g.globalAlpha = notice.kind === 'ask' ? 1 : 0.22;
+    if (notice.kind === 'ask') drawnAsk = notice.id || '';
     pill(g, 22, 22, 100, 100, item.kind === 'allow' ? '#2e9e5b' : '#c0392b', item.kind === 'allow' ? 'yes' : 'no');
     return c.toDataURL('image/jpeg', 0.9);
   }
@@ -573,8 +576,8 @@ const tileSpan = () => [...shown.values()].filter(i => i.kind === 'tile' && i.at
 const STILL = {
   cover: () => `${coverFor}|${!!cover}|${now ? now.playing : ''}|${now && !cover ? now.title : ''}`,
   tile: () => `${coverFor}|${!!cover}|${now ? now.playing : ''}|${tileSpan()}`,
-  allow: () => notice.kind === 'ask',
-  deny: () => notice.kind === 'ask',
+  allow: () => notice.kind === 'ask' ? 'ask ' + (notice.id || '') : '',   // 換了一則也要重畫，drawnAsk 才會跟上
+  deny: () => notice.kind === 'ask' ? 'ask ' + (notice.id || '') : '',
   ask: () => `${notice.kind === 'voice'}|${!!notice.listening}`,
   lyrics: item => item.strip ? undefined : `${singing()?.text ?? ''}|${now ? now.title : ''}`,
 };

@@ -115,6 +115,8 @@ public sealed class LyricFavorites
     /// <summary>先寫暫存檔再換過去，寫到一半當掉也不會留下半個檔案。</summary>
     private void Save()
     {
+        // 還原備份換掉資料夾之後到重新啟動之前：記憶體裡是還原前的收藏，寫出去會蓋掉剛換上去的 favorites.json
+        if (AppSettings.Frozen) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(FilePath))!);

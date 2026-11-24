@@ -203,12 +203,12 @@ public static partial class WordTiming
         TimeSpan.FromSeconds(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) * 60
                            + double.Parse(m.Groups[2].Value.Replace(':', '.'), CultureInfo.InvariantCulture));
 
-    [GeneratedRegex(@"^\s*\[(\d+),(\d+)\]")]
+    [GeneratedRegex(@"^\s*\[([0-9]{1,12}),([0-9]{1,12})\]")]
     private static partial Regex YrcLine();
 
-    [GeneratedRegex(@"\((\d+),(\d+),-?\d+\)")]
+    [GeneratedRegex(@"\(([0-9]{1,12}),([0-9]{1,12}),-?[0-9]+\)")]
     private static partial Regex YrcWord();
 
-    [GeneratedRegex(@"<(\d+):(\d+(?:[.:]\d+)?)>")]
+    [GeneratedRegex(@"<([0-9]{1,6}):([0-9]{1,6}(?:[.:][0-9]+)?)>")]
     private static partial Regex WordStamp();
 }

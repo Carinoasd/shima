@@ -19,7 +19,10 @@ public sealed class RoonSource : IMediaSource
     public const string AppId = "Roon";
     private const string Transport = "com.roonlabs.transport:2";
     private const int QueueSize = 100;
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
+    /// <summary>單一 WebSocket 訊息的上限；超過就中斷連線重來，免得 Core（或假冒的 Core）把記憶體撐爆。</summary>
+    public const int MaxMessageBytes = 8 * 1024 * 1024;
+    // 封面圖（Roon 會依 width/height 縮好，通常幾十 KB）：上限抓寬一點
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8), MaxResponseContentBufferSize = 12 * 1024 * 1024 };
 
     private readonly object _lock = new();
     private readonly SemaphoreSlim _sending = new(1, 1);
@@ -81,7 +84,7 @@ public sealed class RoonSource : IMediaSource
                 lock (_lock) { _ws = ws; _pending.Clear(); _httpPort = port; }
                 logged = false;
                 await RequestAsync("com.roonlabs.registry:1/info", "info");
-                await ReceiveAsync(ws);
+                await ReceiveAsync(ws, HandleAsync);
             }
             catch (Exception e)
             {
@@ -107,7 +110,8 @@ public sealed class RoonSource : IMediaSource
         }
     }
 
-    private async Task ReceiveAsync(ClientWebSocket ws)
+    /// <summary>收訊息直到連線關閉。單一訊息超過 <see cref="MaxMessageBytes"/> 丟 <see cref="InvalidDataException"/>（呼叫端中斷連線、照重連流程重來）。</summary>
+    public static async Task ReceiveAsync(WebSocket ws, Func<MooMessage, Task> handle)
     {
         var buffer = new byte[64 * 1024];
         var message = new MemoryStream();
@@ -115,11 +119,12 @@ public sealed class RoonSource : IMediaSource
         {
             var r = await ws.ReceiveAsync(buffer, CancellationToken.None);
             if (r.MessageType == WebSocketMessageType.Close) return;
+            if (message.Length + r.Count > MaxMessageBytes) throw new InvalidDataException($"roon 訊息超過 {MaxMessageBytes / 1024 / 1024} MB，中斷連線");
             message.Write(buffer, 0, r.Count);
             if (!r.EndOfMessage) continue;
             var msg = Moo.Parse(message.GetBuffer().AsSpan(0, (int)message.Length));
             message.SetLength(0);
-            if (msg != null) await HandleAsync(msg);
+            if (msg != null) await handle(msg);
         }
     }
 
@@ -403,11 +408,44 @@ public sealed class RoonSource : IMediaSource
             output = o["output_id"]?.ToString() ?? "";
             value = Number(volume["value"]); min = Number(volume["min"]); max = Number(volume["max"]);
             step = Math.Max(1, Number(volume["step"]));
+            // 只能加減的輸出沒有上下限（讀出來都是 0）：照下面的算法會變成「設成 0」。這種輸出這裡調不了
+            if (!(max > min)) return null;
             value = Math.Clamp(value + steps * step, min, max);
             volume["value"] = value;   // 先當作成功，Core 之後會回報實際的值
         }
         _ = RequestAsync(Transport + "/change_volume", "command", new JsonObject { ["output_id"] = output, ["how"] = "absolute", ["value"] = value });
         return (int)value;
+    }
+
+    /// <summary>把音量設到上下限之間的某個百分比（見 <see cref="VolumeTarget"/>）。回傳設定後的音量；這個輸出不能這樣調就是 null。</summary>
+    public int? SetVolume(int percent)
+    {
+        string output;
+        double value;
+        lock (_lock)
+        {
+            if (!_zones.TryGetValue(_zoneId, out var zone) || (zone["outputs"] as JsonArray)?.FirstOrDefault(o => o?["volume"] is JsonObject) is not { } o) return null;
+            var volume = o["volume"]!;
+            output = o["output_id"]?.ToString() ?? "";
+            if (VolumeTarget(Number(volume["value"]), Number(volume["min"]), Number(volume["max"]), Math.Max(1, Number(volume["step"])), percent) is not { } target) return null;
+            value = target;
+            volume["value"] = value;
+        }
+        _ = RequestAsync(Transport + "/change_volume", "command", new JsonObject { ["output_id"] = output, ["how"] = "absolute", ["value"] = value });
+        return (int)value;
+    }
+
+    /// <summary>
+    /// 「設到百分之幾」實際要送的值：落在上下限之間、對齊最小刻度，而且**往上一次最多走全程的一成**。
+    /// Roon 的音量多半就是 DAC 或擴大機的音量，打錯一個字（/vol 100）不該一下子開到最大聲；要更大聲就再下一次。往下不限制。
+    /// 上下限不成立（只能加減的輸出）是 null。
+    /// </summary>
+    public static double? VolumeTarget(double current, double min, double max, double step, int percent)
+    {
+        if (!(max > min) || !(step > 0)) return null;
+        double target = min + Math.Round(Math.Clamp(percent, 0, 100) / 100.0 * (max - min) / step) * step;
+        double most = current + Math.Max(step, Math.Round((max - min) * 0.1 / step) * step);
+        return Math.Clamp(Math.Min(target, most), min, max);
     }
 
     /// <summary>目前區域的音量、上下限與是否靜音；這個區域不能調音量就是 null。</summary>

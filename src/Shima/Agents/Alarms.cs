@@ -193,6 +193,8 @@ public sealed class Alarms : IDisposable
 
     private void Save()
     {
+        // 還原備份換掉資料夾之後到重新啟動之前：記憶體裡是還原前的提醒，寫出去會蓋掉剛換上去的 alarms.json
+        if (AppSettings.Frozen) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
@@ -284,10 +286,11 @@ public sealed class Alarms : IDisposable
         if (minutes is double m && !(m <= 0 && !string.IsNullOrWhiteSpace(at)))
         {
             if (!double.IsFinite(m) || m <= 0 || m > Farthest.TotalMinutes) return null;
-            return now.AddSeconds(Math.Round(m * 60));
+            // 0.001 分鐘四捨五入成 0 秒：不是未來的時間，InRange 會擋掉
+            return InRange(now.AddSeconds(Math.Round(m * 60)), now);
         }
         if (string.IsNullOrWhiteSpace(at)) return null;
-        var text = at.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+        var text = Shima.Lyrics.Titles.Wellformed(at).Normalize(System.Text.NormalizationForm.FormKC).Trim();   // 孤立的代理字元會讓 Normalize 丟例外
 
         DateTime? result = null;
         // M、d、H 都收一到兩位：「2026-11-8 07:30」跟補零的寫法一樣
@@ -315,7 +318,7 @@ public sealed class Alarms : IDisposable
         string half = "";   // 上午、下午或中午
         foreach (var (word, kind) in new[] { ("下午", "pm"), ("晚上", "pm"), ("傍晚", "pm"), ("pm", "pm"), ("中午", "noon"), ("上午", "am"), ("早上", "am"), ("凌晨", "am"), ("清晨", "am"), ("am", "am") })
             if (t.Contains(word, StringComparison.Ordinal)) { half = kind; t = t.Replace(word, ""); }
-        var match = Regex.Match(t, @"^(\d{1,2})(?::(\d{2})(?::\d{2})?|[點点時时](?:(半)|(\d{1,2})分?)?)?$");
+        var match = Regex.Match(t, @"^([0-9]{1,2})(?::([0-9]{2})(?::[0-9]{2})?|[點点時时](?:(半)|([0-9]{1,2})分?)?)?$");
         if (!match.Success) return null;
         // 只寫一個數字（「7」）沒有冒號、沒有「點」、也沒說上午下午：太模糊
         if (!match.Groups[2].Success && !t.Any(c => c is '點' or '点' or '時' or '时') && half.Length == 0) return null;
@@ -331,12 +334,14 @@ public sealed class Alarms : IDisposable
     }
 
     // 只寫日期：「2026-11-28 交報告」。月曆點一天會填成這個開頭
-    private static readonly Regex DateOnly = new(@"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)", RegexOptions.CultureInvariant);
+    private static readonly Regex DateOnly = new(@"^([0-9]{4})[-/]([0-9]{1,2})[-/]([0-9]{1,2})(?![0-9])", RegexOptions.CultureInvariant);
     /// <summary>日期後面沒寫時間就當早上九點。</summary>
     public static readonly TimeSpan DefaultTime = TimeSpan.FromHours(9);
-    private static readonly Regex Duration = new(@"^(\d+(?:\.\d+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Regex FullDate = new(@"^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?", RegexOptions.CultureInvariant);
-    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?\d{1,2}(?::\d{2}|[點点時时](?:半|\d{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex Duration = new(@"^([0-9]+(?:\.[0-9]+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // 秒數一旦有就一定吃掉（atomic group 包住整個可有可無的部分）：不然「10:00:30 pm」可以退回只配到 10:00，
+    // 後面的 am／pm 檢查看到的是「:30」而放行，結果排成上午、內容變成「:30 pm …」
+    private static readonly Regex FullDate = new(@"^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}[ T][0-9]{1,2}:[0-9]{2}(?>(?::[0-9]{2})?)(?!\s*(?:am|pm)(?![a-z]))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?[0-9]{1,2}(?::[0-9]{2}(?::[0-9]{2})?|[點点時时](?:半|[0-9]{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。
@@ -345,7 +350,7 @@ public sealed class Alarms : IDisposable
     public static (DateTime At, string Text, string? Repeat)? ParseLine(string? line, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(line)) return null;
-        var text = line.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+        var text = Shima.Lyrics.Titles.Wellformed(line).Normalize(System.Text.NormalizationForm.FormKC).Trim();
 
         // 重複的：「每天 8:00 吃藥」「平日 9:30 站會」「每週五 18:00 倒垃圾」。只收幾點，不收日期；At 是下一次
         if (RepeatPrefix.Match(text) is { Success: true } rep && RepeatOf(rep) is { } repeat)
@@ -374,8 +379,13 @@ public sealed class Alarms : IDisposable
             var rest = text[day.Length..].TrimStart();
             var time = DefaultTime;
             bool given = false;
-            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock && Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } stated)
-            { time = stated; given = true; rest = rest[clock.Length..].TrimStart(); }
+            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock)
+            {
+                if (Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } stated)
+                { time = stated; given = true; rest = rest[clock.Length..].TrimStart(); }
+                // 「25:00 pm」這種看得出是想寫時間、卻不成立的：不要退回九點，把錯的時間當成內容
+                else if (clock.Value.Any(c => c is ':' or '點' or '点' or '時' or '时') || clock.Value.Contains("am", StringComparison.OrdinalIgnoreCase) || clock.Value.Contains("pm", StringComparison.OrdinalIgnoreCase)) return null;
+            }
             var target = new DateTime(y, mo, d) + time;
             // 沒寫時間的「今天」而九點已經過了（月曆點今天最常見）：取現在之後的下一個整點，不然一定被當成過去
             if (!given && target.Date == now.Date && target <= now && now.Hour < 23) target = now.Date.AddHours(now.Hour + 1);
@@ -402,10 +412,12 @@ public sealed class Alarms : IDisposable
             if (!days.TryGetValue(at.Day, out var list)) days[at.Day] = list = [];
             list.Add(a with { At = at });
         }
+        var from = now > first ? now : first.AddTicks(-1);
         foreach (var a in alarms)
         {
             if (NormalizeRepeat(a.Repeat) is not { } repeat) { if (a.At > now) Mark(a, a.At); continue; }
-            var at = a.At > now ? a.At : NextAfter(a.At, repeat, now);
+            // 查比較遠的月份時，直接跳到那個月的第一天再開始數，不然四十次還沒走到月底
+            var at = a.At > from ? a.At : NextAfter(a.At, repeat, from);
             // 每個月最多三十一次；NextAfter 認不得的重複方式會原地不動，所以另外擋住
             for (int i = 0; i < 40 && at < end && at > now; i++)
             {

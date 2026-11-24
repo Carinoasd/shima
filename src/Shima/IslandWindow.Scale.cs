@@ -50,7 +50,40 @@ public partial class IslandWindow
         Height = WindowHeightFor(_h.Target);
         Place();
         ScaleChat();
+        FitPages();
         if (_expanded) Morph();
+    }
+
+    /// <summary>截圖用：假裝螢幕只有這麼高（DIP）。</summary>
+    private double? _workHeightOverride;
+
+    /// <summary>
+    /// 從視窗上緣到島所在螢幕工作區下緣的高度（視窗的單位）。島可以被拖到任何位置，
+    /// 只看工作區高度的話，拖到半山腰再展開，聊天的輸入框會掉到螢幕外。
+    /// </summary>
+    private double WorkHeight()
+    {
+        if (_workHeightOverride is { } fake) return IslandFit.Below(fake, Top - SystemParameters.WorkArea.Top);
+        try
+        {
+            var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (handle != IntPtr.Zero)
+                return IslandFit.Below(System.Windows.Forms.Screen.FromHandle(handle).WorkingArea.Bottom / VisualTreeHelper.GetDpi(this).DpiScaleY, Top);
+        }
+        catch { /* 抓不到就用主螢幕 */ }
+        return IslandFit.Below(SystemParameters.WorkArea.Bottom, Top);
+    }
+
+    /// <summary>
+    /// 聊天、設定、通知這幾頁的高度照螢幕夾住，展開後才不會超出螢幕底部（聊天的輸入框會整個掉到螢幕外）。
+    /// 啟動、改大小、展開（島可能被拖到別的螢幕或別的高度）、切分頁、拖動放下時各算一次。
+    /// </summary>
+    private void FitPages()
+    {
+        double work = WorkHeight();
+        ChatPage.Height = IslandFit.Chat(work, _scale);
+        SettingsScroll.MaxHeight = IslandFit.Settings(work, _scale);
+        RecentScroll.MaxHeight = IslandFit.Recent(work, _scale);
     }
 
     // ---------------------------------------------------------------- 聊天分頁的內嵌瀏覽器

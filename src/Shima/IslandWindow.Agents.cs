@@ -16,6 +16,10 @@ public partial class IslandWindow
     private PermissionRequest? _asking;
     private Tab _beforeAsk = Tab.Music;
     private bool _expandedBeforeAsk;
+    /// <summary>目前這一則權限請求出現在島上的時刻（Environment.TickCount64）。</summary>
+    private long _askShownAt;
+    /// <summary>舊版外掛按允許的提醒，一次執行期間只說一次。</summary>
+    private bool _deckOldTold;
     private VoiceAssistant? _voice;
     private string _planLine = "";
 
@@ -29,21 +33,21 @@ public partial class IslandWindow
             if (total > 0) Toast($"Claude Code {_planLine}", 5);
             // 收著的時候只更新待辦那一行；展開 AI 分頁時才整頁更新（查 hook 要啟動 wsl.exe、金鑰要解密）
             if (_tab == Tab.Ai && _expanded) RefreshAi();
-            else { PlanText.Text = _planLine; _aiStale |= _tab == Tab.Ai; }
+            // 權限請求蓋在 AI 分頁上的時候（_tab 是 Ask）也要記：請求結束回到 AI 分頁時才知道要補
+            else { PlanText.Text = _planLine; _aiStale |= _tab == Tab.Ai || (_tab == Tab.Ask && _beforeAsk == Tab.Ai); }
         });
         // 收著時錯過的更新，在展開的那一刻補上（Morph 展開時會把 Panel 設成可點）
         Panel.IsHitTestVisibleChanged += (_, e) =>
         {
             if (e.NewValue is true && _aiStale) Dispatcher.BeginInvoke(() => { if (_aiStale && _tab == Tab.Ai && _expanded) RefreshAi(); });
         };
-        _bridge.DeckPressed += action => Dispatcher.BeginInvoke(() =>
+        _bridge.DeckPressed += (action, id) => Dispatcher.BeginInvoke(() =>
         {
             switch (action)
             {
                 case "next": _media.Next(); break;
                 case "previous": _media.Previous(); break;
-                case "allow": Decide("allow"); break;
-                case "deny": Decide("deny"); break;
+                case "allow" or "deny": DeckDecide(action, id); break;
                 case "ask": AskOnce(); break;
                 case "zone": SwitchZone(); break;
                 case "mute":
@@ -57,7 +61,7 @@ public partial class IslandWindow
             switch (what)
             {
                 case "volume":
-                    if ((_media.Nudge(ticks) ?? _system.Nudge(ticks * 2)) is { } volume) Toast(L.F("音量 {0}", volume), 2, false);
+                    NudgeVolume(ticks, ticks * 2);
                     break;
                 case "seek":
                     if (_track is { } t && t.Duration > TimeSpan.Zero)
@@ -76,7 +80,7 @@ public partial class IslandWindow
         {
             // 示範模式的金鑰是暫存資料夾裡新產生的：寫進真正的 Stream Dock 外掛的話，平常那一份就不認它了
             if (Demo.On) return;
-            _bridge.Start();
+            if (!_bridge.Start()) Toast(L.F("連接埠 {0} 被別的程式佔用，Claude Code 的請求不會送到 Shima", AgentBridge.Port), 12);
             // 資料夾被換掉（SHIMA_DATA）時金鑰也不是平常那一把，同樣不更新外掛
             if (StreamDock.Installed && !AppSettings.Redirected) StreamDock.Install();   // 跟著 Shima 一起更新
         };
@@ -103,12 +107,15 @@ public partial class IslandWindow
             _expanded = _expandedBeforeAsk && Host.IsMouseOver;
             // 等回答的期間錯過的更新：島一直是展開的，不會再有「剛展開」的事件來補
             if (_aiStale && _tab == Tab.Ai && _expanded) RefreshAi();
+            // 回到工具分頁也一樣：等回答的期間可能跨了日，月曆與提醒要跟上
+            if (_tab == Tab.Tools && _expanded) EnterTools();
             Morph();
             return;
         }
 
         if (_asking == null) { _beforeAsk = _tab == Tab.Ask ? Tab.Music : _tab; _expandedBeforeAsk = _expanded; }
         var ask = _asking = _asks.Dequeue();
+        _askShownAt = Environment.TickCount64;
         var name = AgentKinds.Name(ask.Agent);
         AskTitle.Text = ask.Project.Length > 0 ? $"{name} · {ask.Project}" : name;
         AskTool.Text = ask.Tool;
@@ -123,9 +130,39 @@ public partial class IslandWindow
         _ = ask.Decision.Task.ContinueWith(_ => Dispatcher.BeginInvoke(() => { if (_asking == ask) NextAsk(); }));
     }
 
+    /// <summary>使用者此刻看得到這一則：島沒有被系統匣藏起來、沒有讓位給全螢幕，而且停在權限請求那一頁。</summary>
+    private bool AskVisible => _asking != null && _tab == Tab.Ask && !_userHidden && !_hiddenForFullscreen;
+
+    /// <summary>島從藏起來變回看得見：「出現的時間」從這一刻重算，使用者才有時間看。</summary>
+    private void AskRevealed()
+    {
+        if (AskVisible) _askShownAt = Environment.TickCount64;
+    }
+
     private void Decide(string? behavior)
     {
         _asking?.Decision.TrySetResult(behavior);
+    }
+
+    /// <summary>
+    /// Stream Dock 按了允許／拒絕：在 UI 執行緒拿此刻正在問的那一則來比對（判斷在 DeckAnswer.Judge）。
+    /// 由 Stream Dock 允許的記進最近的通知，事後查得到是哪個工具、什麼指令。
+    /// </summary>
+    private void DeckDecide(string action, string? id)
+    {
+        var ask = _asking is { Decision.Task.IsCompleted: false } open ? open : null;
+        switch (DeckAnswer.Judge(action, id, ask?.Id, Environment.TickCount64 - _askShownAt, AppSettings.Current.DeckAllow, AskVisible))
+        {
+            case DeckVerdict.Apply:
+                if (ask!.Decision.TrySetResult(action) && action == "allow")
+                    Remember(RecentKind.Agent, AgentKinds.Name(ask.Agent), L.F("Stream Dock 允許了 {0}", ask.Tool), ask.Details);
+                break;
+            case DeckVerdict.OldPlugin when !_deckOldTold:
+                // 外掛更新了，但 Stream Dock 還跑著舊的那份：它送來的允許沒有識別碼，不會生效
+                _deckOldTold = true;
+                Toast(L.T("重新啟動 Stream Dock，才能用它按允許"), 8);
+                break;
+        }
     }
 
     private void AskAllow_Click(object sender, RoutedEventArgs e) => Decide("allow");
@@ -274,7 +311,9 @@ public partial class IslandWindow
 
     private void KeyToggle_Click(object sender, RoutedEventArgs e)
     {
-        _showKey = !_showKey;
+        // 照畫面上實際的樣子反過來，不是照旗標：還沒填金鑰時這一列是自己開著的（旗標沒設），
+        // 填完之後按鑰匙是要把它收起來，照旗標反轉的話第一下會沒反應
+        _showKey = KeyRow.Visibility != Visibility.Visible && UrlBox.Visibility != Visibility.Visible;
         RefreshAi();
     }
 
@@ -293,7 +332,7 @@ public partial class IslandWindow
     private bool _micOpen, _resumeMusic;
 
     /// <summary>可以直接點的範例：一看就知道能問什麼，點了就問。</summary>
-    private static readonly string[] Examples = ["現在播的是哪一首？", "這句歌詞是什麼意思？", "下一首", "提醒我買牛奶", "專注 25 分鐘"];
+    private static readonly string[] Examples = ["現在播的是哪一首？", "這句歌詞是什麼意思？", "下一首", "提醒我買牛奶", "專注 25 分鐘", "/sleep 30"];
 
     private void InitExamples()
     {
@@ -318,6 +357,7 @@ public partial class IslandWindow
     private async Task AskAsync(string question)
     {
         if (!AskBox.IsEnabled) return;
+        if (TryCommand(question)) return;   // /開頭的指令在本機做，不用金鑰也不花 token
         if (_asker == null)
         {
             var brain = Brain.Create((tool, arguments) => Skills.Run(tool, arguments) ?? Dispatcher.Invoke(() => Tool(tool, arguments)), Loc.Speech, out var problem);
@@ -433,7 +473,6 @@ public partial class IslandWindow
     /// <summary>助手要用某個工具：做完之後回一句話讓它知道結果。（給 AI 看的，所以不翻譯。）</summary>
     private string Tool(string tool, System.Text.Json.Nodes.JsonObject arguments)
     {
-        Log.Write($"tool: {tool} {arguments.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}");
         string Arg(string name) => arguments[name]?.ToString() ?? "";
         double Number(string name, double fallback) => double.TryParse(Arg(name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
         var s = AppSettings.Current;
@@ -508,8 +547,10 @@ public partial class IslandWindow
                 {
                     int steps = (int)Math.Clamp(Number("steps", 2), 1, 10) * (Arg("direction") == "down" ? -1 : 1);
                     // Roon 有自己的音量；不是 Roon 在播就調整台電腦的音量
-                    if (_media.Nudge(steps) is { } roon) return $"Roon 音量現在是 {roon}";
-                    return _system.Nudge(steps * 4) is { } system ? $"電腦音量現在是 {system}%" : "沒有可以調音量的裝置";
+                    var (level, roonCannot) = Playback.MediaHub.Route(_media.OnRoon, () => _media.Nudge(steps), () => _system.Nudge(steps * 4));
+                    if (roonCannot) return "現在是 Roon 在播，而這個輸出的音量不能從這裡調";
+                    if (level is not { } now) return "沒有可以調音量的裝置";
+                    return _media.OnRoon ? $"Roon 音量現在是 {now}" : $"電腦音量現在是 {now}%";
                 }
 
                 case "lyrics_fix":

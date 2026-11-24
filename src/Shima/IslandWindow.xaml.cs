@@ -60,7 +60,8 @@ public partial class IslandWindow : Window
         SourceInitialized += (_, _) =>
         {
             _hwnd = new WindowInteropHelper(this).Handle;
-            if (!_smoke) InitHotkeys();
+            // 示範模式不註冊全域快捷鍵：會跟平常那一份搶，搶不到還會跳「被佔用」的提示
+            if (!_smoke && !Demo.On) InitHotkeys();
             // 不出現在 Alt+Tab
             SetWindowLong(_hwnd, GWL_EXSTYLE, GetWindowLong(_hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
         };
@@ -71,6 +72,7 @@ public partial class IslandWindow : Window
         InitSettings();
         InitStatus();
         InitAgents();
+        InitOpenConfirm();
         InitListening();
         if (Demo.On && _smoke) InitAlarms();   // 截圖要看得到示範的提醒；不是截圖時下面那一行會做
         if (!_smoke)
@@ -151,9 +153,12 @@ public partial class IslandWindow : Window
             };
             CharacterMenu.Items.Add(item);
         }
-        foreach (var (id, name) in ((string, string)[])[("translation", "中文翻譯"), ("romaji", "羅馬拼音"), ("none", "不顯示")])
+        // 讀音要有日文輸入法的元件；沒有的電腦上不出現，設定檔裡已經是讀音的話勾「不顯示」
+        string secondLine = AppSettings.Current.LyricsSecondLine == "furigana" && !Lyrics.Furigana.Available ? "none" : AppSettings.Current.LyricsSecondLine;
+        foreach (var (id, name) in ((string, string)[])[("translation", "中文翻譯"), ("romaji", "羅馬拼音"), ("furigana", "讀音"), ("none", "不顯示")])
         {
-            var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == AppSettings.Current.LyricsSecondLine, Tag = id };
+            if (id == "furigana" && !Lyrics.Furigana.Available) continue;
+            var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == secondLine, Tag = id };
             item.Click += (_, _) =>
             {
                 AppSettings.Current.LyricsSecondLine = id;
@@ -172,7 +177,7 @@ public partial class IslandWindow : Window
         _close.Tick += (_, _) =>
         {
             _close.Stop();
-            if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _tab == Tab.Ask) return;
+            if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _buttonMenu?.IsOpen == true || _tab == Tab.Ask || _opening != null) return;
             // 正在打字的分頁不因為滑鼠離開就收起來，點到別的視窗才收
             if (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && IsActive) return;
             SetExpanded(false);
@@ -287,7 +292,7 @@ public partial class IslandWindow : Window
         Agents.DeckNotice notice;
         string timer = TimerLine() ?? "";
         if (_asking is { } ask && !ask.Decision.Task.IsCompleted)
-            notice = new("ask", ask.Project.Length > 0 ? $"{Agents.AgentKinds.Name(ask.Agent)} · {ask.Project}" : Agents.AgentKinds.Name(ask.Agent), $"{ask.Tool}  {ask.Details}", timer, _planLine, false);
+            notice = new("ask", ask.Project.Length > 0 ? $"{Agents.AgentKinds.Name(ask.Agent)} · {ask.Project}" : Agents.AgentKinds.Name(ask.Agent), $"{ask.Tool}  {ask.Details}", timer, _planLine, false, ask.Id);
         else if (_voice != null)
             notice = new("voice", "", _voiceLine, timer, _planLine, _micOpen);
         else if (_toast.Length > 0 && DateTime.Now < _toastUntil)
@@ -323,21 +328,23 @@ public partial class IslandWindow : Window
         QueueButton.Visibility = roon ? Visibility.Visible : Visibility.Collapsed;
         if (!roon && _queueOpen) { _queueOpen = false; Morph(); }
         var track = _track;
-        // 語音助手正在聽或回答：優先顯示，音量條換成麥克風的音量
+        // 語音助手正在聽或回答（音量條換成麥克風的音量）、或有提示：只換掉膠囊上那一行字，
+        // 進度、展開的歌詞、桌面歌詞、Stream Dock 照常跟著歌走（不然存 .lrc、翻譯之後會錯位好幾秒）
+        string? say = null;
         if (_voice != null && _voiceLine.Length > 0)
         {
             Meter.Visibility = _micOpen ? Visibility.Visible : Visibility.Collapsed;
-            Pill_Say(_voiceLine);
-            return;
+            say = _voiceLine;
         }
-        if (_toast.Length > 0 && DateTime.Now < _toastUntil) { Pill_Say(_toast); return; }
-        _toast = "";
+        else if (_toast.Length > 0 && DateTime.Now < _toastUntil) say = _toast;
+        else _toast = "";
         if (track == null)
         {
             if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
             Spectrum.Active = false;
             if (_desk != null && _deskTitle.Length > 0) { _deskTitle = ""; _deskSheet = null; FeedDesktopLyrics(); }
-            var line = IdleLine.Text(AppSettings.Current.IdleShows, DateTime.Now, TimerLine(), _alarms?.List ?? [], Loc.Culture, L.T("明天"));
+            if (say != null) { Pill_Say(say); return; }
+            var line = IdleText();
             PillLine.Say(line);
             // 不顯示：只剩角色，左右邊距一樣、寬度縮到剛好包住它（邊距 8＋8、角色 5＋26）
             Pill.Margin = line.Length == 0 ? new Thickness(8, 0, 8, 0) : new Thickness(12, 0, 8, 0);
@@ -362,16 +369,17 @@ public partial class IslandWindow : Window
             int i = Lrc.LineAt(sheet.Lines, pos + LyricLead + _lyricShift);
             string text = i >= 0 ? sheet.Lines[i].Text : "";
             _lyricIndex = i;
-            if (text.Length > 0)
+            // 有那一句要說就不唱歌詞：同一格先唱再換掉，字會閃
+            if (say == null && text.Length > 0)
             {
                 var start = sheet.Lines[i].Time;
                 var length = Singing.Length(text, start, i + 1 < sheet.Lines.Count ? sheet.Lines[i + 1].Time : null);
                 // 暫停時膠囊回到歌名，繼續播才換回歌詞
                 if (track.Playing) PillLine.Sing(text, start, length, sheet.Lines[i].Words); else PillLine.Say(name);
             }
-            else PillLine.Say(name);
+            else if (say == null) PillLine.Say(name);
         }
-        else PillLine.Say(name);
+        else if (say == null) PillLine.Say(name);
 
         var shown = _sheet is { Synced: true } ? _sheet : null;
         var second = AppSettings.Current.LyricsSecondLine switch
@@ -380,10 +388,11 @@ public partial class IslandWindow : Window
             "romaji" => shown?.Romaji ?? shown?.Translation,
             _ => null,
         };
-        LyricsList.Show(shown, second);
-        if (_desk != null && (!ReferenceEquals(_deskSheet, shown) || !ReferenceEquals(_deskSecond, second) || _deskTitle != track.Title))
+        LyricsList.Show(shown, second, RubyFor(shown));
+        var deskSecond = DesktopSecond(shown, second);
+        if (_desk != null && (!ReferenceEquals(_deskSheet, shown) || !ReferenceEquals(_deskSecond, deskSecond) || _deskTitle != track.Title))
         {
-            _deskSheet = shown; _deskSecond = second; _deskTitle = track.Title;
+            _deskSheet = shown; _deskSecond = deskSecond; _deskTitle = track.Title;
             FeedDesktopLyrics();
         }
         var deck = _bridge.Deck;
@@ -393,6 +402,7 @@ public partial class IslandWindow : Window
         Spectrum.Active = LyricsList.Active && track.Playing && AppSettings.Current.AudioReactive;
         LyricsList.Wake();
 
+        if (say != null) { Pill_Say(say); return; }
         // 膠囊跟著這一行字的長短伸縮
         double buddy = (Buddy.Kind == "none" ? 8 : 32) + (Meter.Visibility == Visibility.Visible ? 21 : 0);
         double wanted = Math.Clamp(Math.Ceiling(PillLine.TextWidth) + 7 + 22 + 9 + 8 + buddy, MinPill, MaxPill);
@@ -427,9 +437,11 @@ public partial class IslandWindow : Window
     {
         if (_expanded == expanded) return;
         // 權限請求顯示中不能收起來。要先擋，再改狀態：不然狀態說「收著」、畫面卻還開著，之後就再也收不起來
-        if (!expanded && _tab == Tab.Ask) return;
+        if (!expanded && (_tab == Tab.Ask || _opening != null)) return;
         _expanded = expanded;
-        if (expanded) SeeRecent();
+        if (expanded && _tab == Tab.Tools) EnterTools();
+        if (expanded) FitPages();
+        if (expanded && _tab == Tab.Chat) Place();   // 收著時拖到邊上：聊天比較寬，展開前再夾一次
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
     }
@@ -445,11 +457,11 @@ public partial class IslandWindow : Window
         _tab = tab;
         if (tab == Tab.Tools)
         {
-            // 收著期間跨了日：重畫月曆與圓點；清單已經攤開的話也算看過了
-            if (Month.Today.Date != DateTime.Today) RefreshAlarms();
-            SeeRecent();
+            EnterTools();
         }
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
+        if (_expanded) FitPages();
+        Place();   // 聊天比別頁寬：靠邊時重新夾一次，切回別頁也會回到存的位置
         if (tab == Tab.Ai) RefreshAi();
         if (tab == Tab.Settings) RefreshSettings();
         if (tab == Tab.Library) RefreshLibrary();
@@ -641,7 +653,7 @@ public partial class IslandWindow : Window
         var id = LyricsFinder.IdOf(track);
         if (total == 0) AppSettings.Current.LyricsShift.Remove(id); else AppSettings.Current.LyricsShift[id] = total;
         AppSettings.Current.Save();
-        Toast(total == 0 ? L.T("歌詞時間：原本") : L.F(total > 0 ? "歌詞提早 {0} 秒" : "歌詞延後 {0} 秒", (Math.Abs(total) / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)), 2);
+        Toast(total == 0 ? L.T("歌詞時間：原本") : L.F(total > 0 ? "歌詞提早 {0} 秒" : "歌詞延後 {0} 秒", (Math.Abs(total) / 1000.0).ToString("0.0", Loc.Culture)), 2);
     }
 
     /// <summary>現在這句歌詞（沒有歌詞就是歌名）做成一張圖：放進剪貼簿，同時存到「圖片\Shima」。</summary>
@@ -691,11 +703,14 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 位置：可以拖，會記住
 
     /// <summary>島的中心 X 與視窗上緣；沒拖過就在主螢幕頂端正中間。存的位置跑出螢幕外（換了螢幕）就回到預設。</summary>
+    /// <summary>展開時面板的寬：聊天分頁比較寬。靠邊時要照目前這一頁的寬度夾，不然切到聊天會超出螢幕。</summary>
+    private static double PanelWidth(Tab tab) => tab == Tab.Chat ? 528 : 440;
+
     private void Place()
     {
         var s = AppSettings.Current;
         var screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, 440 * _scale);
+        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, PanelWidth(_tab) * _scale);
         Left = _smoke ? -5000 : at.X;
         Top = at.Y;
     }
@@ -731,6 +746,7 @@ public partial class IslandWindow : Window
         AppSettings.Current.IslandX = Left + Width / 2;
         AppSettings.Current.IslandY = Top;
         AppSettings.Current.Save();
+        FitPages();   // 換了高度，各頁可用的高度也變了
     }
 
     private void ResetPlace_Click(object sender, RoutedEventArgs e)
@@ -825,6 +841,7 @@ public partial class IslandWindow : Window
         {
             _hiddenForFullscreen = hide;
             Root.Visibility = hide || _userHidden ? Visibility.Hidden : Visibility.Visible;
+            AskRevealed();
         }
         if (!hide) SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }

@@ -37,26 +37,36 @@ public partial class IslandWindow
     private readonly LyricFavorites _favorites = new();
     private Scrobbler? _scrobbler;
     private LastFm? _lastFm;
+    // 還沒回報出去的（離線、關掉程式之前沒送成的）：寫在檔案裡，之後補送
+    private readonly PendingScrobbles _pending = new();
+    private QueuedSink? _scrobblerQueue, _lastFmQueue;
     private StatsView? _stats;
     private FavoritesView? _favoritesView;
     private bool _libraryShowsFavorites;
 
+    /// <summary>這個來源有沒有被使用者排除：寫紀錄、回報、補送都看這一個。</summary>
+    private static bool SourceCounts(string? source) => ListenSources.Counts(source, AppSettings.Current.HistoryExcluded);
+
     private void InitListening()
     {
+        _listening.Accepts = SourceCounts;
         _listening.Listened += listen => { foreach (var s in Scrobbling()) _ = s.Submit(listen); };
         _listening.Started += track => { foreach (var s in Scrobbling()) _ = s.NowPlaying(track); };
+        foreach (var sink in Scrobbling()) _ = sink.Drain();   // 上次沒送出去的
         Closed += (_, _) => { _lastFmConnecting?.Cancel(); _listening.Flush(); _scrobbler?.Dispose(); _lastFm?.Dispose(); };
     }
 
     /// <summary>現在要回報的目的地：ListenBrainz 有填 token、Last.fm 有連接的才算；設定改了就換成新的。</summary>
-    private List<IListenSink> Scrobbling()
+    private List<QueuedSink> Scrobbling()
     {
-        var sinks = new List<IListenSink>();
+        var sinks = new List<QueuedSink>();
         var s = AppSettings.Current;
-        if (s.ListenBrainzToken.Length > 0)
+        // 解密的結果由 AppSettings 記著，這裡每次呼叫都很便宜
+        var token = s.ListenBrainzTokenText();
+        if (token.Length > 0)
         {
-            if (_scrobbler == null) _scrobbler = new Scrobbler(s.ListenBrainzToken); else if (_scrobbler.Token != s.ListenBrainzToken) _scrobbler.Token = s.ListenBrainzToken;
-            sinks.Add(_scrobbler);
+            if (_scrobbler == null) _scrobbler = new Scrobbler(token); else if (_scrobbler.Token != token) _scrobbler.Token = token;
+            sinks.Add(_scrobblerQueue ??= new QueuedSink("listenbrainz", _scrobbler, _pending, null, SourceCounts));
         }
         if (s.LastFmSession.Length > 0 && s.LastFmApiKey.Length > 0)
         {
@@ -67,13 +77,14 @@ public partial class IslandWindow
                 {
                     // 被拒的是舊的那一把、使用者已經重新連接了：不要把新的清掉
                     if (s.LastFmSessionText() != rejected) return;
+                    // 還沒送的留著：重新連接之後補送。自己按「中斷」才清掉（LastFmDisconnect）
                     s.SetLastFmSession("", "");
                     RefreshLastFmButton();
                     Toast(L.T("Last.fm 授權失效，請重新連接"), 6, false);
                 });
             }
             _lastFm.Use(s.LastFmApiKey, s.LastFmSecretText(), s.LastFmSessionText());
-            if (_lastFm.Enabled) sinks.Add(_lastFm);
+            if (_lastFm.Enabled) sinks.Add(_lastFmQueue ??= new QueuedSink("lastfm", _lastFm, _pending, null, SourceCounts));
         }
         return sinks;
     }
@@ -126,8 +137,15 @@ public partial class IslandWindow
             if (_stats?.Summary is not { } summary) return;
             var card = RecapCard.Render(summary, _stats.Period, _stats.Now, _track?.Cover, ThemeAccent(_track?.Cover));
             if (card == null) { Toast(L.T("這個期間還沒有聽歌"), 3, false); return; }
-            LyricCard.Save(card, LyricCard.Folder, "Shima Recap");
-            Clipboard.SetImage(card);
+            var saved = LyricCard.Save(card, LyricCard.Folder, "Shima Recap");
+            try { Clipboard.SetImage(card); }
+            catch (Exception x)
+            {
+                // 剪貼簿被別的程式佔用時會丟例外：圖已經存好了，要讓使用者知道去哪裡拿
+                Log.Write("聆聽回顧剪貼簿: " + x.Message);
+                Toast(L.F("剪貼簿被佔用，圖片已存到 {0}", Path.GetDirectoryName(saved) ?? LyricCard.Folder), 6, false);
+                return;
+            }
             Toast(L.T("聆聽回顧已複製"), 4);
         }
         catch (Exception x) { Log.Write("聆聽回顧: " + x.Message); }
@@ -188,7 +206,7 @@ public partial class IslandWindow
             _ => null,
         };
         _desk.SetTrack(_track?.Title ?? "", _track?.Artist ?? "");
-        _desk.Show(shown, second);
+        _desk.Show(shown, DesktopSecond(shown, second));
         _desk.Wake();
     }
 
@@ -252,8 +270,10 @@ public partial class IslandWindow
     private SessionsView? _sessions;
     private TextBlock? _usageLine;
     private DateTime _usageAt;
+    private HashSet<string> _usageSessions = [];   // 上次查用量時連著的 Claude Code 工作階段
     private UsageView? _usageView;
     private bool _usageOpen;
+    private int _trendToggles;   // 圖開關過幾次：讓排好的「晚點釋放」知道自己過期了
     private CancellationTokenSource? _trendCts;
 
     private void InitSessions()
@@ -294,20 +314,38 @@ public partial class IslandWindow
             _usageView!.Trend = demo;
             return;
         }
-        if (DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;
-        _usageAt = DateTime.Now;
+        var now = DateTime.Now;
+        var claude = _bridge.Sessions.Where(x => x.Agent == AgentKind.Claude).Select(x => x.Id).ToHashSet();
+        if (!UsageDue(now, _usageAt, claude.Any(id => !_usageSessions.Contains(id)))) return;
+        _usageAt = now;
+        _usageSessions = claude;
         try
         {
             var today = await _usage.TodayAsync();
             ShowUsageLine(today.Tokens.Total, today.Cost, today.CostKnown);
             if (_usageOpen) LoadTrend();
         }
-        catch (Exception e) { Log.Write("usage: " + e.Message); }
+        catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }   // 訊息可能有含專案名稱的路徑
     }
+
+    /// <summary>
+    /// 現在要不要重新查今天的用量（要掃很多檔案，平常最多一分鐘一次）。
+    /// 跨過午夜（「今天」換了）、時鐘往回調（不然要等時間追上才會再查）、有沒看過的 Claude Code 工作階段連上（那一行要馬上出現）都立刻查。
+    /// newSession 只看「上次查的時候沒有的工作階段」：每個 hook 事件都會觸發，連進度更新也算的話等於沒有節流。
+    /// </summary>
+    public static bool UsageDue(DateTime now, DateTime last, bool newSession) =>
+        newSession || now < last || now.Date != last.Date || now - last >= TimeSpan.FromSeconds(60);
 
     private void ShowUsageLine(long tokens, decimal cost, bool known)
     {
-        if (!ShowsUsageLine(tokens, _usageOpen, _bridge.Sessions.Any(x => x.Agent == AgentKind.Claude))) { _usageLine!.Visibility = Visibility.Collapsed; _usageView!.Visibility = Visibility.Collapsed; return; }
+        if (!ShowsUsageLine(tokens, _usageOpen, _bridge.Sessions.Any(x => x.Agent == AgentKind.Claude)))
+        {
+            bool shown = _usageLine!.Visibility == Visibility.Visible;
+            _usageLine.Visibility = Visibility.Collapsed;
+            _usageView!.Visibility = Visibility.Collapsed;
+            if (shown && _tab == Tab.Ai && _expanded) Morph();   // 收起來了，島也要跟著縮
+            return;
+        }
         string money = cost > 0 ? UsageView.Money(cost, known) + " · " : "";
         _usageLine!.Text = L.F("今天 {0}", money + UsageView.Amount(tokens) + " tokens");
         _usageLine.Visibility = Visibility.Visible;
@@ -324,10 +362,11 @@ public partial class IslandWindow
     private void ToggleUsage(bool open)
     {
         _usageOpen = open;
+        _trendToggles++;   // 之前排好的釋放都過期了
         if (!open)
         {
             _trendCts?.Cancel();   // 還在讀的就別讀了
-            _ = ReleaseTrendLater();
+            _ = ReleaseTrendLater(_trendToggles);
         }
         _usageView!.Visibility = open && _usageLine!.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
         if (open && !Demo.On) LoadTrend();
@@ -348,16 +387,22 @@ public partial class IslandWindow
         catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
     }
 
-    /// <summary>圖表收起超過五分鐘還沒再打開，就把趨勢帳釋放掉（幾百則紀錄的記憶體）。</summary>
-    private async Task ReleaseTrendLater()
+    /// <summary>圖表收起超過五分鐘還沒再打開，就把趨勢帳釋放掉（幾百則紀錄的記憶體）。ticket：收起那一刻的 _trendToggles。</summary>
+    private async Task ReleaseTrendLater(int ticket)
     {
         try
         {
-            await Task.Delay(TimeSpan.FromMinutes(5));
-            if (!_usageOpen) await _usage.ReleaseTrendAsync();
+            await Task.Delay(TimeSpan.FromMinutes(5));   // 醒來時回到 UI 執行緒，讀 _trendToggles 不用鎖
+            if (ReleasesTrend(ticket, _trendToggles, _usageOpen)) await _usage.ReleaseTrendAsync();
         }
         catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
     }
+
+    /// <summary>
+    /// 五分鐘到了要不要釋放：圖還關著，而且收起之後沒再開關過。
+    /// 只看「現在關著」不夠：關、四分多鐘後重開、再關，第一次的計時醒來時圖也是關著的，會提早清掉剛剛才讀的帳。
+    /// </summary>
+    public static bool ReleasesTrend(int ticket, int toggles, bool chartOpen) => !chartOpen && ticket == toggles;
 
     private void AskAlways_Click(object sender, RoutedEventArgs e) => Decide(PermissionRequest.Always);
 

@@ -85,7 +85,7 @@ public class Review3Tests
             var folder = Path.Combine(root, ".claude");
             Directory.CreateDirectory(Path.Combine(folder, "projects"));
             var usage = new AgentUsage(() => [folder], () => new DateTime(2026, 5, 14, 12, 0, 0));
-            usage.Watch(Path.Combine(root, "gone.jsonl"));
+            usage.Watch(Path.Combine(folder, "projects", "x", "gone.jsonl"));   // 要像真的對話紀錄，不然 Watch 一開始就不收
             await usage.TodayAsync();
             var watched = (System.Collections.Generic.HashSet<string>)typeof(AgentUsage).GetField("_watched", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(usage)!;
             Assert.Empty(watched);

@@ -38,14 +38,14 @@ public sealed class AgentPlan
                 _steps.Clear();
                 foreach (var t in todos)
                     if (Text(t) is { Length: > 0 } text)
-                        _steps.Add(new Step((_steps.Count + 1).ToString(), text, t?["status"]?.ToString() ?? "pending"));
+                        _steps.Add(new Step((_steps.Count + 1).ToString(), text, Get(t, "status")?.ToString() ?? "pending"));
                 return true;
 
             case "TaskCreate":
             {
                 if (Text(input) is not { Length: > 0 } text) return false;
                 var response = hook["tool_response"];
-                var id = Id(response) ?? Id(response?["task"]) ?? Id(input) ?? (_steps.Count + 1).ToString();
+                var id = Id(response) ?? Id(Get(response, "task")) ?? Id(input) ?? (_steps.Count + 1).ToString();
                 _steps.RemoveAll(s => s.Id == id);
                 _steps.Add(new Step(id, text, input["status"]?.ToString() ?? "pending"));
                 return true;
@@ -65,9 +65,15 @@ public sealed class AgentPlan
         return false;
     }
 
+    /// <summary>
+    /// 物件的某個欄位；不是物件（字串、數字、陣列：tool_response 常常是一段文字）就是 null。
+    /// 對非物件用 ["…"] 取值會丟 InvalidOperationException，整則 hook 就白白失敗、畫面也不會更新。
+    /// </summary>
+    private static JsonNode? Get(JsonNode? n, string key) => (n as JsonObject)?[key];
+
     private static string? Id(JsonNode? n) =>
-        (n?["taskId"] ?? n?["task_id"] ?? n?["id"])?.ToString() is { Length: > 0 } id ? id : null;
+        (Get(n, "taskId") ?? Get(n, "task_id") ?? Get(n, "id"))?.ToString() is { Length: > 0 } id ? id : null;
 
     private static string? Text(JsonNode? n) =>
-        (n?["activeForm"] ?? n?["active_form"] ?? n?["subject"] ?? n?["content"] ?? n?["title"] ?? n?["description"])?.ToString();
+        (Get(n, "activeForm") ?? Get(n, "active_form") ?? Get(n, "subject") ?? Get(n, "content") ?? Get(n, "title") ?? Get(n, "description"))?.ToString();
 }

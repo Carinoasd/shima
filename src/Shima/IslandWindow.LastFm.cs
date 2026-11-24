@@ -43,6 +43,7 @@ public partial class IslandWindow
     {
         _lastFmConnecting?.Cancel();
         AppSettings.Current.SetLastFmSession("", "");
+        _pending.Clear("lastfm");
         // 還在排隊或等著重試的舊歌，不要再拿舊的 session 送
         _lastFm?.Use("", "", "");
         RefreshLastFmButton();

@@ -55,6 +55,23 @@ public partial class IslandWindow
                 ToggleUsage(false);
             }
 
+            // 快速指令的提示清單：輸入框打了「/s」，拍完清空、關掉
+            if (Demo.On)
+            {
+                _expanded = true;
+                TabAi.IsChecked = true;
+                _tab = Tab.Ai;
+                RefreshAi();
+                Say("");
+                AskBox.Text = "/s";
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-commands");
+                AskBox.Text = "";
+                HideHints();
+                Say(Demo.Answer);
+            }
+
             // 長的回答：一次到齊時要停在開頭、底部淡出
             if (Demo.On)
             {
@@ -268,6 +285,94 @@ public partial class IslandWindow
                 if (days.Count > 0) Month.Peek(days.Keys.First());
                 await Save(folder, "c-month-tip");
                 Month.Peek(0);
+            }
+
+            // 歌詞第二行選「讀音」：只改記憶體裡的設定值，拍完改回來，不存檔
+            if (Demo.On && Lyrics.Furigana.Available)
+            {
+                var second = AppSettings.Current.LyricsSecondLine;
+                AppSettings.Current.LyricsSecondLine = "furigana";
+                _expanded = true;
+                TabMusic.IsChecked = true;
+                _tab = Tab.Music;
+                Snap(); UpdateTexts();
+                await RubyReady();
+                // 讀音是背景算的；剛好在間奏或沒有漢字的句子就等到下一句有讀音的
+                for (int wait = 0; wait < 100 && !RubyOnCurrentLine(); wait++) { await Task.Delay(100); UpdateTexts(); }
+                // 截圖的視窗不算看得見，捲動不會自己走：重給一次歌詞，直接跳到正在唱的那句
+                LyricsList.Show(null, null);
+                Snap(); UpdateTexts();
+                await Save(folder, "c-furigana");
+                // 大字被截成「…」：把歌詞區縮窄，被截掉的漢字上方不該有讀音
+                LyricsList.MaxWidth = 100;
+                LyricsList.Show(null, null);
+                Snap(); UpdateTexts();
+                await Save(folder, "c-furigana-cut");
+                LyricsList.ClearValue(FrameworkElement.MaxWidthProperty);
+                AppSettings.Current.LyricsSecondLine = second;
+                Refresh();
+            }
+            // AI 想開不在常用網站裡的網址：在 AI 分頁顯示完整網址，等使用者按
+            {
+                var asking = new TaskCompletionSource<bool?>();
+                _opening = asking;
+                _expanded = true;
+                ShowOpenCard("https://lyrics-share.example/c?song=%E6%99%B4%E5%A4%A9&d=" + string.Concat(Enumerable.Repeat("my-bank-password-hunter2%0Aemail%3Ddemo%40example.com%0A", 10)) + "&from=shima", asking);
+                Snap();
+                await Save(folder, "c-open-confirm");
+                asking.TrySetResult(false);
+                HideOpenCard(asking);
+            }
+            // 待辦拖曳時的插入線：暫時把第二列上緣的線打開，拍完重建回來
+            if (Demo.On && TodoBox.Children.Count > 1)
+            {
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                RefreshTools();
+                if (TodoBox.Children[1] is System.Windows.Controls.Grid row && row.Children.OfType<System.Windows.Shapes.Rectangle>().FirstOrDefault() is { } line)
+                    line.Visibility = Visibility.Visible;
+                Snap();
+                await Save(folder, "c-todo-drag");
+                RefreshTools();
+            }
+            // 小螢幕上放大：假裝螢幕只有 728（768 高扣掉工作列）、大小 130%，聊天、設定、通知頁都要塞得進去；拍完還原
+            if (Demo.On)
+            {
+                AppSettings.Current.Scale = 1.3;
+                ApplyScale();
+                foreach (var fake in new double?[] { null, 728 })
+                {
+                    _workHeightOverride = fake;
+                    FitPages();
+                    foreach (var (tab, name) in new[] { (Tab.Chat, "chat"), (Tab.Settings, "settings"), (Tab.Tools, "recent") })
+                    {
+                        _expanded = true;
+                        _tab = tab;
+                        (tab switch { Tab.Chat => TabChat, Tab.Settings => TabSettings, _ => TabTools }).IsChecked = true;
+                        if (tab == Tab.Settings) { _settingsSection = SettingsSection.Look; RefreshSettings(); SettingsScroll.ScrollToVerticalOffset(0); }
+                        if (tab == Tab.Tools) { SetRecentOpen(true); RefreshTools(); }
+                        Snap(); UpdateTexts();
+                        if (fake != null) await Save(folder, "c-fit-130-" + name);
+                        if (tab == Tab.Tools) SetRecentOpen(false);
+                    }
+                    _settingsSection = SettingsSection.General;
+                }
+                _workHeightOverride = null;
+                AppSettings.Current.Scale = 1;
+                ApplyScale();
+            }
+            // 聊天分頁的網頁離開了聊天網站自己的網域：上方顯示現在的主機（示範模式不會真的載入網頁，暫時給一個假的）
+            if (Demo.On)
+            {
+                FitPages();
+                _expanded = true;
+                _tab = Tab.Chat;
+                TabChat.IsChecked = true;
+                ShowChatAway("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?redirect_uri=https%3A%2F%2Fevil.example%2F");
+                Snap(); UpdateTexts();
+                await Save(folder, "c-chat-host");
+                ShowChatAway(null);
             }
             Log.Write("shots: " + folder);
         }

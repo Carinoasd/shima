@@ -663,21 +663,25 @@ public class TrickleTests
     public async Task 關掉或丟掉之後_還沒顯示的不會出現()
     {
         var shown = new List<string>();
-        var closed = new Trickle(TimeSpan.FromMilliseconds(20), work => work(), text => { lock (shown) shown.Add(text); });
+        // 間隔放長：機器忙的時候「放進去」與「關掉」之間可能被排到後面等上幾十毫秒，
+        // 間隔只有 20 毫秒的話那一段就先顯示出來了，這個測試會時好時壞
+        var gap = TimeSpan.FromMilliseconds(400);
+        var closed = new Trickle(gap, work => work(), text => { lock (shown) shown.Add(text); });
         closed.Put("晚到的片段");
         closed.Close();
         closed.Put("關了還送");
 
-        var dropped = new Trickle(TimeSpan.FromMilliseconds(20), work => work(), text => { lock (shown) shown.Add(text); });
+        var dropped = new Trickle(gap, work => work(), text => { lock (shown) shown.Add(text); });
         dropped.Put("被整段答案取代");
         dropped.Drop();
 
-        await Task.Delay(200);
+        await Task.Delay(gap * 2.5);
         lock (shown) Assert.Empty(shown);
 
-        // 丟掉之後再來的照常顯示（語音模式下一輪的回答）
+        // 丟掉之後再來的照常顯示（語音模式下一輪的回答）：等到出現為止，不賭一個固定的時間
         dropped.Put("下一輪");
-        await Task.Delay(200);
+        for (var until = DateTime.UtcNow.AddSeconds(10); DateTime.UtcNow < until; await Task.Delay(20))
+            lock (shown) if (shown.Count > 0) break;
         lock (shown) Assert.Equal(["下一輪"], shown);
     }
 }

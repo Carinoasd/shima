@@ -17,7 +17,14 @@ public sealed class AppSettings
     // 排在後面的話那時它還是 null，整個類別初始化失敗，全新安裝的人一啟動就當掉（0.6.1 到 0.7.0）。
     private static readonly object Saving = new();
 
-    public static AppSettings Current { get; } = Load();
+    /// <summary>
+    /// 還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。
+    /// 提醒（alarms.json）與收藏（favorites.json）的存檔也看這個；其他寫進資料夾的只會新增檔案，不會用舊內容蓋掉還原的。
+    /// </summary>
+    /// <remarks>排在 Current 前面：Load() 存檔時會看它。</remarks>
+    public static volatile bool Frozen;
+
+    public static AppSettings Current { get; } = LoadFrom(FilePath, DateTime.Now);
 
     /// <summary>Roon Core 的位址；留空就不連 Roon。</summary>
     public string RoonHost { get; set; } = "127.0.0.1";
@@ -69,6 +76,8 @@ public sealed class AppSettings
     public int WaterMinutes { get; set; } = 60;
     /// <summary>音量、亮度、電量、網路、播放裝置有變化時在島上顯示。</summary>
     public bool SystemStatus { get; set; } = true;
+    /// <summary>Stream Dock 的「允許」按鍵算數。關掉之後只剩「拒絕」有用（拒絕不會造成傷害）。</summary>
+    public bool DeckAllow { get; set; } = true;
     /// <summary>啟動後與每天一次，到 GitHub 看有沒有新版。</summary>
     public bool CheckUpdates { get; set; } = true;
     /// <summary>全域快捷鍵（如 "Ctrl+Alt+Space"）；空字串：用預設（展開有備援順序）。</summary>
@@ -76,6 +85,8 @@ public sealed class AppSettings
     public string HotkeyAsk { get; set; } = "";
     /// <summary>勿擾模式的結束時間；null 或已過就是沒開。</summary>
     public DateTime? DoNotDisturbUntil { get; set; }
+    /// <summary>上一次執行的版本（如 "0.7.1"）；空字串：還沒記過。啟動時跟現在的版本比，有更新才提示。</summary>
+    public string LastRunVersion { get; set; } = "";
 
     /// <summary>歌詞下面多一行：translation（中文翻譯）、romaji（羅馬拼音）或 none。</summary>
     public string LyricsSecondLine { get; set; } = "translation";
@@ -146,7 +157,9 @@ public sealed class AppSettings
     public bool RoonSearch { get; set; }
     /// <summary>記下聽了什麼（存在這台電腦的 history.jsonl）。</summary>
     public bool History { get; set; } = true;
-    /// <summary>ListenBrainz 的 user token；留空就不回報。</summary>
+    /// <summary>不算聆聽的來源（Listen.Source，例如 Chrome）：不記錄、不回報、統計不算。預設全算。</summary>
+    public List<string> HistoryExcluded { get; set; } = [];
+    /// <summary>ListenBrainz 的 user token；留空就不回報。存的是「dpapi:」加 DPAPI 加密後的 base64，用 <see cref="ListenBrainzTokenText"/> 讀、<see cref="SetListenBrainzToken"/> 寫。</summary>
     public string ListenBrainzToken { get; set; } = "";
     /// <summary>Last.fm：使用者自己申請的 API key（不算機密）。</summary>
     public string LastFmApiKey { get; set; } = "";
@@ -191,13 +204,42 @@ public sealed class AppSettings
     public void SetLastFmSecret(string secret) { LastFmSecret = Conceal(secret); Save(); }
     public void SetLastFmSession(string session, string user) { LastFmSession = Conceal(session); LastFmUser = session.Length > 0 ? user : ""; Save(); }
 
+    /// <summary>加密過的 ListenBrainz token 的開頭：分得出舊版存的明文（UUID 不會長這樣），升級時不會把加密過的再加密一次。</summary>
+    private const string SealedPrefix = "dpapi:";
+
+    private (string Stored, string Plain)? _tokenCache;
+
+    /// <summary>
+    /// 解密後的 ListenBrainz token；沒填、或解不開（設定檔是從別台電腦或別的帳號帶來的）都是空字串。
+    /// 回報會頻繁呼叫，所以記住上次的結果；存的值變了（改設定、還原備份）才重新解密。
+    /// </summary>
+    public string ListenBrainzTokenText()
+    {
+        var stored = ListenBrainzToken;
+        if (_tokenCache is { } cache && cache.Stored == stored) return cache.Plain;
+        var plain = stored.StartsWith(SealedPrefix, StringComparison.Ordinal) ? Reveal(stored[SealedPrefix.Length..], "listenbrainz token 解密") : "";
+        _tokenCache = (stored, plain);
+        return plain;
+    }
+
+    /// <summary>不存檔：呼叫端（設定頁的輸入框）接著會存。</summary>
+    public void SetListenBrainzToken(string token) => ListenBrainzToken = token.Length == 0 ? "" : SealedPrefix + Conceal(token);
+
+    /// <summary>舊版把 ListenBrainz token 存成明文：轉成加密的。回傳有沒有改動（要存檔）。</summary>
+    public bool EncryptListenBrainzToken()
+    {
+        if (ListenBrainzToken.Length == 0 || ListenBrainzToken.StartsWith(SealedPrefix, StringComparison.Ordinal)) return false;
+        SetListenBrainzToken(ListenBrainzToken);
+        return true;
+    }
+
     private static string Conceal(string text) =>
         text.Length == 0 ? "" : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(text), null, DataProtectionScope.CurrentUser));
 
-    private static string Reveal(string stored)
+    private static string Reveal(string stored, string what = "lastfm 金鑰解密")
     {
         try { return stored.Length == 0 ? "" : Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored), null, DataProtectionScope.CurrentUser)); }
-        catch (Exception e) { Log.Write("lastfm 金鑰解密: " + e.Message); return ""; }
+        catch (Exception e) { Log.Write($"{what}: {e.Message}"); return ""; }
     }
 
     /// <summary>設了這個環境變數就把設定與資料放在那個資料夾（測試用暫存資料夾，不碰平常的那一份）。</summary>
@@ -210,47 +252,105 @@ public sealed class AppSettings
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Shima");
     private static string FilePath => Path.Combine(Folder, "settings.json");
 
-    private static AppSettings Load()
+    /// <summary>
+    /// 讀設定檔。這是 <see cref="Current"/> 的初始值，在型別初始化時執行：這裡丟出去的例外會讓整個程式起不來，
+    /// 也不可以用到宣告在 Current 後面的 static 欄位（那時還沒初始化）。
+    /// 檔案不存在才是全新安裝；存在卻讀不懂就先改名留下來（settings.json.broken-時間）再寫新的，
+    /// 留不下來就不寫。升級時的轉換步驟各自出錯只略過那一步、下次再試，不會讓整份設定作廢。
+    /// </summary>
+    /// <param name="upgrades">轉換步驟（回傳 true：有改、要存檔）；null 是平常那幾步。測試用來換成會出錯的。</param>
+    public static AppSettings LoadFrom(string path, DateTime now, IEnumerable<Func<AppSettings, bool>>? upgrades = null)
     {
+        AppSettings? loaded = null;
+        bool exists = false, unreadable = false;
         try
         {
-            if (File.Exists(FilePath))
+            exists = File.Exists(path);
+            if (exists)
             {
-                var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
-                if (loaded.AnthropicKey.Length > 0)
-                {
-                    // 舊版的 Claude 金鑰搬到新的位置（已經是加密過的，直接搬）
-                    loaded.AiKeys.TryAdd("claude", loaded.AnthropicKey);
-                    loaded.AnthropicKey = "";
-                    loaded.Save();
-                }
-                if (loaded.Version < 2)
-                {
-                    // 版本 2 新增 QQ 音樂與酷狗：舊設定檔沒有它們，排到最後面
-                    foreach (var name in (string[])["qq", "kugou"]) if (!loaded.LyricsProviders.Contains(name)) loaded.LyricsProviders.Add(name);
-                    loaded.Version = 2;
-                    loaded.Save();
-                }
-                return loaded;
+                var text = File.ReadAllText(path);
+                // 讀到了但內容看不懂，跟「讀不到」（被別的程式鎖住、磁碟一時出錯）要分開：後者檔案多半還是好的
+                try { loaded = JsonSerializer.Deserialize<AppSettings>(text); unreadable = loaded == null; }
+                catch (Exception e) { unreadable = true; Log.Write("settings: " + e.Message); }
             }
         }
         catch (Exception e) { Log.Write("settings: " + e.Message); }
-        var fresh = new AppSettings { Version = 2 };
-        fresh.Save();
-        return fresh;
+
+        if (loaded == null)
+        {
+            var fresh = new AppSettings { Version = 2 };
+            // 看不懂的：改名留一份再寫新的。讀不到的、或改名失敗的：這次先用預設值跑，不寫回去，原本的檔案不動
+            if (exists && (!unreadable || !KeepBroken(path, now))) fresh._keepFile = true;
+            fresh.SaveTo(path);
+            return fresh;
+        }
+
+        bool changed = false;
+        foreach (var upgrade in upgrades ?? Upgrades())
+        {
+            try { changed |= upgrade(loaded); }
+            catch (Exception e) { Log.Write("settings upgrade: " + e.Message); }
+        }
+        if (changed) loaded.SaveTo(path);
+        return loaded;
     }
 
-    public void Save()
+    /// <summary>升級舊設定檔的步驟。寫成方法而不是 static 欄位：Load 時排在 Current 後面的欄位還沒初始化。</summary>
+    private static Func<AppSettings, bool>[] Upgrades() =>
+    [
+        // 舊版的 Claude 金鑰搬到新的位置（已經是加密過的，直接搬）
+        s =>
+        {
+            if (s.AnthropicKey.Length == 0) return false;
+            s.AiKeys.TryAdd("claude", s.AnthropicKey);
+            s.AnthropicKey = "";
+            return true;
+        },
+        // 舊版的 ListenBrainz token 是明文：轉成加密的（DPAPI 失敗就維持明文，下次再試）
+        s => s.EncryptListenBrainzToken(),
+        // 版本 2 新增 QQ 音樂與酷狗：舊設定檔沒有它們，排到最後面
+        s =>
+        {
+            if (s.Version >= 2) return false;
+            foreach (var name in (string[])["qq", "kugou"]) if (!s.LyricsProviders.Contains(name)) s.LyricsProviders.Add(name);
+            s.Version = 2;
+            return true;
+        },
+    ];
+
+    /// <summary>讀不懂的設定檔改名留下來；同名就加序號。留下來了（或檔案已經不在）回 true，不丟例外。</summary>
+    private static bool KeepBroken(string path, DateTime now)
     {
+        try
+        {
+            if (!File.Exists(path)) return true;
+            var stamp = now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var target = $"{path}.broken-{stamp}";
+            for (int i = 2; File.Exists(target); i++) target = $"{path}.broken-{stamp}-{i}";
+            File.Move(path, target);
+            Log.Write("settings: 讀不懂的設定檔已改名為 " + Path.GetFileName(target));
+            return true;
+        }
+        catch (Exception e) { Log.Write("settings keep: " + e.Message); return false; }
+    }
+
+    /// <summary>讀不懂的設定檔沒能改名留下來：這一份不寫回去，免得把使用者原本的設定蓋掉（下次啟動再讀一次）。</summary>
+    private bool _keepFile;
+
+    public void Save() => SaveTo(FilePath);
+
+    private void SaveTo(string path)
+    {
+        if (Frozen || _keepFile) return;
         // 一次只讓一個存檔在跑：兩邊同時寫同一個暫存檔會撞在一起
         lock (Saving)
         {
             try
             {
-                Directory.CreateDirectory(Folder);
-                var tmp = FilePath + ".tmp";
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var tmp = path + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(tmp, FilePath, overwrite: true);
+                File.Move(tmp, path, overwrite: true);
             }
             catch (Exception e) { Log.Write("settings save: " + e.Message); }
         }

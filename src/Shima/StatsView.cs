@@ -189,7 +189,7 @@ public sealed class StatsView : FrameworkElement
             ax += left.Width + 10;
             if (_back > 0)
             {
-                var label = Text(Stats.Label(_period, _summary!.From, culture), 12, Dim, max: Math.Max(10, rightEdge - ax - 28));
+                var label = Text(Stats.Label(_period, _summary!.From, culture, _now), 12, Dim, max: Math.Max(10, rightEdge - ax - 28));
                 dc.DrawText(label, new Point(ax, (TabsH - label.Height) / 2));
                 ax += label.Width + 10;
             }

@@ -16,10 +16,17 @@ public partial class IslandWindow
     // ---------------------------------------------------------------- 膠囊上的進度線
 
     private double _pillProgressShown = -1;
+    private bool _pillWatched;
 
     /// <summary>Tick 每 0.5 秒呼叫一次：只改一個縮放，而且移動不到半個像素就不改，膠囊不會因為它每一格都重畫。</summary>
     private void UpdatePillProgress()
     {
+        if (!_pillWatched)
+        {
+            // 展開期間膠囊收起來就不跟；叫回來的當下馬上補上，不然收回時進度線會先閃一下舊的位置
+            _pillWatched = true;
+            Pill.IsVisibleChanged += (_, _) => { if (Pill.IsVisible) UpdatePillProgress(); };
+        }
         var track = _track;
         if (!AppSettings.Current.PillProgress || track == null || PillProgress.Fraction(track.Now, track.Duration) is not { } fraction)
         {
@@ -65,7 +72,8 @@ public partial class IslandWindow
         var rings = new List<(string Id, Ellipse Ring)>();
         var dots = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, -3, 0) };
 
-        var hex = new TextBox { Style = (Style)FindResource("Input"), Height = 26, Width = 92, MaxLength = 7, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        // 長度放寬：貼上「 #4FD1C5 」這種前後帶空白的不能先被截掉一位，空白在存的時候才去掉
+        var hex = new TextBox { Style = (Style)FindResource("Input"), Height = 26, Width = 92, MaxLength = 32, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
         var customDot = new Ellipse { Width = 16, Height = 16 };
         var customGlyph = new TextBlock { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 9, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
 
