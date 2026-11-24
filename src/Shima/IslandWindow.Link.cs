@@ -262,6 +262,7 @@ public partial class IslandWindow
     private DateTime _usageAt;
     private UsageView? _usageView;
     private bool _usageOpen;
+    private int _trendToggles;   // 圖開關過幾次：讓排好的「晚點釋放」知道自己過期了
     private CancellationTokenSource? _trendCts;
 
     private void InitSessions()
@@ -332,10 +333,11 @@ public partial class IslandWindow
     private void ToggleUsage(bool open)
     {
         _usageOpen = open;
+        _trendToggles++;   // 之前排好的釋放都過期了
         if (!open)
         {
             _trendCts?.Cancel();   // 還在讀的就別讀了
-            _ = ReleaseTrendLater();
+            _ = ReleaseTrendLater(_trendToggles);
         }
         _usageView!.Visibility = open && _usageLine!.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
         if (open && !Demo.On) LoadTrend();
@@ -356,16 +358,22 @@ public partial class IslandWindow
         catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
     }
 
-    /// <summary>圖表收起超過五分鐘還沒再打開，就把趨勢帳釋放掉（幾百則紀錄的記憶體）。</summary>
-    private async Task ReleaseTrendLater()
+    /// <summary>圖表收起超過五分鐘還沒再打開，就把趨勢帳釋放掉（幾百則紀錄的記憶體）。ticket：收起那一刻的 _trendToggles。</summary>
+    private async Task ReleaseTrendLater(int ticket)
     {
         try
         {
-            await Task.Delay(TimeSpan.FromMinutes(5));
-            if (!_usageOpen) await _usage.ReleaseTrendAsync();
+            await Task.Delay(TimeSpan.FromMinutes(5));   // 醒來時回到 UI 執行緒，讀 _trendToggles 不用鎖
+            if (ReleasesTrend(ticket, _trendToggles, _usageOpen)) await _usage.ReleaseTrendAsync();
         }
         catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
     }
+
+    /// <summary>
+    /// 五分鐘到了要不要釋放：圖還關著，而且收起之後沒再開關過。
+    /// 只看「現在關著」不夠：關、四分多鐘後重開、再關，第一次的計時醒來時圖也是關著的，會提早清掉剛剛才讀的帳。
+    /// </summary>
+    public static bool ReleasesTrend(int ticket, int toggles, bool chartOpen) => !chartOpen && ticket == toggles;
 
     private void AskAlways_Click(object sender, RoutedEventArgs e) => Decide(PermissionRequest.Always);
 
