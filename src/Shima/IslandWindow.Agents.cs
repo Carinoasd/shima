@@ -130,6 +130,15 @@ public partial class IslandWindow
         _ = ask.Decision.Task.ContinueWith(_ => Dispatcher.BeginInvoke(() => { if (_asking == ask) NextAsk(); }));
     }
 
+    /// <summary>使用者此刻看得到這一則：島沒有被系統匣藏起來、沒有讓位給全螢幕，而且停在權限請求那一頁。</summary>
+    private bool AskVisible => _asking != null && _tab == Tab.Ask && !_userHidden && !_hiddenForFullscreen;
+
+    /// <summary>島從藏起來變回看得見：「出現的時間」從這一刻重算，使用者才有時間看。</summary>
+    private void AskRevealed()
+    {
+        if (AskVisible) _askShownAt = Environment.TickCount64;
+    }
+
     private void Decide(string? behavior)
     {
         _asking?.Decision.TrySetResult(behavior);
@@ -142,7 +151,7 @@ public partial class IslandWindow
     private void DeckDecide(string action, string? id)
     {
         var ask = _asking is { Decision.Task.IsCompleted: false } open ? open : null;
-        switch (DeckAnswer.Judge(action, id, ask?.Id, Environment.TickCount64 - _askShownAt, AppSettings.Current.DeckAllow))
+        switch (DeckAnswer.Judge(action, id, ask?.Id, Environment.TickCount64 - _askShownAt, AppSettings.Current.DeckAllow, AskVisible))
         {
             case DeckVerdict.Apply:
                 if (ask!.Decision.TrySetResult(action) && action == "allow")

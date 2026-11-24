@@ -93,6 +93,7 @@ public partial class IslandWindow
     {
         _userHidden = !_userHidden;
         Root.Visibility = _userHidden || _hiddenForFullscreen ? Visibility.Hidden : Visibility.Visible;
+        AskRevealed();
     }
 
     private void Deck_Click(object sender, RoutedEventArgs e)

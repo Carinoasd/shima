@@ -34,6 +34,20 @@ public static class LastFmApi
     public static string AuthUrl(string apiKey, string token) =>
         $"{AuthPage}?api_key={Uri.EscapeDataString(apiKey)}&token={Uri.EscapeDataString(token)}";
 
+    /// <summary>
+    /// 錯誤代碼（https://www.last.fm/api/errorcodes）決定這一筆留不留。只有「這一筆的內容本身有問題」才是 Rejected：
+    /// 6（參數無效）、7（資源無效）。其餘都跟這一筆無關，留著以後再送：
+    /// 2、3、5 是 Shima 自己的請求格式、4 驗證失敗、9 session 失效、10 api key 無效、13 簽章無效（key 與 secret 配不起來）、
+    /// 26 api key 被停用，使用者改好設定就能送；8 操作失敗、11 服務離線、16 暫時錯誤是服務的狀況；29 超過頻率限制，等一下就行。
+    /// 沒看過的代碼也留著：誤留最多是多等一陣子（清單有筆數與天數的上限），誤刪是整批聆聽不見了。
+    /// </summary>
+    public static SubmitResult Classify(int code) => code switch
+    {
+        0 => SubmitResult.Sent,
+        6 or 7 => SubmitResult.Rejected,
+        _ => SubmitResult.Retry,
+    };
+
     /// <summary>官方：要比 30 秒長，而且聽了一半或 4 分鐘（取短的）。不知道長度（0）就只看聽的時間。</summary>
     public static bool ShouldSubmit(double listened, double duration) =>
         (duration <= 0 || duration > 30) && ListenBrainzJson.ShouldSubmit(listened, duration);
@@ -130,8 +144,7 @@ public sealed class LastFm : IListenSink, IDisposable
         Enabled && ListenBrainzJson.CanSubmit(listen.Title, listen.Artist) && LastFmApi.ShouldSubmit(listen.Listened, listen.Duration);
 
     /// <summary>
-    /// 暫時的（留著以後再送）：網路不通、11、16，以及跟這一筆無關、使用者改好就能送的 9（session 失效）、10、26（api key 有問題）。
-    /// 其他錯誤代碼與被忽略的是這一筆本身有問題，再送也一樣。
+    /// 只有這一筆本身有問題（6、7、被忽略）才是 Rejected；網路不通與其他錯誤代碼都留著（見 <see cref="LastFmApi.Classify"/>）。
     /// </summary>
     public async Task<SubmitResult> Deliver(Listen listen)
     {
@@ -153,8 +166,7 @@ public sealed class LastFm : IListenSink, IDisposable
                     }
                     return SubmitResult.Sent;
                 }
-                bool keep = reply.Retryable || reply.Code is 9 or 10 or 26 or -2;
-                if (!reply.Retryable || attempt >= Attempts) return keep ? SubmitResult.Retry : SubmitResult.Rejected;
+                if (!reply.Retryable || attempt >= Attempts) return reply.Code < 0 ? SubmitResult.Retry : LastFmApi.Classify(reply.Code);
                 await Task.Delay(_retryDelay * attempt, _stop.Token).ConfigureAwait(false);
             }
         }

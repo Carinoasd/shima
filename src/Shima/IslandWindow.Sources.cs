@@ -12,7 +12,7 @@ namespace Shima;
 /// <summary>設定 → 音樂：選哪些來源算聆聽。</summary>
 public partial class IslandWindow
 {
-    /// <summary>紀錄裡出現過的來源，一個來源一顆膠囊（亮的算、暗的不算），寫法跟歌詞來源那排一樣。紀錄是空的就沒有這一排。</summary>
+    /// <summary>紀錄裡出現過的來源，一個來源一顆膠囊（亮的算、暗的不算），寫法跟歌詞來源那排一樣。紀錄是空的、也沒有排除任何來源才沒有這一排。</summary>
     private WrapPanel? HistorySourceChips(AppSettings s)
     {
         var seen = ListenSources.Seen(_historyCache.Read().Listens, s.HistoryExcluded);

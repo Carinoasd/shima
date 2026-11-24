@@ -44,9 +44,12 @@ public partial class IslandWindow
     private FavoritesView? _favoritesView;
     private bool _libraryShowsFavorites;
 
+    /// <summary>這個來源有沒有被使用者排除：寫紀錄、回報、補送都看這一個。</summary>
+    private static bool SourceCounts(string? source) => ListenSources.Counts(source, AppSettings.Current.HistoryExcluded);
+
     private void InitListening()
     {
-        _listening.Accepts = source => ListenSources.Counts(source, AppSettings.Current.HistoryExcluded);
+        _listening.Accepts = SourceCounts;
         _listening.Listened += listen => { foreach (var s in Scrobbling()) _ = s.Submit(listen); };
         _listening.Started += track => { foreach (var s in Scrobbling()) _ = s.NowPlaying(track); };
         foreach (var sink in Scrobbling()) _ = sink.Drain();   // 上次沒送出去的
@@ -63,7 +66,7 @@ public partial class IslandWindow
         if (token.Length > 0)
         {
             if (_scrobbler == null) _scrobbler = new Scrobbler(token); else if (_scrobbler.Token != token) _scrobbler.Token = token;
-            sinks.Add(_scrobblerQueue ??= new QueuedSink("listenbrainz", _scrobbler, _pending));
+            sinks.Add(_scrobblerQueue ??= new QueuedSink("listenbrainz", _scrobbler, _pending, null, SourceCounts));
         }
         if (s.LastFmSession.Length > 0 && s.LastFmApiKey.Length > 0)
         {
@@ -81,7 +84,7 @@ public partial class IslandWindow
                 });
             }
             _lastFm.Use(s.LastFmApiKey, s.LastFmSecretText(), s.LastFmSessionText());
-            if (_lastFm.Enabled) sinks.Add(_lastFmQueue ??= new QueuedSink("lastfm", _lastFm, _pending));
+            if (_lastFm.Enabled) sinks.Add(_lastFmQueue ??= new QueuedSink("lastfm", _lastFm, _pending, null, SourceCounts));
         }
         return sinks;
     }

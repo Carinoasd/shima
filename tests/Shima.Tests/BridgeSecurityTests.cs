@@ -294,6 +294,25 @@ public class DeckLogTests
         for (int i = 0; i < 1000; i++, now += 100) if (log.Admit("x") != null) kept++;   // 一百秒、每 0.1 秒一行
         Assert.InRange(kept, 1, DeckLog.Burst * 10);
     }
+
+    [Fact]
+    public void 整個執行期間總共有上限_不是只限頻率()
+    {
+        long now = 0;
+        var log = new DeckLog(() => now);
+        int kept = 0;
+        long written = 0;
+        // 一個小時、每 0.6 秒一行（剛好都在頻率限制之內）：照頻率會收六千行
+        for (int i = 0; i < 6000; i++, now += 600)
+            if (log.Admit(new string('x', 5000)) is { } line) { kept++; written += line.Length; }
+        Assert.Equal(DeckLog.MaxLines, kept);
+        Assert.True(written < 128 * 1024, "收的總量要遠低於紀錄檔 512 KB 的上限");
+        now += 3_600_000;
+        Assert.Null(log.Admit("x"));
+    }
+
+    [Fact]
+    public void 單行最多三百字() => Assert.Equal(300, DeckLog.Clean(new string('x', 5000)).Length);
 }
 
 /// <summary>只收本機、衝著 localhost 來的請求。</summary>
