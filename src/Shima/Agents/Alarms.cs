@@ -408,10 +408,12 @@ public sealed class Alarms : IDisposable
             if (!days.TryGetValue(at.Day, out var list)) days[at.Day] = list = [];
             list.Add(a with { At = at });
         }
+        var from = now > first ? now : first.AddTicks(-1);
         foreach (var a in alarms)
         {
             if (NormalizeRepeat(a.Repeat) is not { } repeat) { if (a.At > now) Mark(a, a.At); continue; }
-            var at = a.At > now ? a.At : NextAfter(a.At, repeat, now);
+            // 查比較遠的月份時，直接跳到那個月的第一天再開始數，不然四十次還沒走到月底
+            var at = a.At > from ? a.At : NextAfter(a.At, repeat, from);
             // 每個月最多三十一次；NextAfter 認不得的重複方式會原地不動，所以另外擋住
             for (int i = 0; i < 40 && at < end && at > now; i++)
             {
