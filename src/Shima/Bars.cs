@@ -4,15 +4,18 @@
 
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Threading;
+using System.Diagnostics;
+using Shima.Motion;
 
 namespace Shima;
 
 /// <summary>膠囊上的四根小音量條，跟著實際的聲音跳。</summary>
 public sealed class Bars : FrameworkElement
 {
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
-    private readonly double[] _heights = new double[4];
+    /// <summary>緩動的係數是照每 40 毫秒一步調的。</summary>
+    private const double StepSeconds = 0.04;
+    private readonly double[] _heights = new double[4], _drawn = new double[4];
+    private readonly Stopwatch _clock = new();
     private readonly Random _random = new();
     private Brush _brush = Brushes.White;
 
@@ -29,19 +32,40 @@ public sealed class Bars : FrameworkElement
     {
         Width = 15;
         Height = 14;
-        _timer.Tick += (_, _) =>
+        // 跟角色、歌詞掃光用同一個節拍，重畫落在同一幀
+        Action beat = Step;
+        IsVisibleChanged += (_, _) =>
         {
-            float level = Level?.Invoke() ?? 0;
-            var bands = Bands?.Invoke();
-            for (int i = 0; i < _heights.Length; i++)
-            {
-                // 沒有頻譜時每根條子各自抖一點，才不會四根一樣高
-                double target = bands != null && i < bands.Length ? SpectrumView.Scale(bands[i]) : level * (0.55 + _random.NextDouble() * 0.45);
-                _heights[i] += (target - _heights[i]) * (target > _heights[i] ? 0.6 : 0.25);
-            }
-            InvalidateVisual();
+            if (IsVisible) { _clock.Restart(); Pulse.Join(beat); }
+            else Pulse.Leave(beat);
         };
-        IsVisibleChanged += (_, _) => { if (IsVisible) _timer.Start(); else _timer.Stop(); };
+    }
+
+    private void Step()
+    {
+        double seconds = Math.Min(0.1, _clock.Elapsed.TotalSeconds);
+        _clock.Restart();
+        double rise = Pulse.Ease(0.6, seconds, StepSeconds), fall = Pulse.Ease(0.25, seconds, StepSeconds);
+        float level = Level?.Invoke() ?? 0;
+        var bands = Bands?.Invoke();
+        for (int i = 0; i < _heights.Length; i++)
+        {
+            // 沒有頻譜時每根條子各自抖一點，才不會四根一樣高
+            double target = bands != null && i < bands.Length ? SpectrumView.Scale(bands[i]) : level * (0.55 + _random.NextDouble() * 0.45);
+            _heights[i] += (target - _heights[i]) * (target > _heights[i] ? rise : fall);
+        }
+        // 四根條子的高度都動不到 0.3 個像素就不重畫：整個透明視窗都要跟著重新呈現
+        if (!Worth(_drawn, _heights, ActualHeight - 2.5)) return;
+        _heights.CopyTo(_drawn, 0);
+        InvalidateVisual();
+    }
+
+    /// <summary>值得重畫嗎：有任何一根條子跟上次畫的差了至少 0.3 個像素（高度是 0…1，乘上 span 才是像素）。</summary>
+    public static bool Worth(double[] drawn, double[] now, double span)
+    {
+        for (int i = 0; i < now.Length; i++)
+            if (Math.Abs(now[i] - drawn[i]) * Math.Max(0, span) >= 0.3) return true;
+        return false;
     }
 
     protected override void OnRender(DrawingContext dc)

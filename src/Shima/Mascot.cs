@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Shima.Motion;
 
 namespace Shima;
 
@@ -25,13 +26,22 @@ public sealed class Mascot : FrameworkElement
 
     private static readonly Pen Smile = FrozenPen(Brushes.White, 1.6), InkSmile = FrozenPen(Brushes.Black, 1.4);
 
+    /// <summary>閒著時自己的計時器；跳舞、開心時改跟音量條與歌詞掃光用同一個節拍，重畫才會落在同一幀。</summary>
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(33) };
+    private readonly Action _beat;
+    private bool _onPulse;
+    private double _lastStep = -1;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly Random _random = new();
     private string _kind = "claude";
     private double _gazeX, _gazeY, _nextBlink = 2, _blinkAt = -1, _happyUntil = -1;
 
-    public bool Dancing { get; set; }
+    public bool Dancing
+    {
+        get => _dancing;
+        set { if (_dancing == value) return; _dancing = value; Drive(); }
+    }
+    private bool _dancing;
 
     /// <summary>現在的聲音有多大聲（0…1）；沒給就照固定節拍點頭。</summary>
     public Func<float>? Level { get; set; }
@@ -105,16 +115,40 @@ public sealed class Mascot : FrameworkElement
     {
         Width = 26;
         Height = 24;
+        _beat = Step;
         _timer.Tick += (_, _) => Step();
-        IsVisibleChanged += (_, _) => { if (IsVisible) _timer.Start(); else _timer.Stop(); };
+        IsVisibleChanged += (_, _) => Drive();
     }
 
     /// <summary>有好事發生（換歌了）：笑一下。</summary>
-    public void Cheer() => _happyUntil = _clock.Elapsed.TotalSeconds + 1.2;
+    public void Cheer()
+    {
+        _happyUntil = _clock.Elapsed.TotalSeconds + 1.2;
+        Drive();
+    }
+
+    /// <summary>看不到就停；跳舞、開心、跳一下的時候跟著共用的節拍，其他時候用自己的計時器。</summary>
+    private void Drive()
+    {
+        double now = _clock.Elapsed.TotalSeconds;
+        bool visible = IsVisible, lively = Dancing || now < _happyUntil || now - _hopAt < 0.17;
+        bool pulse = visible && lively;
+        if (pulse != _onPulse)
+        {
+            _onPulse = pulse;
+            if (pulse) Pulse.Join(_beat); else Pulse.Leave(_beat);
+        }
+        if (visible && !lively) { if (!_timer.IsEnabled) _timer.Start(); }
+        else _timer.Stop();
+        if (!visible) _lastStep = -1;
+    }
 
     private void Step()
     {
         double now = _clock.Elapsed.TotalSeconds;
+        // 視線的緩動是照每 33 毫秒一步調的，間隔不一樣時照實際經過的時間換算
+        double ease = Pulse.Ease(0.25, _lastStep < 0 ? 0.033 : Math.Min(0.25, now - _lastStep), 0.033);
+        _lastStep = now;
         if (now > _nextBlink) { _blinkAt = now; _nextBlink = now + 2.5 + _random.NextDouble() * 4; }
 
         // 看向游標：越遠偏得越多，但有上限
@@ -124,8 +158,8 @@ public sealed class Mascot : FrameworkElement
             double dx = p.X - centre.X, dy = p.Y - centre.Y, far = Math.Sqrt(dx * dx + dy * dy);
             double pull = Math.Min(1, far / 260);
             double tx = far < 1 ? 0 : dx / far * pull, ty = far < 1 ? 0 : dy / far * pull;
-            _gazeX += (tx - _gazeX) * 0.25;
-            _gazeY += (ty - _gazeY) * 0.25;
+            _gazeX += (tx - _gazeX) * ease;
+            _gazeY += (ty - _gazeY) * ease;
         }
 
         // 節拍在這裡判斷（每秒 30 次），畫面才不用為了偵測節拍而一直重畫
@@ -137,9 +171,12 @@ public sealed class Mascot : FrameworkElement
         // 像素小 Claude 是一格一格動的（每秒 8 格），眼睛的位置也是整數像素；其他角色是平滑擺動，跳舞時每一格都不同。
         var state = Signature(Drawn, now, Dancing, now < _happyUntil, now - _hopAt < 0.17, now - _blinkAt, _gazeX, _gazeY,
             _image?.Frames.Count ?? 0, _image != null ? MascotImage.FrameAt(_image.Delays, _clock.Elapsed - _imageStart) : 0);
-        if (state == _drawnState) return;
-        _drawnState = state;
-        InvalidateVisual();
+        if (state != _drawnState)
+        {
+            _drawnState = state;
+            InvalidateVisual();
+        }
+        if (_onPulse && !(Dancing || now < _happyUntil || now - _hopAt < 0.17)) Drive();   // 開心完了，回到自己的計時器
     }
 
     private int _drawnState;

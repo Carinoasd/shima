@@ -40,6 +40,8 @@ public static class Demo
         s.RoonHost = "";
         s.CheckUpdates = false;
         s.Welcomed = true;
+        // 前景剛好是全螢幕（或最大化）的程式時島會當成被藏起來，音量條與頻譜就不畫了：截圖要每次都一樣
+        s.HideInFullscreen = false;
         s.SetApiKey("claude", "demo");   // 當成已經設定好：AI 分頁顯示的是平常的樣子，不是第一次設定的樣子
         s.Todos =
         [

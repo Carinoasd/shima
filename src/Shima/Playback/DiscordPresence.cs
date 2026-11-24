@@ -21,18 +21,20 @@ namespace Shima.Playback;
 public sealed class DiscordPresence : IDisposable
 {
     private const int Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4;
-    private static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(4.5);
+    private static readonly TimeSpan MinInterval = PresenceSchedule.MinInterval;
+    private static readonly TimeSpan SafetyWait = TimeSpan.FromSeconds(30);
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
     private readonly string _clientId;
     private readonly object _lock = new();
     private readonly Dictionary<string, string?> _covers = [];
     private NamedPipeClientStream? _pipe;
-    private bool _ready, _started, _hasPending;
+    private bool _started;
     private volatile bool _stopped;
     private readonly CancellationTokenSource _stopping = new();
-    private JsonObject? _pending;
-    private DateTime _sentAt;
+    private readonly PresenceSchedule _schedule = new();
+    /// <summary>有事要做（新的狀態、連線就緒、連線斷了、要停了）就叫醒送出的迴圈；沒事時它整個睡著，不輪詢。</summary>
+    private readonly SemaphoreSlim _wake = new(0, 1);
     private string _shownKey = "";
     private long _shownStart;
     private int _nonce, _revision;
@@ -58,6 +60,7 @@ public sealed class DiscordPresence : IDisposable
         NamedPipeClientStream? pipe;
         lock (_lock) { pipe = _pipe; _pipe = null; }
         try { _stopping.Cancel(); } catch (ObjectDisposedException) { }
+        Wake();
         try { pipe?.Dispose(); } catch { /* 已經斷了 */ }
     }
 
@@ -164,7 +167,13 @@ public sealed class DiscordPresence : IDisposable
 
     private void Queue(JsonObject? activity)
     {
-        lock (_lock) { _pending = activity; _hasPending = true; }
+        _schedule.Set(activity);
+        Wake();
+    }
+
+    private void Wake()
+    {
+        try { _wake.Release(); } catch (SemaphoreFullException) { /* 已經有人叫過了 */ }
     }
 
     private async Task RunAsync()
@@ -183,32 +192,31 @@ public sealed class DiscordPresence : IDisposable
                     lock (_lock)
                     {
                         if (_stopped) { pipe.Dispose(); break; }
-                        _pipe = pipe; _ready = false;
+                        _pipe = pipe;
                     }
+                    _schedule.SetReady(false);
                     // 寫到一半斷線會丟例外，也要把這條管線關掉
                     try
                     {
                         await WriteAsync(pipe, gate, Handshake, new JsonObject { ["v"] = 1, ["client_id"] = _clientId });
                         var reader = ReadAsync(pipe, gate);
+                        _ = reader.ContinueWith(_ => Wake(), TaskScheduler.Default);
                         while (pipe.IsConnected && !reader.IsCompleted && !_stopped)
                         {
-                            JsonObject? activity = null;
-                            bool send = false;
-                            lock (_lock)
+                            var step = _schedule.Next(DateTime.Now);
+                            if (step.Activity is { } send)
                             {
-                                if (_ready && _hasPending && DateTime.Now - _sentAt >= MinInterval)
-                                {
-                                    activity = _pending; _hasPending = false; _sentAt = DateTime.Now; send = true;
-                                }
-                            }
-                            if (send)
                                 await WriteAsync(pipe, gate, Frame, new JsonObject
                                 {
                                     ["cmd"] = "SET_ACTIVITY",
-                                    ["args"] = new JsonObject { ["pid"] = Environment.ProcessId, ["activity"] = activity?.DeepClone() },
+                                    ["args"] = new JsonObject { ["pid"] = Environment.ProcessId, ["activity"] = send.Value?.DeepClone() },
                                     ["nonce"] = (++_nonce).ToString(),
                                 });
-                            await Task.Delay(300);
+                                continue;
+                            }
+                            // 有東西要送但還沒到最小間隔就睡到那一刻；沒東西就一直睡，事件會叫醒。長的上限只是保險（IsConnected 偶爾看一下）
+                            try { await _wake.WaitAsync(step.Wait ?? SafetyWait, _stopping.Token); }
+                            catch (OperationCanceledException) { break; }
                         }
                     }
                     finally { pipe.Dispose(); }
@@ -217,7 +225,8 @@ public sealed class DiscordPresence : IDisposable
             catch (Exception e) { Log.Write("discord: " + e.Message); }
 
             // 斷線後重連時把目前的狀態再送一次
-            lock (_lock) { _pipe = null; _ready = false; _hasPending = _pending != null; }
+            lock (_lock) _pipe = null;
+            _schedule.Reconnect();
             if (_stopped) break;
             try { await Task.Delay(10000, _stopping.Token); }
             catch (OperationCanceledException) { break; }
@@ -268,11 +277,56 @@ public sealed class DiscordPresence : IDisposable
                 if (op == Ping) { await WriteAsync(pipe, gate, Pong, JsonNode.Parse(body) as JsonObject ?? []); continue; }
                 if (op == Frame && JsonNode.Parse(body)?["evt"]?.ToString() == "READY")
                 {
-                    lock (_lock) _ready = true;
+                    _schedule.SetReady(true);
+                    Wake();
                     Log.Write("discord: 已連上");
                 }
             }
         }
         catch { /* Discord 關掉了 */ }
+    }
+}
+
+/// <summary>
+/// 決定什麼時候該把哪一筆狀態送給 Discord（不碰管線，所以可以測）：連線就緒、有東西等著、離上次送出已經過了最小間隔，三者都成立才送；
+/// 還差間隔就回報還要等多久，沒東西可送就不回報時間（睡到有人叫醒為止）。時鐘由呼叫端給。
+/// </summary>
+public sealed class PresenceSchedule
+{
+    /// <summary>Discord 每 20 秒最多收 5 次更新。</summary>
+    public static readonly TimeSpan MinInterval = TimeSpan.FromSeconds(4.5);
+
+    /// <summary>Activity.HasValue 就是要送（Value 為 null 表示清除狀態）；否則 Wait 是還要等多久，null 表示沒東西可送。</summary>
+    public readonly record struct Step(Pending? Activity, TimeSpan? Wait);
+
+    public readonly record struct Pending(JsonObject? Value);
+
+    private readonly object _lock = new();
+    private JsonObject? _pending;
+    private bool _hasPending, _ready;
+    private DateTime _sentAt;
+
+    /// <summary>只留最新的一筆（null 是清除）。</summary>
+    public void Set(JsonObject? activity) { lock (_lock) { _pending = activity; _hasPending = true; } }
+
+    public void SetReady(bool ready) { lock (_lock) _ready = ready; }
+
+    /// <summary>斷線重連：還沒就緒，而且把目前的狀態再送一次（原本就是清除的就不用）。</summary>
+    public void Reconnect() { lock (_lock) { _ready = false; _hasPending = _pending != null; } }
+
+    /// <summary>現在該做什麼；回報「要送」的同時就當作已經送出了。</summary>
+    public Step Next(DateTime now)
+    {
+        lock (_lock)
+        {
+            if (!_ready || !_hasPending) return new(null, null);
+            var elapsed = now - _sentAt;
+            // 時鐘被往回調：不要因此卡住很久
+            if (elapsed < TimeSpan.Zero) elapsed = MinInterval;
+            if (elapsed < MinInterval) return new(null, MinInterval - elapsed);
+            _hasPending = false;
+            _sentAt = now;
+            return new(new Pending(_pending), null);
+        }
     }
 }

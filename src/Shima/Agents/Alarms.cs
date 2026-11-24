@@ -32,6 +32,14 @@ public sealed class Alarms : IDisposable
     private readonly object _gate = new();
     private readonly List<Alarm> _list;
     private System.Threading.Timer? _timer;
+    private bool _watching;
+    private bool _disposed;
+
+    /// <summary>
+    /// 就算算好了下一個到點的時間，最久也不超過這麼久就醒來看一次：睡眠喚醒、系統時間被調整（事件漏掉的話）、夏令時間，
+    /// 都會讓算好的「還要多久」不準；多一個保險檢查，最壞也只晚這麼久。
+    /// </summary>
+    public static readonly TimeSpan Safety = TimeSpan.FromSeconds(30);
 
     /// <summary>到點了。第二個參數 true：程式關著的時候就該響了，現在才補。在背景執行緒觸發。</summary>
     public event Action<Alarm, bool>? Due;
@@ -60,6 +68,7 @@ public sealed class Alarms : IDisposable
             Save();
             added = alarm;
         }
+        Reschedule(null);
         Changed?.Invoke();
         return added;
     }
@@ -78,6 +87,7 @@ public sealed class Alarms : IDisposable
             _list.Remove(found);
             Save();
         }
+        Reschedule(null);
         Changed?.Invoke();
         return found;
     }
@@ -88,6 +98,8 @@ public sealed class Alarms : IDisposable
         List<Alarm> due;
         lock (_gate)
         {
+            // 關掉之後正在跑的那次檢查：提醒不能被拿掉，不然畫面已經沒了、下次開程式也不會補成「錯過的」
+            if (_disposed) return [];
             due = _list.Where(a => a.At <= now).OrderBy(a => a.At).ToList();
             if (due.Count == 0) return due;
             // 重複的不移除，排到下一次（從現在往後算，關機好幾天也只響這一次）
@@ -103,15 +115,80 @@ public sealed class Alarms : IDisposable
         return due;
     }
 
-    /// <summary>每秒用真的時鐘檢查一次。開程式時呼叫一次就好；重複呼叫沒關係。</summary>
+    /// <summary>
+    /// 離下一次該醒來還要多久：最早那個提醒的到點時間，沒有提醒或太遠就是 <see cref="Safety"/>；已經到點的是 0。
+    /// 到點時間用進位到毫秒，免得計時器稍早一點點醒來、又發現還沒到而空轉。
+    /// </summary>
+    public static TimeSpan NextWake(IEnumerable<Alarm> alarms, DateTime now)
+    {
+        var wake = Safety;
+        foreach (var a in alarms)
+        {
+            var left = a.At - now;
+            if (left <= TimeSpan.Zero) return TimeSpan.Zero;
+            if (left < wake) wake = TimeSpan.FromMilliseconds(Math.Ceiling(left.TotalMilliseconds));
+        }
+        return wake;
+    }
+
+    /// <summary>
+    /// 用真的時鐘盯著：算出下一個到點的時間才排計時器，沒事就睡著。開程式時呼叫一次就好；重複呼叫沒關係。
+    /// 新增、取消、到點之後都會重新排；睡眠喚醒與系統時間被調整會馬上檢查一次。
+    /// </summary>
     public void Start()
     {
-        lock (_gate) _timer ??= new System.Threading.Timer(_ => { try { Check(DateTime.Now); } catch { } }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        lock (_gate)
+        {
+            if (_timer != null || _disposed) return;
+            _timer = new System.Threading.Timer(_ => Tick(), null, Timeout.Infinite, Timeout.Infinite);
+            if (!_watching)
+            {
+                _watching = true;
+                Microsoft.Win32.SystemEvents.PowerModeChanged += OnPower;
+                Microsoft.Win32.SystemEvents.TimeChanged += OnTime;
+            }
+        }
+        Reschedule(TimeSpan.Zero);
+    }
+
+    private void Tick()
+    {
+        try { Check(DateTime.Now); } catch { }
+        Reschedule(null);
+    }
+
+    private void OnPower(object? sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == Microsoft.Win32.PowerModes.Resume) Reschedule(TimeSpan.Zero);
+    }
+
+    private void OnTime(object? sender, EventArgs e) => Reschedule(TimeSpan.Zero);
+
+    /// <summary>重排計時器；given 是 null 就依清單算。</summary>
+    private void Reschedule(TimeSpan? given)
+    {
+        lock (_gate)
+        {
+            if (_timer == null) return;
+            try { _timer.Change(given ?? NextWake(_list, DateTime.Now), Timeout.InfiniteTimeSpan); }
+            catch (ObjectDisposedException) { }
+        }
     }
 
     public void Dispose()
     {
-        lock (_gate) { _timer?.Dispose(); _timer = null; }
+        lock (_gate)
+        {
+            _disposed = true;
+            if (_watching)
+            {
+                Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPower;
+                Microsoft.Win32.SystemEvents.TimeChanged -= OnTime;
+                _watching = false;
+            }
+            _timer?.Dispose();
+            _timer = null;
+        }
     }
 
     private void Save()

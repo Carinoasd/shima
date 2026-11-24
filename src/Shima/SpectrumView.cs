@@ -4,7 +4,8 @@
 
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Threading;
+using System.Diagnostics;
+using Shima.Motion;
 
 namespace Shima;
 
@@ -13,7 +14,11 @@ public sealed class SpectrumView : FrameworkElement
 {
     public const int Count = 56;
 
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    /// <summary>緩動的係數是照每 40 毫秒一步調的。</summary>
+    private const double StepSeconds = 0.04;
+    private readonly Action _beat;
+    private readonly Stopwatch _clock = new();
+    private bool _running;
     private readonly double[] _heights = new double[Count], _caps = new double[Count];
     private Brush _fill = Brushes.White, _cap = Brushes.White;
     private bool _active;
@@ -25,7 +30,7 @@ public sealed class SpectrumView : FrameworkElement
     public bool Active
     {
         get => _active;
-        set { _active = value; if (value && IsVisible) _timer.Start(); }
+        set { _active = value; if (value && IsVisible) Start(); }
     }
 
     public Color Color
@@ -45,20 +50,41 @@ public sealed class SpectrumView : FrameworkElement
     public SpectrumView()
     {
         IsHitTestVisible = false;
-        _timer.Tick += (_, _) => { if (!Step() && !_active) _timer.Stop(); };   // 全部沉到底了才停
-        IsVisibleChanged += (_, _) => { if (IsVisible && _active) _timer.Start(); else if (!IsVisible) _timer.Stop(); };
+        // 跟著共用的節拍走，跟歌詞掃光落在同一幀
+        _beat = () =>
+        {
+            double seconds = Math.Min(0.1, _clock.Elapsed.TotalSeconds);
+            _clock.Restart();
+            if (!Step(seconds) && !_active) Stop();   // 全部沉到底了才停
+        };
+        IsVisibleChanged += (_, _) => { if (IsVisible && _active) Start(); else if (!IsVisible) Stop(); };
     }
 
-    /// <summary>往前走一格（平常由計時器每 40 毫秒呼叫）。回傳還有沒有條子在動。</summary>
-    public bool Step()
+    private void Start()
     {
+        if (_running) return;
+        _running = true;
+        _clock.Restart();
+        Pulse.Join(_beat);
+    }
+
+    private void Stop()
+    {
+        _running = false;
+        Pulse.Leave(_beat);
+    }
+
+    /// <summary>往前走一格（平常由共用的節拍呼叫，seconds 是離上一格多久）。回傳還有沒有條子在動。</summary>
+    public bool Step(double seconds = StepSeconds)
+    {
+        double rise = Pulse.Ease(0.7, seconds, StepSeconds), fall = Pulse.Ease(0.22, seconds, StepSeconds), drop = 0.018 * seconds / StepSeconds;
         var bands = _active ? Bands?.Invoke() : null;
         bool moving = false;
         for (int i = 0; i < Count; i++)
         {
             double target = bands != null && i < bands.Length ? Scale(bands[i]) : 0;
-            _heights[i] += (target - _heights[i]) * (target > _heights[i] ? 0.7 : 0.22);   // 上去快、下來慢
-            _caps[i] = Math.Max(_heights[i], _caps[i] - 0.018);
+            _heights[i] += (target - _heights[i]) * (target > _heights[i] ? rise : fall);   // 上去快、下來慢
+            _caps[i] = Math.Max(_heights[i], _caps[i] - drop);
             if (_caps[i] > 0.004) moving = true;
         }
         InvalidateVisual();

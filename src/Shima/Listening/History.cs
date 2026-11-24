@@ -181,12 +181,67 @@ public static class HistoryFile
     public static List<Listen> Parse(string text) =>
         text.Split('\n').Select(l => FromLine(l.Trim())).OfType<Listen>().ToList();
 
+    /// <summary>
+    /// 讀整個檔案的文字。允許別人同時寫入：背景讀的時候，UI 執行緒可能正好在附加新的一筆，
+    /// 用預設的 FileShare.Read 開檔會讓後開的那一方因為共用衝突失敗（寫的一方失敗就丟了那筆紀錄）。
+    /// 讀到的最後一行可能只寫了一半，Parse 會略過（壞掉的 JSON 行不算），下次檔案變大再讀就完整了。
+    /// </summary>
+    public static string ReadText(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
     /// <summary>讀整個紀錄檔；沒有檔案或讀不到就是空的。</summary>
     public static List<Listen> Read(string? path = null, Action<string>? log = null)
     {
         path ??= DefaultPath;
-        try { return File.Exists(path) ? Parse(File.ReadAllText(path, Encoding.UTF8)) : []; }
+        try { return File.Exists(path) ? Parse(ReadText(path)) : []; }
         catch (Exception e) { (log ?? Log.Write)("history read: " + e.Message); return []; }
+    }
+}
+
+/// <summary>
+/// 記住上一次讀進來的聆聽紀錄：檔案的大小與修改時間都沒變就直接給同一份清單，不再整檔重讀、重新解析。
+/// 任何執行緒都可以呼叫（同一時間只讀一次）。讀失敗不記，下次再試；失敗時先給上一份。
+/// </summary>
+public sealed class HistoryCache
+{
+    private readonly object _gate = new();
+    private string? _path;
+    private long _size = -1;
+    private long _stamp;
+    private List<Listen> _listens = [];
+
+    /// <summary>Changed 為 false 表示檔案沒變，Listens 就是上次給的同一個物件。</summary>
+    public (List<Listen> Listens, bool Changed) Read(string? path = null, Action<string>? log = null)
+    {
+        path ??= HistoryFile.DefaultPath;
+        lock (_gate)
+        {
+            long size = -1, stamp = 0;
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Exists) { size = info.Length; stamp = info.LastWriteTimeUtc.Ticks; }
+            }
+            catch (Exception e) { (log ?? Log.Write)("history stat: " + e.Message); return (_listens, false); }
+
+            if (path == _path && size == _size && stamp == _stamp) return (_listens, false);
+            try
+            {
+                // 先量再讀：讀的當中檔案又長了，下次比對會不同，就會再讀一次
+                _listens = size < 0 ? [] : HistoryFile.Parse(HistoryFile.ReadText(path));
+                _path = path; _size = size; _stamp = stamp;
+                return (_listens, true);
+            }
+            catch (Exception e)
+            {
+                (log ?? Log.Write)("history read: " + e.Message);
+                return (_listens, false);
+            }
+        }
     }
 }
 
@@ -231,15 +286,21 @@ public sealed class ListeningLog
 
     private void Write(Listen listen)
     {
-        try
+        var line = HistoryFile.ToLine(listen) + "\n";
+        for (int attempt = 1; ; attempt++)
         {
-            lock (_gate)
+            try
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(FilePath))!);
-                File.AppendAllText(FilePath, HistoryFile.ToLine(listen) + "\n", new UTF8Encoding(false));
+                lock (_gate)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(FilePath))!);
+                    File.AppendAllText(FilePath, line, new UTF8Encoding(false));
+                }
+                break;
             }
+            catch (IOException) when (attempt < 3) { Thread.Sleep(25); }   // 別人正好開著檔：等一下再試，不要丟了這一筆
+            catch (Exception e) { _log("history write: " + e.Message); break; }
         }
-        catch (Exception e) { _log("history write: " + e.Message); }
         Raise(() => Listened?.Invoke(listen));
     }
 

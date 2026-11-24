@@ -26,6 +26,13 @@ public sealed class SystemWatch : IDisposable
     private long _quietUntil;
     /// <summary>亮度查詢還在跑（1）就不再發起新的，WMI 卡住時也不會越堆越多。</summary>
     private int _askingBrightness;
+    /// <summary>查的時候又收到亮度事件：查完要再查一次，不然可能讀到事件之前的舊值。</summary>
+    private volatile bool _brightnessDirty;
+    private volatile bool _brightnessWatchFailed;
+    /// <summary>沒有事件可等時每兩秒查一次；有事件就只留一個保險的間隔，萬一哪個驅動不發事件也不會永遠不知道。</summary>
+    private const long BrightnessSafetyMs = 30_000;
+    private long _brightnessDue;
+    private ManagementEventWatcher? _brightnessEvents;
     private NetworkAvailabilityChangedEventHandler? _network;
 
     /// <summary>要顯示在島上的一行字。</summary>
@@ -74,7 +81,7 @@ public sealed class SystemWatch : IDisposable
         _quietUntil = Environment.TickCount64 + 3000;
     }
 
-    /// <summary>約每兩秒呼叫：電量和亮度沒有事件可以等，只能自己看。</summary>
+    /// <summary>約每兩秒呼叫：電量沒有事件可以等，只能自己看；亮度有事件就只留保險的查詢。</summary>
     public void Poll()
     {
         if (!_started) return;
@@ -107,7 +114,39 @@ public sealed class SystemWatch : IDisposable
         catch { /* 沒有任何播放裝置 */ }
         CountOutputs();
 
-        AskBrightness();
+        if (_brightnessEvents == null || Environment.TickCount64 >= _brightnessDue) AskBrightness();
+    }
+
+    /// <summary>
+    /// 有亮度的機器才訂閱 WmiMonitorBrightnessEvent（桌機第一次查就沒有亮度，根本不會走到這裡）。
+    /// 訂不起來就維持每兩秒查一次的老做法。在背景執行緒呼叫。
+    /// </summary>
+    private void WatchBrightness()
+    {
+        if (_brightnessEvents != null || _brightnessWatchFailed || _disposed) return;
+        ManagementEventWatcher? watcher = null;
+        try
+        {
+            watcher = new ManagementEventWatcher(new ManagementScope(@"root\wmi"), new EventQuery("SELECT * FROM WmiMonitorBrightnessEvent"));
+            watcher.EventArrived += (_, _) => AskBrightness();
+            watcher.Start();
+            _brightnessEvents = watcher;
+            if (_disposed) StopBrightnessEvents();
+        }
+        catch (Exception e)
+        {
+            _brightnessWatchFailed = true;   // 之後不再試：每次查到亮度都重訂、重失敗、重寫一行紀錄
+            Log.Write("system (brightness events): " + e.Message);
+            try { watcher?.Dispose(); } catch { }
+        }
+    }
+
+    private void StopBrightnessEvents()
+    {
+        var watcher = Interlocked.Exchange(ref _brightnessEvents, null);
+        if (watcher == null) return;
+        try { watcher.Stop(); } catch { }
+        try { watcher.Dispose(); } catch { }
     }
 
     /// <summary>
@@ -117,18 +156,26 @@ public sealed class SystemWatch : IDisposable
     /// </summary>
     private void AskBrightness()
     {
-        if (!_hasBrightness || _disposed || Interlocked.CompareExchange(ref _askingBrightness, 1, 0) != 0) return;
+        if (!_hasBrightness || _disposed) return;
+        _brightnessDue = Environment.TickCount64 + BrightnessSafetyMs;
+        if (Interlocked.CompareExchange(ref _askingBrightness, 1, 0) != 0) { _brightnessDirty = true; return; }
         _ = Task.Run(() =>
         {
             try
             {
-                int brightness = Brightness();
-                if (_disposed) return;
-                if (brightness >= 0 && brightness != _brightness && _brightness >= 0) Changed?.Invoke(Line("brightness", brightness.ToString()));
-                if (brightness >= 0) _brightness = brightness;
+                do
+                {
+                    _brightnessDirty = false;
+                    int brightness = Brightness();
+                    if (_disposed) return;
+                    if (brightness >= 0 && brightness != _brightness && _brightness >= 0) Changed?.Invoke(Line("brightness", brightness.ToString()));
+                    if (brightness >= 0) { _brightness = brightness; WatchBrightness(); }
+                } while (_brightnessDirty && _hasBrightness && !_disposed);
             }
             catch (Exception e) { Log.Write("system (brightness): " + e.Message); }
             finally { Volatile.Write(ref _askingBrightness, 0); }
+            // 迴圈判斷完、旗標歸零之前剛好有事件進來：那時 CompareExchange 失敗、只留了 dirty，沒有人會再處理
+            if (_brightnessDirty && _hasBrightness && !_disposed) AskBrightness();
         });
     }
 
@@ -242,6 +289,7 @@ public sealed class SystemWatch : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        StopBrightnessEvents();
         if (_network != null) NetworkChange.NetworkAvailabilityChanged -= _network;
         _network = null;
         var output = _output;
