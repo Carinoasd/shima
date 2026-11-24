@@ -86,8 +86,45 @@ public sealed class ChatStream
     private static JsonNode? Parse(string json)
     {
         if (json.Length == 0 || json.TrimStart() is not ['{', ..]) return null;
-        try { return JsonNode.Parse(json); }
+        try { return JsonNode.Parse(WithoutLoneSurrogates(json)); }
         catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// 字串裡孤立的 \ud83d 這種代理字元跳脫換成 U+FFFD。解析時看不出來，到取出字串（TryGetValue、ToString）才丟 InvalidOperationException，
+    /// 一個 token 剛好把 emoji 切成兩半的服務就會讓整則回答失敗；成對的不動。
+    /// </summary>
+    private static string WithoutLoneSurrogates(string json)
+    {
+        if (!json.Contains("\\u", StringComparison.Ordinal)) return json;
+        StringBuilder? fixedUp = null;
+        int i = 0;
+        while (i < json.Length)
+        {
+            // 其他的跳脫（\\、\"、\n…）整組跳過，免得「\\ud83d」（一個反斜線加字面的 ud83d）被當成跳脫
+            if (json[i] != '\\' || i + 1 >= json.Length) { fixedUp?.Append(json[i]); i++; continue; }
+            if (json[i + 1] != 'u' || !TryUnit(json, i + 2, out int unit)) { fixedUp?.Append(json, i, 2); i += 2; continue; }
+            bool high = unit is >= 0xD800 and <= 0xDBFF, low = unit is >= 0xDC00 and <= 0xDFFF;
+            if (high && i + 12 <= json.Length && json[i + 6] == '\\' && json[i + 7] == 'u' && TryUnit(json, i + 8, out int next) && next is >= 0xDC00 and <= 0xDFFF)
+            {
+                fixedUp?.Append(json, i, 12);
+                i += 12;
+            }
+            else if (high || low)
+            {
+                fixedUp ??= new StringBuilder().Append(json, 0, i);
+                fixedUp.Append("\\uFFFD");
+                i += 6;
+            }
+            else { fixedUp?.Append(json, i, 6); i += 6; }
+        }
+        return fixedUp?.ToString() ?? json;
+    }
+
+    private static bool TryUnit(string s, int at, out int unit)
+    {
+        unit = 0;
+        return at + 4 <= s.Length && int.TryParse(s.AsSpan(at, 4), System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out unit);
     }
 
     private bool Chunk(JsonNode node)
@@ -96,7 +133,8 @@ public sealed class ChatStream
         if (chunk["error"] is { } error) { Error = error.DeepClone(); return false; }
         // 只有用量、沒有 choices 的區塊（有的服務最後會多送一個）
         if (chunk["choices"] is not JsonArray { Count: > 0 } choices) return false;
-        var choice = choices.FirstOrDefault(c => c?["index"] is JsonValue v && v.TryGetValue(out int i) && i == 0) ?? choices[0];
+        // choices 裡不是物件的項目（數字、陣列）直接略過：對它們取 ["index"] 會丟 InvalidOperationException
+        var choice = choices.OfType<JsonObject>().FirstOrDefault(c => c["index"] is JsonValue v && v.TryGetValue(out int i) && i == 0) ?? choices[0] as JsonObject;
         if (choice?["finish_reason"] is JsonValue reason && reason.TryGetValue(out string? why) && why.Length > 0) Finished = true;
         // 正常是 delta；整段一次回來的是 message
         if ((choice?["delta"] ?? choice?["message"]) is not JsonObject delta) return false;

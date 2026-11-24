@@ -213,10 +213,11 @@ public static partial class Lrc
         }));
     }
 
-    [GeneratedRegex(@"\[(\d+):(\d+(?:[.:]\d+)?)\]")]
+    // 位數有上限：[99999999999:00] 轉成 int 或 TimeSpan 會溢位，壞掉的檔案不能讓整份歌詞讀不進來；超過的就不當時間
+    [GeneratedRegex(@"\[([0-9]{1,6}):([0-9]{1,6}(?:[.:][0-9]+)?)\]")]
     private static partial Regex Stamp();
 
-    [GeneratedRegex(@"^\s*\[offset:\s*([+-]?\d+)\s*\]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^\s*\[offset:\s*([+-]?[0-9]{1,9})\s*\]", RegexOptions.IgnoreCase)]
     private static partial Regex Offset();
 
     [GeneratedRegex(@"^\s*\[shima:([a-z,\s]+)\]\s*$", RegexOptions.Multiline)]

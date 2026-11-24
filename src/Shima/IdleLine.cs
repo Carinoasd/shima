@@ -59,7 +59,8 @@ public static class IdleLine
         for (int i = 0; i < text.Length; i++)
         {
             int w = Wide(text[i]) ? 2 : 1;
-            if (used + w > cells) return text[..i].TrimEnd() + "…";
+            // emoji 是一對代理字元：切在兩個字元中間會留下半個，畫面上變成「�…」
+            if (used + w > cells) return text[..(i > 0 && char.IsLowSurrogate(text[i]) && char.IsHighSurrogate(text[i - 1]) ? i - 1 : i)].TrimEnd() + "…";
             used += w;
         }
         return text;

@@ -79,9 +79,9 @@ public sealed partial class LocalProvider : ILyricsProvider
         var name = Safe(artist.Length > 0 ? $"{artist} - {q.Title}" : q.Title);
         // 太長的話只用歌名（Windows 的路徑有長度上限）
         if (name.Length > 150) name = Safe(q.Title);
-        if (name.Length > 150) name = name[..150].TrimEnd(' ', '.');
+        if (name.Length > 150) name = Safe(name[..150]);   // 可能切在 emoji 中間，Safe 會把孤立的代理字元換掉
         if (name.Length == 0 || !KeysOf(name + ".lrc").Intersect(Keys(q)).Any()) return null;
-        // CON、NUL、COM1 這些是裝置名稱，不能當檔名
+        // CON、NUL、COM1（含 COM¹ 這種上標；名稱後面接空白再接副檔名，舊版 Windows 也算）這些是裝置名稱，不能當檔名
         if (Reserved().IsMatch(name)) name = "_" + name;
         return name + ".lrc";
     }
@@ -89,7 +89,9 @@ public sealed partial class LocalProvider : ILyricsProvider
     private static string Safe(string name)
     {
         var bad = Path.GetInvalidFileNameChars().Concat(['<', '>', ':', '"', '/', '\\', '|', '?', '*']).ToHashSet();
-        var safe = new string(name.Select(c => bad.Contains(c) || char.IsControl(c) ? '_' : c).ToArray());
+        // 孤立的代理字元（歌名被截在 emoji 中間）也換掉：那不是合法的文字，寫成檔名只會讓別的程式讀不懂
+        name = Titles.Wellformed(name);
+        var safe = new string(name.Select(c => bad.Contains(c) || char.IsControl(c) || c == '\uFFFD' ? '_' : c).ToArray());
         return safe.Trim().TrimEnd('.', ' ');
     }
 
@@ -117,7 +119,7 @@ public sealed partial class LocalProvider : ILyricsProvider
         lock (this) _index = null;
     }
 
-    [GeneratedRegex(@"^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]) *(?:\..*)?$", RegexOptions.IgnoreCase)]
     private static partial Regex Reserved();
 
     private Dictionary<string, string> Index()

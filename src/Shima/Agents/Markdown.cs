@@ -197,7 +197,7 @@ public static partial class Markdown
         // 不然串流時每次更新都在畫面的執行緒上花掉幾百毫秒
         if (text.Length > MaxInline) { spans.Add(new MdSpan(text, MdStyle.None)); return spans; }
         var code = CodeSpans(text);
-        Walk(text, 0, text.Length, MdStyle.None, code, spans, 0);
+        Walk(text, 0, text.Length, MdStyle.None, code, spans, 0, new Work());
         return spans;
     }
 
@@ -244,7 +244,13 @@ public static partial class Markdown
     /// <summary>標記最多套幾層（連結裡的連結、粗體裡的斜體…）：再深就當普通文字，不讓遞迴沒有上限。</summary>
     private const int MaxDepth = 12;
 
-    private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth)
+    /// <summary>
+    /// 找收尾要掃過的字數上限（整個區塊共用）。沒收尾的 [ 或 * 每一個都掃到區塊結尾，兩萬字全是這種標記要花上好幾秒；
+    /// 正常的回答連這個數字的百分之一都用不到。用完之後剩下的標記都當普通文字。
+    /// </summary>
+    private sealed class Work { public long Left = 1_000_000; }
+
+    private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth, Work work)
     {
         var plain = new StringBuilder();
         void Add(string text, MdStyle st)
@@ -268,11 +274,11 @@ public static partial class Markdown
             }
             if (c == '\\' && i + 1 < to && Escapable.Contains(s[i + 1])) { plain.Append(s[i + 1]); i += 2; continue; }
             if (c == '`') { int n = Run(s, i, to); plain.Append(s, i, n); i += n; continue; }   // 沒收尾的反引號
-            if (depth < MaxDepth && c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code) is { } link)
+            if (depth < MaxDepth && c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code, work) is { } link)
             {
                 Flush();
                 int before = spans.Count;
-                Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans, depth + 1);
+                Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans, depth + 1, work);
                 // 網址留在後面：只顯示文字的話，「參考某頁」看不出連到哪裡，也沒辦法從畫面上選取複製
                 string url = s[(link.TextEnd + 2)..(link.End - 1)];
                 string shown = string.Concat(spans.Skip(before).Select(x => x.Text));
@@ -284,11 +290,11 @@ public static partial class Markdown
             if (c is '*' or '_')
             {
                 int n = Run(s, i, to);
-                if (depth < MaxDepth && Closer(s, i, n, to, code) is { } close)
+                if (depth < MaxDepth && Closer(s, i, n, to, code, work) is { } close)
                 {
                     Flush();
                     var add = c == '_' || n == 1 ? MdStyle.Italic : n == 2 ? MdStyle.Bold : MdStyle.Bold | MdStyle.Italic;
-                    Walk(s, i + n, close, style | add, code, spans, depth + 1);
+                    Walk(s, i + n, close, style | add, code, spans, depth + 1, work);
                     i = close + n;
                     continue;
                 }
@@ -308,7 +314,7 @@ public static partial class Markdown
     /// 從 i 開始、長度 n 的一排星號或底線：找跟它配對、長度一樣的收尾，找不到回傳 null。
     /// 長度一定要一樣，<c>**粗*</c> 在串流途中才不會先閃成斜體。
     /// </summary>
-    private static int? Closer(string s, int i, int n, int to, Dictionary<int, (int End, string Content)> code)
+    private static int? Closer(string s, int i, int n, int to, Dictionary<int, (int End, string Content)> code, Work work)
     {
         char c = s[i];
         if (c == '_' ? n != 1 : n > 3) return null;   // __init__ 這種不是標記
@@ -322,6 +328,7 @@ public static partial class Markdown
         int j = i + n;
         while (j < to)
         {
+            if ((work.Left -= 1) < 0) return null;
             if (code.TryGetValue(j, out var span) && span.End <= to) { j = span.End; continue; }
             if (s[j] == '\\' && j + 1 < to && Escapable.Contains(s[j + 1])) { j += 2; continue; }
             if (s[j] != c) { j++; continue; }
@@ -338,11 +345,12 @@ public static partial class Markdown
     }
 
     /// <summary>收了尾的 [文字](網址)：回傳文字的結束位置與整段的結束位置。網址不能有空白。</summary>
-    private static (int TextEnd, int End)? Link(string s, int i, int to, Dictionary<int, (int End, string Content)> code)
+    private static (int TextEnd, int End)? Link(string s, int i, int to, Dictionary<int, (int End, string Content)> code, Work work)
     {
         int depth = 0;
         for (int j = i + 1; j < to; j++)
         {
+            if ((work.Left -= 1) < 0) return null;
             if (code.TryGetValue(j, out var span) && span.End <= to) { j = span.End - 1; continue; }
             if (s[j] == '\\') { j++; continue; }
             if (s[j] == '[') depth++;
@@ -352,7 +360,7 @@ public static partial class Markdown
                 if (j == i + 1 || j + 1 >= to || s[j + 1] != '(') return null;
                 for (int k = j + 2; k < to; k++)
                 {
-                    if (char.IsWhiteSpace(s[k])) return null;
+                    if ((work.Left -= 1) < 0 || char.IsWhiteSpace(s[k])) return null;
                     if (s[k] == ')') return k == j + 2 ? null : (j, k + 1);
                 }
                 return null;

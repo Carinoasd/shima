@@ -12,7 +12,28 @@ public static partial class Titles
 {
     /// <summary>比對用：全形轉半形、轉小寫，只留文字與數字。</summary>
     public static string Norm(string s) =>
-        new(s.Normalize(NormalizationForm.FormKC).ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+        new(Wellformed(s).Normalize(NormalizationForm.FormKC).ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+    /// <summary>
+    /// 孤立的代理字元（標題被截在 emoji 中間）換成 U+FFFD：string.Normalize 遇到會丟 ArgumentException，
+    /// 一首歌名稱不對就連歌詞都查不了。
+    /// </summary>
+    public static string Wellformed(string s)
+    {
+        for (int i = 0; i < s.Length; i++)
+        {
+            if (char.IsHighSurrogate(s[i]) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1])) { i++; continue; }
+            if (!char.IsSurrogate(s[i])) continue;
+            var fixedUp = s.ToCharArray();
+            for (int k = i; k < fixedUp.Length; k++)
+            {
+                if (char.IsHighSurrogate(fixedUp[k]) && k + 1 < fixedUp.Length && char.IsLowSurrogate(fixedUp[k + 1])) k++;
+                else if (char.IsSurrogate(fixedUp[k])) fixedUp[k] = '\uFFFD';
+            }
+            return new string(fixedUp);
+        }
+        return s;
+    }
 
     /// <summary>去掉歌名結尾的括號（半形全形都算）：「Song (104期Ver.)」→「Song」。</summary>
     public static string Bare(string title)
@@ -30,7 +51,7 @@ public static partial class Titles
         var t = title.Trim();
         var bare = Bare(t);
         if (bare.Length >= t.Length) return "";
-        var tail = t[bare.Length..].Normalize(NormalizationForm.FormKC).ToLowerInvariant();
+        var tail = Wellformed(t[bare.Length..]).Normalize(NormalizationForm.FormKC).ToLowerInvariant();
         var digits = new string(tail.Where(char.IsDigit).ToArray());
         if (digits.Length > 0) return digits;
         return new string(tail.Where(char.IsLetterOrDigit).ToArray()).Replace("version", "").Replace("ver", "");
