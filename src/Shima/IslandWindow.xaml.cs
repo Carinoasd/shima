@@ -342,7 +342,7 @@ public partial class IslandWindow : Window
             Spectrum.Active = false;
             if (_desk != null && _deskTitle.Length > 0) { _deskTitle = ""; _deskSheet = null; FeedDesktopLyrics(); }
             if (say != null) { Pill_Say(say); return; }
-            var line = IdleLine.Text(AppSettings.Current.IdleShows, DateTime.Now, TimerLine(), _alarms?.List ?? [], Loc.Culture, L.T("明天"));
+            var line = IdleText();
             PillLine.Say(line);
             // 不顯示：只剩角色，左右邊距一樣、寬度縮到剛好包住它（邊距 8＋8、角色 5＋26）
             Pill.Margin = line.Length == 0 ? new Thickness(8, 0, 8, 0) : new Thickness(12, 0, 8, 0);
