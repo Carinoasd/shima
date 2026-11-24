@@ -33,13 +33,18 @@ public static class Shelf
         if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(folder)) return false;
         try
         {
-            var full = Path.GetFullPath(path);
             var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+            // 磁碟機或網路主機不同的一定不在裡面：先用字串擋掉。GetFullPath 遇到含 ~ 的路徑會去問檔案系統（展開 8.3 短檔名），
+            // 放在不通的網路位置（\\主機\共用\SHELF~1.TXT）要等好幾秒，而這個函式在畫面的執行緒上對每個項目都跑一次
+            if (!string.Equals(RootOf(path), RootOf(root), StringComparison.OrdinalIgnoreCase)) return false;
+            var full = Path.GetFullPath(path);
             var parent = Path.GetDirectoryName(full);
             return parent != null && string.Equals(parent, root, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(full).Length > 0;
         }
         catch { return false; }
     }
+
+    private static string RootOf(string path) => (Path.GetPathRoot(path) ?? "").Replace('/', '\\');
 
     public static ShelfKind Classify(string path, string folder)
     {
