@@ -121,7 +121,15 @@ public static class Stats
     /// <summary>時間壞掉的紀錄（例如年份 0001）不拿來統計：往前翻到那裡日期運算會超出範圍。</summary>
     public static bool Plausible(Listen listen) => listen.Start.Year >= 2000;
 
-    public static TimeSpan Sum(IEnumerable<Listen> listens) => TimeSpan.FromSeconds(listens.Sum(l => Math.Max(0, l.Listened)));
+    public static TimeSpan Sum(IEnumerable<Listen> listens) => TimeSpan.FromSeconds(listens.Sum(l => Seconds(l)));
+
+    /// <summary>
+    /// 一筆聽了幾秒。紀錄檔是文字檔，壞掉或手改過的數字（1e300）放進 TimeSpan 會丟 OverflowException，整個統計頁就打不開；
+    /// 一筆最多算 MaxListened 秒（約 115 天）：再大的一定是壞的，又遠比真的最長的直播長。
+    /// </summary>
+    private const double MaxListened = 10_000_000;
+
+    private static double Seconds(Listen listen) => double.IsFinite(listen.Listened) ? Math.Clamp(listen.Listened, 0, MaxListened) : 0;
 
     private static string Fold(string s) => s.Trim().ToLowerInvariant();
 
@@ -158,7 +166,7 @@ public static class Stats
     public static TimeSpan[] Hours(IEnumerable<Listen> listens)
     {
         var hours = new TimeSpan[24];
-        foreach (var l in listens) hours[l.Start.DateTime.Hour] += TimeSpan.FromSeconds(Math.Max(0, l.Listened));
+        foreach (var l in listens) hours[l.Start.DateTime.Hour] += TimeSpan.FromSeconds(Seconds(l));
         return hours;
     }
 
