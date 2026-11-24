@@ -159,12 +159,15 @@ public sealed class QueuedSink : IListenSink
     private readonly IListenSink _inner;
     private readonly PendingScrobbles _pending;
     private readonly Action<string> _log;
+    private readonly Func<string?, bool> _counts;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, SubmitResult?> _awaiting = [];
 
     /// <param name="name">這個目的地在待送清單裡的名字（listenbrainz、lastfm）。</param>
-    public QueuedSink(string name, IListenSink inner, PendingScrobbles pending, Action<string>? log = null)
+    /// <param name="counts">這個來源現在算不算（使用者可以在設定裡排除來源）；排除之前就進了清單的，補送時也要看。</param>
+    public QueuedSink(string name, IListenSink inner, PendingScrobbles pending, Action<string>? log = null, Func<string?, bool>? counts = null)
     {
+        _counts = counts ?? (_ => true);
         _name = name;
         _inner = inner;
         _pending = pending;
@@ -179,7 +182,7 @@ public sealed class QueuedSink : IListenSink
 
     public async Task<SubmitResult> Deliver(Listen listen)
     {
-        if (!_inner.Wants(listen)) return SubmitResult.Rejected;
+        if (!_inner.Wants(listen) || !_counts(listen.Source)) return SubmitResult.Rejected;
         var key = PendingScrobbles.Key(listen);
         lock (_awaiting) _awaiting[key] = null;
         _pending.Add(_name, listen);
@@ -211,6 +214,12 @@ public sealed class QueuedSink : IListenSink
                 var head = _pending.Items(_name).FirstOrDefault(i => !skipped.Contains(PendingScrobbles.Key(i)));
                 if (head == null) { exhausted = true; break; }
                 var key = PendingScrobbles.Key(head);
+                if (!_counts(head.Source))
+                {
+                    // 排除之前就進清單的：拿掉、不送；不算被拒絕（不是服務說了不行）
+                    Settle(head, SubmitResult.Rejected);
+                    continue;
+                }
                 SubmitResult result;
                 try { result = _inner.Wants(head) ? await _inner.Deliver(head).ConfigureAwait(false) : SubmitResult.Rejected; }
                 catch (Exception e) { _log($"pending {_name}: {e.GetType().Name} {e.Message}"); result = SubmitResult.Retry; }
