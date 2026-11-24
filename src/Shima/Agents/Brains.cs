@@ -225,7 +225,7 @@ public static class Brain
         var url = service.Id == AiService.Custom ? s.AiCustomUrl.Trim().TrimEnd('/') : service.BaseUrl;
         if (url.Length == 0) { problem = L.T("先填 API 網址"); return null; }
         // 擋在建立之前：聊天、列出模型、翻譯歌詞都從這裡拿，一個請求都不會送出去
-        if (!AiService.Sendable(url)) { problem = L.T("http:// 只能用在本機或區網的 IP，其他網址請用 https://"); return null; }
+        if (!AiService.Sendable(url)) { problem = L.T("http:// 只能用在本機或區網，其他網址請用 https://"); return null; }
         if (model.Length == 0) { problem = L.T("先選模型"); return null; }
         return new OpenAiBrain(url, key, model, language, run);
     }
