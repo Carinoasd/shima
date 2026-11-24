@@ -20,6 +20,9 @@ public sealed class SleepTimer
     private DateTime? _dueAt;
     private string? _track;
     private TimeSpan _last;
+    /// <summary>上一次問「所有播放器有沒有在出聲」的時間與答案（見 <see cref="AskEvery"/>）。</summary>
+    private DateTime? _askedAt;
+    private bool _askedSounding;
 
     public SleepMode Mode { get; private set; }
     /// <summary>設定的總長（只有 After 有意義），選單用來判斷打勾的是哪一項。</summary>
@@ -35,7 +38,7 @@ public sealed class SleepTimer
         Total = span;
         _endsAt = now + span;
         _track = null;
-        _playedAt = _dueAt = null;
+        _playedAt = _dueAt = _askedAt = null;
     }
 
     /// <summary>
@@ -49,7 +52,7 @@ public sealed class SleepTimer
         Total = TimeSpan.Zero;
         _track = track;
         _last = position;
-        _goneSince = _playedAt = _dueAt = null;
+        _goneSince = _playedAt = _dueAt = _askedAt = null;
         return true;
     }
 
@@ -57,7 +60,7 @@ public sealed class SleepTimer
     {
         Mode = SleepMode.Off;
         _track = null;
-        _goneSince = _playedAt = _dueAt = null;
+        _goneSince = _playedAt = _dueAt = _askedAt = null;
     }
 
     /// <summary>還剩多久；「這首播完」或沒設定時是 null。</summary>
@@ -76,15 +79,35 @@ public sealed class SleepTimer
     public bool Tick(DateTime now, string? track, TimeSpan position, TimeSpan duration, bool playing, Func<bool>? anyPlaying = null)
     {
         if (Mode == SleepMode.Off) return false;
-        bool Sounding() => Mode == SleepMode.After && anyPlaying != null ? anyPlaying() : playing;
+        // 「有沒有東西在出聲」：倒數模式問所有播放器，其他只看島上這一首。
+        // 問所有播放器要跨程序一個一個問，而這裡每 0.1 秒就跑一次，所以答案留用 AskEvery 那麼久
+        bool Sounding()
+        {
+            if (playing || Mode != SleepMode.After || anyPlaying == null) return playing;
+            if (_askedAt is { } asked && now >= asked && now - asked < AskEvery) return _askedSounding;
+            _askedAt = now;
+            return _askedSounding = anyPlaying();
+        }
         if (_dueAt is { } dueAt)
         {
+            // 「這首播完」是因為同一首在結尾短暫沒在播（緩衝、拖進度條）才到點的，結果它又接著播了：
+            // 還沒播完，繼續等真的播完，不要提早一兩秒把它暫停
+            if (Mode == SleepMode.EndOfTrack && playing && track != null && track == _track && !Replayed(position, duration))
+            {
+                _dueAt = null;
+                _playedAt = now;
+                _last = position;
+                return false;
+            }
             // 已經到點了，只等有沒有開始播：曲目、進度都不用再看
             if (Sounding()) { Cancel(); return true; }
             if (now - dueAt >= Grace) Cancel();
             return false;
         }
         if (playing) _playedAt = now;
+        // 倒數快到了而島上沒在播：先看別的播放器（沒有標題的串流、島上沒顯示的那一個）有沒有在出聲。
+        // 不然它們剛好在換片的空檔到點時，分不出是「空檔」還是「本來就沒聲音」，定時會直接取消
+        else if (Mode == SleepMode.After && anyPlaying != null && now >= _endsAt - Gone && Sounding()) _playedAt = now;
         bool due = false;
         switch (Mode)
         {
@@ -131,6 +154,9 @@ public sealed class SleepTimer
     /// 過了還沒播就是真的沒有下一首（或使用者自己停了），那時也沒有東西要暫停。
     /// </summary>
     public static readonly TimeSpan Grace = TimeSpan.FromSeconds(8);
+
+    /// <summary>「所有播放器有沒有在出聲」最多多久問一次。</summary>
+    public static readonly TimeSpan AskEvery = TimeSpan.FromSeconds(0.5);
 
     /// <summary>停在這首的結尾：播完了，後面沒有東西接著播。</summary>
     private static bool Finished(TimeSpan position, TimeSpan duration, bool playing) =>

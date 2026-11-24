@@ -170,8 +170,9 @@ public class SleepReviewTests
         for (int i = 0; i < 100; i++)
             Assert.False(timer.Tick(T0.AddSeconds(i), "a\nb", S(i), Len, true, () => { asked++; return true; }));
         Assert.Equal(0, asked);
+        // 到點時島上這首自己就在播：已經知道有聲音，不用再跨程序去問別的播放器
         Assert.True(timer.Tick(T0.AddMinutes(30), "a\nb", S(5), Len, true, () => { asked++; return true; }));
-        Assert.Equal(1, asked);
+        Assert.Equal(0, asked);
     }
 
     [Fact]
@@ -209,5 +210,64 @@ public class SleepReviewTests
         Assert.True(timer.AfterTrack("a\nb", S(60), Len, playing: false));
         Assert.False(timer.Tick(T0, "a\nb", S(60), Len, false));
         Assert.Equal(SleepMode.EndOfTrack, timer.Mode);
+    }
+
+    // ---------------------------------------------------------------- 複審找到的三個情境
+
+    [Fact]
+    public void 沒標題的串流剛好在換片的空檔到點_下一部開始播就暫停()
+    {
+        // 島上沒有曲目（沒標題的串流不顯示），playing 一直是 false：只有「問所有播放器」看得到它在出聲
+        var timer = new SleepTimer();
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        bool sounding = true;
+        Assert.False(timer.Tick(T0.AddMinutes(30).AddSeconds(-2), null, default, default, false, () => sounding));
+        sounding = false;   // 換片的空檔
+        Assert.False(timer.Tick(T0.AddMinutes(30), null, default, default, false, () => sounding));
+        Assert.NotEqual(SleepMode.Off, timer.Mode);   // 剛剛還在出聲：等一下，不是直接取消
+        sounding = true;
+        Assert.True(timer.Tick(T0.AddMinutes(30).AddSeconds(1), null, default, default, false, () => sounding));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
+
+    [Fact]
+    public void 倒數還早的時候不去問所有播放器_快到了與寬限期間也不是每個tick都問()
+    {
+        var timer = new SleepTimer();
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        int asked = 0;
+        bool Any() { asked++; return false; }
+        for (int i = 0; i < 100; i++) timer.Tick(T0.AddSeconds(i * 0.1), null, default, default, false, Any);
+        Assert.Equal(0, asked);
+        // 最後三秒到寬限期結束共十一秒、每 0.1 秒一個 tick：每半秒最多問一次
+        for (int i = 0; i <= 110; i++) timer.Tick(T0.AddMinutes(30).AddSeconds(-3 + i * 0.1), null, default, default, false, Any);
+        Assert.InRange(asked, 1, 23);
+    }
+
+    [Fact]
+    public void 這首播完_結尾短暫緩衝又接著播_不提早暫停_真的換歌才暫停()
+    {
+        var timer = new SleepTimer();
+        Assert.True(timer.AfterTrack("a\nb", S(60), Len, true));
+        Assert.False(timer.Tick(T0, "a\nb", S(238.5), Len, true));
+        // 最後兩秒內緩衝了一下
+        Assert.False(timer.Tick(T0.AddSeconds(0.1), "a\nb", S(238.6), Len, false));
+        // 同一首接著播：還沒播完
+        Assert.False(timer.Tick(T0.AddSeconds(0.6), "a\nb", S(238.7), Len, true));
+        Assert.Equal(SleepMode.EndOfTrack, timer.Mode);
+        Assert.False(timer.Tick(T0.AddSeconds(1.5), "a\nb", S(239.6), Len, true));
+        // 換到下一首才是播完
+        Assert.True(timer.Tick(T0.AddSeconds(2), "c\nd", S(0), Len, true));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
+
+    [Fact]
+    public void 這首播完_結尾停下來之後同一首從頭重播_照樣暫停()
+    {
+        var timer = new SleepTimer();
+        Assert.True(timer.AfterTrack("a\nb", S(60), Len, true));
+        Assert.False(timer.Tick(T0, "a\nb", S(239), Len, true));
+        Assert.False(timer.Tick(T0.AddSeconds(0.5), "a\nb", S(239.5), Len, false));   // 停在結尾：進寬限期
+        Assert.True(timer.Tick(T0.AddSeconds(1.5), "a\nb", S(0.4), Len, true));       // 單曲循環從頭開始
     }
 }
