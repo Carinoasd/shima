@@ -336,7 +336,7 @@ public sealed class Alarms : IDisposable
     /// <summary>日期後面沒寫時間就當早上九點。</summary>
     public static readonly TimeSpan DefaultTime = TimeSpan.FromHours(9);
     private static readonly Regex Duration = new(@"^([0-9]+(?:\.[0-9]+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Regex FullDate = new(@"^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}[ T][0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?", RegexOptions.CultureInvariant);
+    private static readonly Regex FullDate = new(@"^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}[ T][0-9]{1,2}:[0-9]{2}(?>:[0-9]{2})?(?!\s*(?:am|pm)(?![a-z]))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?[0-9]{1,2}(?::[0-9]{2}|[點点時时](?:半|[0-9]{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
@@ -375,8 +375,13 @@ public sealed class Alarms : IDisposable
             var rest = text[day.Length..].TrimStart();
             var time = DefaultTime;
             bool given = false;
-            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock && Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } stated)
-            { time = stated; given = true; rest = rest[clock.Length..].TrimStart(); }
+            if (ClockPrefix.Match(rest) is { Success: true, Length: > 0 } clock)
+            {
+                if (Clock(clock.Value.ToLowerInvariant().Replace(" ", "")) is { } stated)
+                { time = stated; given = true; rest = rest[clock.Length..].TrimStart(); }
+                // 「25:00 pm」這種看得出是想寫時間、卻不成立的：不要退回九點，把錯的時間當成內容
+                else if (clock.Value.Any(c => c is ':' or '點' or '点' or '時' or '时') || clock.Value.Contains("am", StringComparison.OrdinalIgnoreCase) || clock.Value.Contains("pm", StringComparison.OrdinalIgnoreCase)) return null;
+            }
             var target = new DateTime(y, mo, d) + time;
             // 沒寫時間的「今天」而九點已經過了（月曆點今天最常見）：取現在之後的下一個整點，不然一定被當成過去
             if (!given && target.Date == now.Date && target <= now && now.Hour < 23) target = now.Date.AddHours(now.Hour + 1);
