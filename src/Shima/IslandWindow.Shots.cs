@@ -55,6 +55,23 @@ public partial class IslandWindow
                 ToggleUsage(false);
             }
 
+            // 快速指令的提示清單：輸入框打了「/s」，拍完清空、關掉
+            if (Demo.On)
+            {
+                _expanded = true;
+                TabAi.IsChecked = true;
+                _tab = Tab.Ai;
+                RefreshAi();
+                Say("");
+                AskBox.Text = "/s";
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-commands");
+                AskBox.Text = "";
+                HideHints();
+                Say(Demo.Answer);
+            }
+
             // 長的回答：一次到齊時要停在開頭、底部淡出
             if (Demo.On)
             {

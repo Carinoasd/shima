@@ -338,8 +338,11 @@
                   <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="VoiceButton" Style="{StaticResource Key}" Width="52" Height="52" FontSize="20" Content="&#xE720;" ToolTip="語音助手" Click="Voice_Click"/>
-                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 AI，按 Enter"/>
+                <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" PreviewKeyDown="AskBox_PreviewKeyDown" KeyDown="AskBox_KeyDown" TextChanged="AskBox_TextChanged" ToolTip="問 AI，按 Enter"/>
               </Grid>
+              <Border x:Name="CommandHints" Margin="0,8,0,0" Padding="4" CornerRadius="10" Background="#1FFFFFFF" Visibility="Collapsed">
+                <StackPanel x:Name="CommandList"/>
+              </Border>
               <WrapPanel x:Name="ExamplesBox" Margin="0,10,0,-4"/>
               <s:AnswerView x:Name="VoiceText" Margin="4,10,4,0" Visibility="Collapsed"/>
               <DockPanel Height="30" Margin="0,12,0,0">
