@@ -43,6 +43,7 @@ public partial class IslandWindow
 
     private void InitListening()
     {
+        _listening.Accepts = source => ListenSources.Counts(source, AppSettings.Current.HistoryExcluded);
         _listening.Listened += listen => { foreach (var s in Scrobbling()) _ = s.Submit(listen); };
         _listening.Started += track => { foreach (var s in Scrobbling()) _ = s.NowPlaying(track); };
         Closed += (_, _) => { _lastFmConnecting?.Cancel(); _listening.Flush(); _scrobbler?.Dispose(); _lastFm?.Dispose(); };

@@ -256,6 +256,9 @@ public sealed class ListeningLog
 
     public string FilePath { get; }
 
+    /// <summary>這個來源算不算（被排除的來源不寫檔、不通知）；預設全算。</summary>
+    public Func<string, bool> Accepts { get; set; } = _ => true;
+
     /// <summary>寫進檔案的每一筆（在呼叫 Observe／Flush 的執行緒上觸發）。</summary>
     public event Action<Listen>? Listened;
     /// <summary>開始算一首新歌（真的開始播放的那一刻）。</summary>
@@ -273,7 +276,7 @@ public sealed class ListeningLog
         Track? started;
         lock (_gate) done = _tracker.Observe(track, now, out started);
         if (done != null) Write(done);
-        if (started != null) Raise(() => Started?.Invoke(started));
+        if (started != null && Accepts(started.Source)) Raise(() => Started?.Invoke(started));
     }
 
     /// <summary>程式結束時呼叫：目前這首聽夠了就寫下來。</summary>
@@ -286,6 +289,7 @@ public sealed class ListeningLog
 
     private void Write(Listen listen)
     {
+        if (!Accepts(listen.Source)) return;
         var line = HistoryFile.ToLine(listen) + "\n";
         for (int attempt = 1; ; attempt++)
         {

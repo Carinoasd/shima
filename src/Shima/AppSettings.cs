@@ -146,6 +146,8 @@ public sealed class AppSettings
     public bool RoonSearch { get; set; }
     /// <summary>記下聽了什麼（存在這台電腦的 history.jsonl）。</summary>
     public bool History { get; set; } = true;
+    /// <summary>不算聆聽的來源（Listen.Source，例如 Chrome）：不記錄、不回報、統計不算。預設全算。</summary>
+    public List<string> HistoryExcluded { get; set; } = [];
     /// <summary>ListenBrainz 的 user token；留空就不回報。</summary>
     public string ListenBrainzToken { get; set; } = "";
     /// <summary>Last.fm：使用者自己申請的 API key（不算機密）。</summary>

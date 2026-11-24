@@ -55,6 +55,7 @@ public static class Demo
         File.WriteAllText(notes, "# 會議記錄\n");
         s.Shelf.Add(notes);
         if (Shelf.SaveText("週五前把簡報的第三頁換成新的數字", Shelf.Folder, now) is { } text) s.Shelf.Add(text);
+        s.HistoryExcluded = ["Chrome"];   // 設定頁看得到一亮一暗，排行裡也沒有影片
         s.Save();
 
         File.WriteAllLines(HistoryFile.DefaultPath, Listens(now).Select(HistoryFile.ToLine));
@@ -181,6 +182,13 @@ public static class Demo
             ("Tidewater", "Harbor & Pine", "Small Hours", 266, 3),
             ("カーテンコール", "Aoi Kessel", "幕間", 221, 2),
         ];
+        (string Title, string Channel, int Seconds)[] videos =
+        [
+            ("【實況】週末的深夜閒聊 #12", "夜貓工作室", 1260),
+            ("How to bake the softest bread at home", "Slow Kitchen", 780),
+            ("今日のひとこと：雨の日の過ごし方", "ほしぞらチャンネル", 540),
+        ];
+        int count = 0;
         var random = new Random(20261123);
         int total = songs.Sum(s => s.Weight);
         for (int day = 300; day >= 0; day--)
@@ -195,6 +203,14 @@ public static class Demo
                 at = at.AddSeconds(song.Seconds + random.Next(600));
                 if (at >= now) yield break;
                 yield return new Listen(new DateTimeOffset(at), song.Title, song.Artist, song.Album, "Roon", song.Seconds, song.Seconds * (0.7 + random.NextDouble() * 0.3));
+                // 約一成是瀏覽器裡的影片：被排除之後不會進統計。固定的次數，不多抽亂數，原本那些紀錄才不會變
+                if (++count % 10 == 0)
+                {
+                    at = at.AddSeconds(900);
+                    if (at >= now) yield break;
+                    var video = videos[count / 10 % videos.Length];
+                    yield return new Listen(new DateTimeOffset(at), video.Title, video.Channel, "", "Chrome", video.Seconds, video.Seconds);
+                }
             }
         }
     }
