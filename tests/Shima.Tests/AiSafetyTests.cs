@@ -39,7 +39,7 @@ public class ToolLogTests
     }
 }
 
-/// <summary>「自訂」AI 服務的網址：http:// 只給本機與區網的字面 IP。</summary>
+/// <summary>「自訂」AI 服務的網址：http:// 只給本機與區網（更多寫法在 CustomUrlLanTests）。</summary>
 public class CustomUrlTests
 {
     [Theory]
@@ -71,7 +71,6 @@ public class CustomUrlTests
     [InlineData("http://localtest.me/v1")]
     [InlineData("http://my.localhost/v1")]
     [InlineData("http://[2001:db8::1]/v1")]
-    [InlineData("http://100.64.0.1/v1")]
     public void 明文送到外面的不送(string url) => Assert.False(AiService.Sendable(url));
 }
 
