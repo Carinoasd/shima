@@ -269,6 +269,26 @@ public partial class IslandWindow
                 await Save(folder, "c-month-tip");
                 Month.Peek(0);
             }
+
+            // 歌詞第二行選「讀音」：只改記憶體裡的設定值，拍完改回來，不存檔
+            if (Demo.On && Lyrics.Furigana.Available)
+            {
+                var second = AppSettings.Current.LyricsSecondLine;
+                AppSettings.Current.LyricsSecondLine = "furigana";
+                _expanded = true;
+                TabMusic.IsChecked = true;
+                _tab = Tab.Music;
+                Snap(); UpdateTexts();
+                await RubyReady();
+                // 讀音是背景算的；剛好在間奏或沒有漢字的句子就等到下一句有讀音的
+                for (int wait = 0; wait < 100 && !RubyOnCurrentLine(); wait++) { await Task.Delay(100); UpdateTexts(); }
+                // 截圖的視窗不算看得見，捲動不會自己走：重給一次歌詞，直接跳到正在唱的那句
+                LyricsList.Show(null, null);
+                Snap(); UpdateTexts();
+                await Save(folder, "c-furigana");
+                AppSettings.Current.LyricsSecondLine = second;
+                Refresh();
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

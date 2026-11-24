@@ -17,6 +17,7 @@ ROWS = """
 這組快速鍵已經給另一個功能用了 | 这组快捷键已经给另一个功能用了 | That shortcut is already used by the other action | そのショートカットはもう一方の操作で使用中です | 이 단축키는 다른 기능에서 이미 사용 중입니다 | Ese atajo ya lo usa la otra acción | Ce raccourci est déjà utilisé par l'autre action | Dieses Kürzel wird bereits von der anderen Aktion verwendet | Esse atalho já é usado pela outra ação | Questa scorciatoia è già usata dall'altra azione | Это сочетание уже занято другим действием
 這組快速鍵被別的程式佔用 | 这组快捷键被其他程序占用 | That shortcut is used by another app | そのショートカットは他のアプリが使用中です | 다른 앱에서 사용 중인 단축키입니다 | Ese atajo lo usa otra aplicación | Ce raccourci est utilisé par une autre application | Dieses Kürzel wird von einer anderen App verwendet | Esse atalho está em uso por outra aplicação | Questa scorciatoia è usata da un'altra app | Это сочетание занято другим приложением
 換一份 | 换一份 | Try another source | 別の歌詞にする | 다른 가사로 바꾸기 | Probar otra fuente | Essayer une autre source | Andere Quelle | Tentar outra fonte | Prova un'altra fonte | Другой источник
+讀音 | 读音 | Furigana | ふりがな | 후리가나 | Furigana | Furigana | Furigana | Furigana | Furigana | Фуригана
 提早 0.1 秒 | 提前 0.1 秒 | 0.1 s earlier | 0.1秒早く | 0.1초 빠르게 | 0,1 s antes | 0,1 s plus tôt | 0,1 s früher | 0,1 s antes | 0,1 s prima | На 0,1 с раньше
 延後 0.1 秒 | 延后 0.1 秒 | 0.1 s later | 0.1秒遅く | 0.1초 느리게 | 0,1 s después | 0,1 s plus tard | 0,1 s später | 0,1 s depois | 0,1 s dopo | На 0,1 с позже
 還原 | 还原 | Reset | 元に戻す | 초기화 | Restablecer | Réinitialiser | Zurücksetzen | Repor | Ripristina | Сбросить
@@ -313,7 +314,7 @@ for f in glob.glob(os.path.join(src, "**", "*.cs"), recursive=True):
     for m in re.finditer(r'L\.[TF]\((?:[^"()]*\?\s*)?"((?:[^"\\]|\\.)*)"(?:\s*:\s*"((?:[^"\\]|\\.)*)")?', s): add(m.group(1)); add(m.group(2))
     if f.endswith("Mascot.cs"):
         for m in re.finditer(r'\("\w+", "([^"]+)"\)', s): add(m.group(1))
-for k in ["中文翻譯", "羅馬拼音", "不顯示"]: add(k)
+for k in ["中文翻譯", "羅馬拼音", "讀音", "不顯示"]: add(k)
 agents = open(os.path.join(src, "IslandWindow.Agents.cs"), encoding="utf-8").read()
 for m in re.finditer(r'Examples = \[(.*?)\];', agents, flags=re.S):
     for k in re.findall(r'"([^"]+)"', m.group(1)): add(k)

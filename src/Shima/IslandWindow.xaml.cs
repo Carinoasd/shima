@@ -151,9 +151,12 @@ public partial class IslandWindow : Window
             };
             CharacterMenu.Items.Add(item);
         }
-        foreach (var (id, name) in ((string, string)[])[("translation", "中文翻譯"), ("romaji", "羅馬拼音"), ("none", "不顯示")])
+        // 讀音要有日文輸入法的元件；沒有的電腦上不出現，設定檔裡已經是讀音的話勾「不顯示」
+        string secondLine = AppSettings.Current.LyricsSecondLine == "furigana" && !Lyrics.Furigana.Available ? "none" : AppSettings.Current.LyricsSecondLine;
+        foreach (var (id, name) in ((string, string)[])[("translation", "中文翻譯"), ("romaji", "羅馬拼音"), ("furigana", "讀音"), ("none", "不顯示")])
         {
-            var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == AppSettings.Current.LyricsSecondLine, Tag = id };
+            if (id == "furigana" && !Lyrics.Furigana.Available) continue;
+            var item = new System.Windows.Controls.MenuItem { Header = L.T(name), IsCheckable = true, IsChecked = id == secondLine, Tag = id };
             item.Click += (_, _) =>
             {
                 AppSettings.Current.LyricsSecondLine = id;
@@ -380,10 +383,11 @@ public partial class IslandWindow : Window
             "romaji" => shown?.Romaji ?? shown?.Translation,
             _ => null,
         };
-        LyricsList.Show(shown, second);
-        if (_desk != null && (!ReferenceEquals(_deskSheet, shown) || !ReferenceEquals(_deskSecond, second) || _deskTitle != track.Title))
+        LyricsList.Show(shown, second, RubyFor(shown));
+        var deskSecond = DesktopSecond(shown, second);
+        if (_desk != null && (!ReferenceEquals(_deskSheet, shown) || !ReferenceEquals(_deskSecond, deskSecond) || _deskTitle != track.Title))
         {
-            _deskSheet = shown; _deskSecond = second; _deskTitle = track.Title;
+            _deskSheet = shown; _deskSecond = deskSecond; _deskTitle = track.Title;
             FeedDesktopLyrics();
         }
         var deck = _bridge.Deck;

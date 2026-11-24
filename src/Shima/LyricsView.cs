@@ -12,18 +12,24 @@ namespace Shima;
 
 /// <summary>
 /// 整份歌詞。正在唱的那句比較大、比較亮，光跟著唱的進度掃過去，下面可以多一行翻譯；
-/// 其他句子暗一點。整份平滑地往上捲，讓正在唱的那句保持在偏上的位置，上下邊緣淡出。點任何一句會跳到那裡。
+/// 讀音模式時第二行不顯示，改在正在唱的那句的漢字上方標小字讀音。其他句子暗一點。整份平滑地往上捲，讓正在唱的那句保持在偏上的位置，上下邊緣淡出。點任何一句會跳到那裡。
 /// </summary>
 public sealed class LyricsView : FrameworkElement
 {
     private const double Row = 25, NowRow = 30, SubRow = 19, Anchor = 0.4;
-    private static readonly Brush Dim = Frozen(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)), Sub = Frozen(Color.FromArgb(0xB4, 0xFF, 0xFF, 0xFF));
+    /// <summary>讀音那一行佔的高度與字級：比第二行矮，<see cref="HeightFor"/> 留的空間一樣夠。</summary>
+    private const double RubyRow = 12, RubySize = 10;
+    private static readonly Brush Dim = Frozen(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)), Sub = Frozen(Color.FromArgb(0xB4, 0xFF, 0xFF, 0xFF)),
+        RubyFill = Frozen(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF));
     private static readonly Color DimColor = Color.FromArgb(0x78, 0xFF, 0xFF, 0xFF);
 
     private readonly Spring _scroll = new(0, 120, 20);
     private LyricSheet? _sheet;
     private IReadOnlyList<string>? _second;
+    private RubySheet? _ruby;
     private FormattedText?[] _plain = [], _big = [], _sub = [];
+    /// <summary>每一句的讀音排好的樣子（字與左邊的位置），跟著那句快取；只有正在唱的那句會用到。</summary>
+    private (FormattedText Text, double X)[]?[] _rubyText = [];
     private double[]?[] _prefixes = [];
     private bool _japanese, _frames;
     private int _index = int.MinValue;
@@ -59,9 +65,20 @@ public sealed class LyricsView : FrameworkElement
     }
 
     /// <param name="second">每一句下面的第二行（翻譯或羅馬拼音），沒有就傳 null。</param>
-    public void Show(LyricSheet? sheet, IReadOnlyList<string>? second)
+    /// <param name="ruby">讀音模式時傳 <see cref="RubySheet.Pending"/>（還在算、或這首不標）或算好的讀音；不是讀音模式傳 null。</param>
+    public void Show(LyricSheet? sheet, IReadOnlyList<string>? second, RubySheet? ruby = null)
     {
-        if (ReferenceEquals(sheet, _sheet) && ReferenceEquals(second, _second)) return;
+        if (ReferenceEquals(sheet, _sheet) && ReferenceEquals(second, _second) && ReferenceEquals(ruby, _ruby)) return;
+        bool same = ReferenceEquals(sheet, _sheet) && ReferenceEquals(second, _second) && _ruby != null && ruby != null;
+        _ruby = ruby;
+        int count = sheet?.Lines.Count ?? 0;
+        _rubyText = new (FormattedText, double)[]?[count];
+        if (same)
+        {
+            // 同一份歌詞只是讀音算好了：留給讀音的高度本來就有，畫一次就好，不用重新捲
+            InvalidateVisual();
+            return;
+        }
         _sheet = sheet;
         _second = second;
         int n = sheet?.Lines.Count ?? 0;
@@ -93,9 +110,15 @@ public sealed class LyricsView : FrameworkElement
 
     private int Current => _sheet == null || Clock == null ? -1 : Lrc.LineAt(_sheet.Lines, Clock().Position);
 
-    private bool HasSub(int i) => _second != null && i >= 0 && i < _second.Count && _second[i].Length > 0;
+    private bool HasSub(int i) => _ruby == null && _second != null && i >= 0 && i < _second.Count && _second[i].Length > 0;
 
-    private double HeightOf(int i, int current) => i == current ? NowRow + (HasSub(i) ? SubRow : 0) : Row;
+    /// <summary>
+    /// 讀音模式：有字的那句上方一律留讀音的高度（不管讀音算好了沒、這句有沒有漢字），
+    /// 讀音晚一點才到、或下一句沒有漢字時，版面都不會跳。
+    /// </summary>
+    private bool HasRubyRow(int i) => _ruby != null && _sheet != null && i >= 0 && i < _sheet.Lines.Count && _sheet.Lines[i].Text.Length > 0;
+
+    private double HeightOf(int i, int current) => i == current ? NowRow + (HasSub(i) ? SubRow : 0) + (HasRubyRow(i) ? RubyRow : 0) : Row;
 
     private double TopOf(int i, int current)
     {
@@ -144,17 +167,20 @@ public sealed class LyricsView : FrameworkElement
 
     private bool Sweeping => _sheet is { Synced: true } sheet && _index >= 0 && _index < sheet.Lines.Count && sheet.Lines[_index].Text.Length > 0 && Share(_index) < 1;
 
+    /// <summary>第 i 句（正在唱的大字）每個前綴的寬度：掃光與讀音的位置都照它算。</summary>
+    private double[] Prefixes(int i) =>
+        _prefixes[i] ??= Fonts.Prefixes(_sheet!.Lines[i].Text, new Typeface(Fonts.For(_japanese), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 16, Fonts.Culture(_japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
+
     /// <summary>第 i 句唱到的位置佔那句寬度的比例。</summary>
     private double Share(int i)
     {
         var line = _sheet!.Lines[i];
-        _prefixes[i] ??= Fonts.Prefixes(line.Text, new Typeface(Fonts.For(_japanese), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 16, Fonts.Culture(_japanese), VisualTreeHelper.GetDpi(this).PixelsPerDip);
         var position = Clock!().Position;
         // 有逐字時間就照著每個字走；沒有的話整句依長度估
-        if (WordTiming.Fits(line.Text, line.Words)) return Singing.WidthAt(WordTiming.CharsAt(line.Words!, position), _prefixes[i]!);
+        if (WordTiming.Fits(line.Text, line.Words)) return Singing.WidthAt(WordTiming.CharsAt(line.Words!, position), Prefixes(i));
         var length = Singing.Length(line.Text, line.Time, i + 1 < _sheet.Lines.Count ? _sheet.Lines[i + 1].Time : null);
         double progress = length <= TimeSpan.Zero ? 1 : Math.Clamp((position - line.Time) / length, 0, 1);
-        return Singing.WidthShare(line.Text, progress, _prefixes[i]!);
+        return Singing.WidthShare(line.Text, progress, Prefixes(i));
     }
 
     /// <summary>正在唱的那句的光頭現在應該在第幾個像素（還沒畫過那句就是 NaN）。</summary>
@@ -234,8 +260,15 @@ public sealed class LyricsView : FrameworkElement
                 stops[4].Offset = 1;
                 brush = sweep;
             }
+            double above = HasRubyRow(i) ? RubyRow : 0;
             big.SetForegroundBrush(brush);
-            dc.DrawText(big, new Point(x, top + (NowRow - big.Height) / 2));
+            dc.DrawText(big, new Point(x, top + above + (NowRow - big.Height) / 2));
+            if (above > 0 && (_rubyText[i] ??= RubyLayout(i, width)) is { Length: > 0 } rubies)
+            {
+                // 讀音的字貼著大字的上緣：大字上方本來就有一點留白，讀音往下壓一些才不會飄在半空
+                double baseTop = top + above + (NowRow - big.Height) / 2;
+                foreach (var (text, rx) in rubies) dc.DrawText(text, new Point(Math.Max(0, x + rx), baseTop - text.Height + 4));
+            }
 
             if (HasSub(i))
             {
@@ -244,6 +277,32 @@ public sealed class LyricsView : FrameworkElement
                 dc.DrawText(sub, new Point(Math.Max(0, (w - sub.WidthIncludingTrailingWhitespace) / 2), top + NowRow + (SubRow - sub.Height) / 2 - 2));
             }
         }
+    }
+
+    /// <summary>
+    /// 第 i 句的讀音排好：每一段讀音置中在它的漢字上方（相對大字左緣的位置）；比漢字寬時往兩邊伸，
+    /// 跟前一段讀音撞到就往右推。大字被截斷（…）的部分不標。
+    /// </summary>
+    private (FormattedText, double)[] RubyLayout(int i, double width)
+    {
+        if (_ruby is not { } ruby || i >= ruby.Lines.Count || ruby.Lines[i] is not { } pieces) return [];
+        var prefixes = Prefixes(i);
+        var laid = new List<(FormattedText, double)>();
+        double right = double.NegativeInfinity;
+        int at = 0;
+        foreach (var piece in pieces)
+        {
+            int from = at, to = Math.Min(at + piece.Text.Length, prefixes.Length - 1);
+            at += piece.Text.Length;
+            if (piece.Reading is not { Length: > 0 } reading || to <= from || prefixes[to] > width + 0.5) continue;
+            var text = Text(reading, RubySize, FontWeights.Normal, true);
+            text.SetForegroundBrush(RubyFill);
+            double w = text.WidthIncludingTrailingWhitespace, rx = (prefixes[from] + prefixes[to] - w) / 2;
+            rx = Math.Max(rx, right + 1);
+            laid.Add((text, rx));
+            right = rx + w;
+        }
+        return [.. laid];
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
