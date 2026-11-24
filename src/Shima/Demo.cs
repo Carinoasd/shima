@@ -167,8 +167,34 @@ public static class Demo
 
     public static float Level => 0.45f + 0.2f * (float)Math.Sin((DateTimeOffset.Now - Started).TotalSeconds * 2.1);
 
-    /// <summary>過去約十個月的聆聽紀錄：固定的亂數種子，每次產生的都一樣。</summary>
-    private static IEnumerable<Listen> Listens(DateTime now)
+    /// <summary>
+    /// 過去約十個月的聆聽紀錄：固定的亂數種子，每次產生的都一樣。
+    /// 上午（尤其每月 1 號的早上）今天還沒排到任何一筆，回顧卡片與今天的統計就沒東西可畫：
+    /// 最近三小時內不到三筆時，在最後一筆之後、現在之前補幾首歌（不動原本的紀錄與亂數）。
+    /// </summary>
+    public static IEnumerable<Listen> Listens(DateTime now)
+    {
+        var list = Recorded(now).ToList();
+        int recent = list.Count(l => l.Start.DateTime >= now.AddHours(-3) && l.Start.DateTime < now);
+        if (recent < 3)
+        {
+            var from = now.AddHours(-3);
+            if (now.Date > from) from = now.Date;
+            if (list.Count > 0 && list[^1].Start.DateTime.AddSeconds(list[^1].Listened + 60) is var after && after > from) from = after;
+            var fill = new[] { ("午後四時の窓辺", "Minato Loop", "Slow Window", 214), ("Porch Light", "Harbor & Pine", "Small Hours", 198), ("Tidewater", "Harbor & Pine", "Small Hours", 266) };
+            for (int i = 0, at = 0; i < 6; i++)
+            {
+                var song = fill[i % fill.Length];
+                var start = from.AddSeconds(at);
+                if (start.AddSeconds(song.Item4) >= now) break;
+                list.Add(new Listen(new DateTimeOffset(start), song.Item1, song.Item2, song.Item3, "Roon", song.Item4, song.Item4 * 0.9));
+                at += song.Item4 + 120;
+            }
+        }
+        return list;
+    }
+
+    private static IEnumerable<Listen> Recorded(DateTime now)
     {
         (string Title, string Artist, string Album, int Seconds, int Weight)[] songs =
         [
