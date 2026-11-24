@@ -286,7 +286,7 @@ public class PendingScrobblesTests : IDisposable
     [InlineData(11, true)]     // 服務離線
     [InlineData(9, true)]      // session 失效：中斷連接時才清
     [InlineData(6, false)]     // 參數不對
-    [InlineData(13, false)]    // 簽章錯
+    [InlineData(13, true)]     // 簽章錯：key 與 secret 配不起來，是設定的問題、不是這一筆
     public async Task Lastfm_錯誤代碼決定留不留(int code, bool kept)
     {
         var store = Store();
