@@ -67,4 +67,25 @@ public class IslandFitTests
     [Fact]
     public void 比例不合理時當成一倍() =>
         Assert.Equal(IslandFit.Chat(700, 1), IslandFit.Chat(700, double.NaN));
+
+    [Fact]
+    public void 島在最上面時可用高度等於工作區高度() =>
+        Assert.Equal(1040, IslandFit.Below(1040, 0));
+
+    [Fact]
+    public void 島拖到半山腰時扣掉上緣() =>
+        Assert.Equal(640, IslandFit.Below(1040, 400));
+
+    [Fact]
+    public void 上緣不合理時當成在最上面() =>
+        Assert.Equal(1040, IslandFit.Below(1040, double.NaN));
+
+    [Fact]
+    public void 一千零八十p島在四百時聊天頁夾到塞得進螢幕()
+    {
+        double room = IslandFit.Below(1040, 400);
+        double chat = IslandFit.Chat(room, 1);
+        Assert.True(chat < IslandFit.ChatHeight);
+        Assert.True(400 + IslandFit.TopGap + 66 + chat <= 1040);
+    }
 }

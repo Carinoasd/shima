@@ -57,9 +57,34 @@ public class MarkdownLinkTests
         Assert.Equal("A (https://a.example)B (https://b.example)", Plain("[A](https://a.example)[B](https://b.example)"));
     }
 
-    [Fact]
-    public void 括號沒收尾就是普通文字()
+    [Theory]
+    [InlineData("[x](https://a.com/?q=(1)", "x (https://a.com/?q=(1)")]
+    [InlineData("[x](https://a.com/?q=(1) 後面還有字", "x (https://a.com/?q=(1) 後面還有字")]
+    [InlineData("[a](http://x(y)", "a (http://x(y)")]
+    public void 括號少一個時退回第一個右括號當結尾(string input, string expected)
     {
-        Assert.Equal("[a](http://x(y)", Plain("[a](http://x(y)"));
+        var spans = Markdown.Inline(input);
+        Assert.Equal(expected, string.Concat(spans.Select(x => x.Text)));
+        Assert.True(spans[0].Style.HasFlag(MdStyle.Link));
+    }
+
+    [Theory]
+    [InlineData("[a](https://a.com/(b")]
+    [InlineData("[a](https://a.com/C_(programming")]
+    [InlineData("[a](https://a.com/x")]
+    [InlineData("[a](")]
+    public void 串流到一半網址還沒寫完不是連結(string input)
+    {
+        Assert.Equal(input, Plain(input));
+        Assert.DoesNotContain(Markdown.Inline(input), x => x.Style.HasFlag(MdStyle.Link));
+    }
+
+    [Fact]
+    public void 串流寫完整之後才變成連結()
+    {
+        const string full = "[C](https://x.y/C_(programming_language))";
+        for (int n = 1; n < full.Length; n++)
+            if (n < full.IndexOf("(programming") + 12) Assert.DoesNotContain(Markdown.Inline(full[..n]), x => x.Style.HasFlag(MdStyle.Link));
+        Assert.Contains(Markdown.Inline(full), x => x.Style.HasFlag(MdStyle.Link));
     }
 }

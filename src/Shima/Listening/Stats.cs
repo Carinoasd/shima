@@ -96,7 +96,7 @@ public static class Stats
                     return from.ToString(format.ShortDatePattern, culture) + " – " + last.ToString(format.ShortDatePattern, culture);
                 var text = from.ToString(format.MonthDayPattern, culture) + " – " + last.ToString(format.MonthDayPattern, culture);
                 return text.Length <= MaxWeekLabel ? text
-                    : from.ToString(format.ShortDatePattern, culture) + " – " + last.ToString(format.ShortDatePattern, culture);
+                    : IdleLine.Day(from, culture) + " – " + IdleLine.Day(last, culture);   // 今年的週：退回短格式也不帶年份
             case StatsPeriod.Month: return from.ToString(format.YearMonthPattern, culture);
             case StatsPeriod.Year: return from.Year.ToString(CultureInfo.InvariantCulture);
             default: return "";

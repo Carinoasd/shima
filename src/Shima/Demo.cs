@@ -175,11 +175,12 @@ public static class Demo
     public static IEnumerable<Listen> Listens(DateTime now)
     {
         var list = Recorded(now).ToList();
-        int recent = list.Count(l => l.Start.DateTime >= now.AddHours(-3) && l.Start.DateTime < now);
+        // 只數今天 0 點之後、不是 Chrome 的：跨過午夜的、之後會被排除的影片都不算，不然 1 號凌晨會誤以為夠了
+        var since = now.AddHours(-3) > now.Date ? now.AddHours(-3) : now.Date;
+        int recent = list.Count(l => l.Source != "Chrome" && l.Start.DateTime >= since && l.Start.DateTime < now);
         if (recent < 3)
         {
-            var from = now.AddHours(-3);
-            if (now.Date > from) from = now.Date;
+            var from = since;
             if (list.Count > 0 && list[^1].Start.DateTime.AddSeconds(list[^1].Listened + 60) is var after && after > from) from = after;
             var fill = new[] { ("午後四時の窓辺", "Minato Loop", "Slow Window", 214), ("Porch Light", "Harbor & Pine", "Small Hours", 198), ("Tidewater", "Harbor & Pine", "Small Hours", 266) };
             for (int i = 0, at = 0; i < 6; i++)

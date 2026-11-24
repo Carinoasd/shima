@@ -378,14 +378,20 @@ public static partial class Markdown
                 if (depth-- > 0) continue;
                 if (j == i + 1 || j + 1 >= to || s[j + 1] != '(') return null;
                 // 網址裡成對的括號要一起算（wiki/C_(programming_language)），不然在第一個 ) 就截斷
-                int paren = 0;
+                // 括號沒配對完（少一個 )）就退回第一個 ) 當結尾；串流到一半、連 ) 都還沒出現時仍然不是連結
+                int paren = 0, firstClose = -1;
                 for (int k = j + 2; k < to; k++)
                 {
-                    if ((work.Left -= 1) < 0 || char.IsWhiteSpace(s[k])) return null;
+                    if ((work.Left -= 1) < 0) return null;
+                    if (char.IsWhiteSpace(s[k])) break;
                     if (s[k] == '(') paren++;
-                    else if (s[k] == ')' && paren-- == 0) return k == j + 2 ? null : (j, k + 1);
+                    else if (s[k] == ')')
+                    {
+                        if (firstClose < 0) firstClose = k;
+                        if (paren-- == 0) return k == j + 2 ? null : (j, k + 1);
+                    }
                 }
-                return null;
+                return firstClose > j + 2 ? (j, firstClose + 1) : null;
             }
         }
         return null;
