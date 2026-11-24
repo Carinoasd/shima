@@ -53,6 +53,7 @@ public sealed class AgentBridge
 
     private HttpListener? _listener;
     private readonly Slots _open = new(MaxOpen);
+    private readonly DeckLog _deckLog = new();
     private readonly Dictionary<AgentKind, Slots> _waiting = Enum.GetValues<AgentKind>().ToDictionary(a => a, _ => new Slots(MaxWaiting));
 
     public event Action<PermissionRequest>? Asked;
@@ -376,7 +377,7 @@ public sealed class AgentBridge
                 response.StatusCode = 204;
                 break;
             case "/deck/log":
-                Log.Write("stream dock: " + (query["m"] ?? "")[..Math.Min(600, (query["m"] ?? "").Length)]);
+                if (_deckLog.Admit(query["m"]) is { } line) Log.Write("stream dock: " + line);
                 response.StatusCode = 204;
                 break;
             default:

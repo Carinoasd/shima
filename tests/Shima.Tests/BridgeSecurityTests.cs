@@ -256,3 +256,42 @@ public class BridgeLimitTests
         Assert.Equal(AgentBridge.MaxOpen, slots.Taken);
     }
 }
+
+/// <summary>/deck/log 寫不出偽造的紀錄行、也洗不掉紀錄檔。</summary>
+public class DeckLogTests
+{
+    [Fact]
+    public void 換行與控制字元變成空白()
+    {
+        Assert.Equal("connected 2026-11-24 bridge: forged", DeckLog.Clean("connected\n2026-11-24\rbridge:\u0085forged"));
+        Assert.Equal("a b c d e", DeckLog.Clean("a\u2028b\u2029c\td\0e"));
+        Assert.Equal("", DeckLog.Clean(null));
+        Assert.Equal("keyUp lyrics {\"x\":1} 歌詞", DeckLog.Clean("keyUp lyrics {\"x\":1} 歌詞"));
+        Assert.Equal(DeckLog.MaxLength, DeckLog.Clean(new string('x', 5000)).Length);
+        Assert.DoesNotContain('\n', DeckLog.Clean(new string('\n', 5000)));
+    }
+
+    [Fact]
+    public void 十秒內最多二十行_過了再收()
+    {
+        long now = 1000;
+        var log = new DeckLog(() => now);
+        for (int i = 0; i < DeckLog.Burst; i++) Assert.Equal("line", log.Admit("line"));
+        Assert.Null(log.Admit("line"));
+        now += DeckLog.Window - 1;
+        Assert.Null(log.Admit("line"));
+        now += 1;   // 一開始那二十行過期了：再收二十行
+        for (int i = 0; i < DeckLog.Burst; i++) Assert.Equal("line", log.Admit("line"));
+        Assert.Null(log.Admit("line"));
+    }
+
+    [Fact]
+    public void 陸續送的也照算()
+    {
+        long now = 0;
+        var log = new DeckLog(() => now);
+        int kept = 0;
+        for (int i = 0; i < 1000; i++, now += 100) if (log.Admit("x") != null) kept++;   // 一百秒、每 0.1 秒一行
+        Assert.InRange(kept, 1, DeckLog.Burst * 10);
+    }
+}
