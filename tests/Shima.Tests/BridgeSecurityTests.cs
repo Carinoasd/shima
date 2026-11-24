@@ -295,3 +295,36 @@ public class DeckLogTests
         Assert.InRange(kept, 1, DeckLog.Burst * 10);
     }
 }
+
+/// <summary>只收本機、衝著 localhost 來的請求。</summary>
+public class BridgeLocalTests
+{
+    [Theory]
+    [InlineData("127.0.0.1", "localhost:47813")]
+    [InlineData("::1", "localhost:47813")]
+    [InlineData("::ffff:127.0.0.1", "localhost:47813")]
+    [InlineData("127.0.0.1", "localhost")]
+    [InlineData("127.0.0.1", "LOCALHOST:47813")]
+    [InlineData("127.0.0.1", "127.0.0.1:47813")]
+    [InlineData("127.0.0.1", "127.0.0.1")]
+    [InlineData("127.5.6.7", "localhost:47813")]
+    public void 本機(string remote, string host) => Assert.True(AgentBridge.Local(System.Net.IPAddress.Parse(remote), host));
+
+    [Theory]
+    [InlineData("192.168.1.20", "localhost:47813")]        // 區域網路上別台
+    [InlineData("172.28.0.5", "localhost:47813")]
+    [InlineData("::ffff:192.168.1.20", "localhost:47813")]
+    [InlineData("fe80::1", "localhost:47813")]
+    [InlineData("127.0.0.1", "attacker.example:47813")]    // DNS rebinding
+    [InlineData("127.0.0.1", "localhost.attacker.example")]
+    [InlineData("127.0.0.1", "localhost.:47813")]
+    [InlineData("127.0.0.1", "localhost:80")]
+    [InlineData("127.0.0.1", "127.0.0.1:8080")]
+    [InlineData("127.0.0.1", "[::1]:47813")]
+    [InlineData("127.0.0.1", "")]
+    [InlineData("127.0.0.1", null)]
+    public void 不收(string remote, string? host) => Assert.False(AgentBridge.Local(System.Net.IPAddress.Parse(remote), host));
+
+    [Fact]
+    public void 不知道對方是誰就不收() => Assert.False(AgentBridge.Local(null, "localhost:47813"));
+}

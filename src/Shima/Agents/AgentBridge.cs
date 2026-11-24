@@ -202,6 +202,20 @@ public sealed class AgentBridge
         return Same(header, tokens(route.Agent)) ? new(Door.Hook, route.Agent, route.Permission) : new(Door.Refuse);
     }
 
+    /// <summary>
+    /// 請求是不是從這台電腦送來、而且是衝著 localhost 來的。HttpListener 只聽 localhost，但不看對方是誰；
+    /// Host 也要檢查：瀏覽器裡的網頁可以把自己的網域在解析後換成 127.0.0.1（DNS rebinding），這時 Host 是那個網域，不是 localhost。
+    /// hook（curl.exe）與 Stream Dock 外掛連的都是 http://localhost:47813。
+    /// </summary>
+    public static bool Local(IPAddress? remote, string? host)
+    {
+        if (remote == null) return false;
+        if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();   // IsLoopback 不認 ::ffff:127.0.0.1
+        if (!IPAddress.IsLoopback(remote)) return false;
+        return host is { } h && (h.Equals("localhost", StringComparison.OrdinalIgnoreCase) || h.Equals($"localhost:{Port}", StringComparison.OrdinalIgnoreCase)
+            || h == "127.0.0.1" || h == $"127.0.0.1:{Port}");
+    }
+
     /// <summary>網址是哪個 agent 的哪一種 hook；null 表示沒有這扇門（例如 Gemini 的權限請求）。</summary>
     private static (AgentKind Agent, bool Permission)? Route(string path)
     {
@@ -297,6 +311,7 @@ public sealed class AgentBridge
         try
         {
             var request = context.Request;
+            if (!Local(request.RemoteEndPoint?.Address, request.Headers["Host"])) { response.StatusCode = 403; return; }
             var (door, agent, permission) = Admit(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
                 request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), DeckDoor.Key);
             if (door == Door.Refuse) { response.StatusCode = 403; return; }
