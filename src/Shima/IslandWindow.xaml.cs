@@ -433,7 +433,7 @@ public partial class IslandWindow : Window
         // 權限請求顯示中不能收起來。要先擋，再改狀態：不然狀態說「收著」、畫面卻還開著，之後就再也收不起來
         if (!expanded && _tab == Tab.Ask) return;
         _expanded = expanded;
-        if (expanded) SeeRecent();
+        if (expanded && _tab == Tab.Tools) EnterTools();
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
     }
@@ -449,9 +449,7 @@ public partial class IslandWindow : Window
         _tab = tab;
         if (tab == Tab.Tools)
         {
-            // 收著期間跨了日：重畫月曆與圓點；清單已經攤開的話也算看過了
-            if (Month.Today.Date != DateTime.Today) RefreshAlarms();
-            SeeRecent();
+            EnterTools();
         }
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
         if (tab == Tab.Ai) RefreshAi();

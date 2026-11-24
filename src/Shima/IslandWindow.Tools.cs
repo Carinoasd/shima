@@ -100,6 +100,16 @@ public partial class IslandWindow
         if (_tab == Tab.Tools && _expanded) Morph();
     }
 
+    /// <summary>
+    /// 進到工具分頁（切過來，或停在這一頁時展開）：收著期間跨了日就重畫月曆與提醒；清單已經攤開的話也算看過了。
+    /// 權限請求結束回到工具頁時也要呼叫（IslandWindow.Agents.cs 的 NextAsk）。
+    /// </summary>
+    private void EnterTools()
+    {
+        if (Month.Today.Date != DateTime.Today) RefreshAlarms();
+        SeeRecent();
+    }
+
     /// <summary>月曆的「今天」跟著日期走：島開著跨日、跨月之後，格子與標題才不會還是上個月的。</summary>
     private void SyncMonth()
     {
