@@ -306,6 +306,17 @@ public partial class IslandWindow
                 AppSettings.Current.LyricsSecondLine = second;
                 Refresh();
             }
+            // AI 想開不在常用網站裡的網址：在 AI 分頁顯示完整網址，等使用者按
+            {
+                var asking = new TaskCompletionSource<bool?>();
+                _opening = asking;
+                _expanded = true;
+                ShowOpenCard("https://lyrics-share.example/c?song=%E6%99%B4%E5%A4%A9&d=" + string.Concat(Enumerable.Repeat("my-bank-password-hunter2%0Aemail%3Ddemo%40example.com%0A", 10)) + "&from=shima", asking);
+                Snap();
+                await Save(folder, "c-open-confirm");
+                asking.TrySetResult(false);
+                HideOpenCard(asking);
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

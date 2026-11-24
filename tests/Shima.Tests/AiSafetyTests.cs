@@ -266,3 +266,190 @@ public class LyricExplainTests
         Assert.Null(script.Sent[0]["tools"]);
     }
 }
+
+/// <summary>open 開網址：常用網站直接開，其他的要使用者在島上按了才開。</summary>
+public class OpenTrustTests
+{
+    private static bool Trusted(string input)
+    {
+        var what = Opener.Classify(input);
+        Assert.Equal(OpenKind.Url, what.Kind);
+        return Opener.Trusted(what.Target);
+    }
+
+    [Theory]
+    [InlineData("https://www.youtube.com/watch?v=abc")]
+    [InlineData("youtube.com")]
+    [InlineData("https://music.youtube.com/")]
+    [InlineData("https://m.youtube.com/results?search_query=%E6%99%B4%E5%A4%A9")]
+    [InlineData("https://youtu.be/abc")]
+    [InlineData("https://www.google.com/search?q=lovelive")]
+    [InlineData("https://google.co.jp/search?q=aqours")]
+    [InlineData("https://maps.google.com/?q=Numazu")]
+    [InlineData("https://ja.wikipedia.org/wiki/ラブライブ!")]
+    [InlineData("https://zh.wikipedia.org/wiki/%E6%99%B4%E5%A4%A9")]
+    [InlineData("https://www.bilibili.com/video/BV1xx")]
+    [InlineData("https://www.nicovideo.jp/watch/sm9")]
+    [InlineData("https://www.pixiv.net/artworks/1")]
+    [InlineData("https://open.spotify.com/track/1")]
+    [InlineData("https://music.apple.com/jp/album/1")]
+    [InlineData("https://github.com/Carinoasd/shima")]
+    [InlineData("https://x.com/lovelive_staff")]
+    [InlineData("https://www.amazon.co.jp/dp/B000")]
+    [InlineData("https://www.netflix.com/title/1")]
+    [InlineData("https://duckduckgo.com/?q=shima")]
+    [InlineData("https://www.baidu.com/s?wd=shima")]
+    [InlineData("https://www.bing.com/search?q=shima")]
+    [InlineData("HTTPS://WWW.YOUTUBE.COM/")]
+    [InlineData("https://www.youtube.com./")]
+    [InlineData("https://www.youtube.com:443/")]
+    [InlineData("ｙｏｕｔｕｂｅ.com")]
+    public void 常用網站直接開(string url) => Assert.True(Trusted(url));
+
+    [Theory]
+    [InlineData("https://x.example/c?d=password123")]
+    [InlineData("https://google.com.evil.example/")]
+    [InlineData("https://evil-google.com/")]
+    [InlineData("https://youtube.com.evil.example/watch")]
+    [InlineData("https://notyoutube.com/")]
+    [InlineData("https://xn--ggle-55da.com/")]                   // gооgle.com（西里爾字母 о）
+    [InlineData("https://gооgle.com/")]
+    [InlineData("https://www.youtube.com:8443/")]
+    [InlineData("http://www.youtube.com:8080/")]
+    [InlineData("https://8.8.8.8/")]
+    [InlineData("https://[2001:4860:4860::8888]/")]
+    [InlineData("https://docs.google.com/forms/d/e/1/formResponse?entry.1=secret")]
+    [InlineData("https://sites.google.com/view/x")]
+    [InlineData("https://script.google.com/macros/s/1/exec?d=secret")]
+    [InlineData("https://someone.github.io/?d=secret")]
+    [InlineData("https://t.co/abc")]
+    [InlineData("https://www.google.com/url?q=https://evil.example/?d=secret")]
+    [InlineData("https://www.google.com/amp/s/evil.example/")]
+    [InlineData("https://www.youtube.com/redirect?q=https%3A%2F%2Fevil.example")]
+    [InlineData("https://www.bing.com/ck/a?u=abc")]
+    [InlineData("https://www.pixiv.net/jump.php?https%3A%2F%2Fevil.example")]
+    [InlineData("https://www.youtube.com/watch?next=https%253A%252F%252Fevil.example")]
+    [InlineData("https://127.0.0.1.nip.io/c?d=secret")]
+    [InlineData("https://localtest.me/")]
+    public void 其他的要使用者確認(string url) => Assert.False(Trusted(url));
+
+    [Theory]
+    [InlineData("https://youtube.com@evil.example/")]
+    [InlineData("https://user:pass@www.youtube.com/")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("http://localhost/")]
+    public void 原本的限制照舊_連確認都不用(string url) => Assert.Equal(OpenKind.Refused, Opener.Classify(url).Kind);
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not a url")]
+    [InlineData("ftp://www.youtube.com/")]
+    public void 看不懂的不算常用(string url) => Assert.False(Opener.Trusted(url));
+}
+
+/// <summary>
+/// Skills.OpenAsync 的流程：開的動作、在島上問的動作都換成假的，不會真的開瀏覽器。
+/// Skills 的這幾個設定是全域的，所以這一組不跟別的測試平行跑。
+/// </summary>
+[Collection(nameof(OpenFlowTests))]
+[CollectionDefinition(nameof(OpenFlowTests), DisableParallelization = true)]
+public class OpenFlowTests : IDisposable
+{
+    private readonly List<string> _launched = [];
+    private readonly List<string> _asked = [];
+    private readonly Action<string> _launcher = Skills.Launcher;
+    private readonly TimeSpan _patience = Skills.Patience;
+
+    public OpenFlowTests() => Skills.Launcher = _launched.Add;
+
+    public void Dispose()
+    {
+        Skills.Launcher = _launcher;
+        Skills.Confirm = null;
+        Skills.Patience = _patience;
+    }
+
+    private void Answer(bool? yes) => Skills.Confirm = (url, _) => { _asked.Add(url); return Task.FromResult(yes); };
+
+    [Fact]
+    public async Task 常用網站不問就開()
+    {
+        Answer(false);
+        Assert.StartsWith("已用瀏覽器開啟", await Skills.OpenAsync("youtube.com"));
+        Assert.Equal(["https://youtube.com/"], _launched);
+        Assert.Empty(_asked);
+    }
+
+    [Fact]
+    public async Task 其他網址_使用者按了開啟才開()
+    {
+        Answer(true);
+        Assert.StartsWith("已用瀏覽器開啟", await Skills.OpenAsync("https://x.example/c?d=1"));
+        Assert.Equal(["https://x.example/c?d=1"], _asked);
+        Assert.Equal(["https://x.example/c?d=1"], _launched);
+    }
+
+    [Fact]
+    public async Task 使用者按取消_不開()
+    {
+        Answer(false);
+        var result = await Skills.OpenAsync("https://x.example/c?d=password");
+        Assert.Empty(_launched);
+        Assert.Contains("沒有開", result);
+    }
+
+    [Fact]
+    public async Task 沒辦法問_不開_請模型把網址告訴使用者()
+    {
+        Answer(null);
+        var result = await Skills.OpenAsync("https://x.example/c?d=1");
+        Assert.Empty(_launched);
+        Assert.Contains("https://x.example/c?d=1", result);
+
+        Skills.Confirm = null;   // 還沒設定（例如測試、還沒啟動完）也一樣
+        Assert.Contains("https://x.example/c?d=1", await Skills.OpenAsync("https://x.example/c?d=1"));
+        Assert.Empty(_launched);
+    }
+
+    [Fact]
+    public async Task 逾時當作取消_畫面收到取消()
+    {
+        Skills.Patience = TimeSpan.FromMilliseconds(100);
+        var cancelled = new TaskCompletionSource();
+        Skills.Confirm = (_, giveUp) =>
+        {
+            giveUp.Register(() => cancelled.TrySetResult());
+            return new TaskCompletionSource<bool?>().Task;   // 永遠不回答
+        };
+        var result = await Skills.OpenAsync("https://x.example/");
+        Assert.Contains("沒有開", result);
+        Assert.Empty(_launched);
+        await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task 問的那一端出錯_不開()
+    {
+        Skills.Confirm = (_, _) => throw new InvalidOperationException("壞了");
+        Assert.Contains("https://x.example/", await Skills.OpenAsync("https://x.example/"));
+        Assert.Empty(_launched);
+    }
+
+    [Fact]
+    public async Task 常用程式照舊不用確認()
+    {
+        Answer(false);
+        Assert.Equal("已開啟記事本", await Skills.OpenAsync("記事本"));
+        Assert.Equal(["notepad.exe"], _launched);
+        Assert.Empty(_asked);
+    }
+
+    [Fact]
+    public async Task 透過工具呼叫也一樣()
+    {
+        Answer(false);
+        await Skills.RunAsync("open", new JsonObject { ["target"] = "https://x.example/?d=secret" });
+        Assert.Empty(_launched);
+        Assert.Single(_asked);
+    }
+}

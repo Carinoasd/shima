@@ -71,6 +71,7 @@ public partial class IslandWindow : Window
         InitSettings();
         InitStatus();
         InitAgents();
+        InitOpenConfirm();
         InitListening();
         if (Demo.On && _smoke) InitAlarms();   // 截圖要看得到示範的提醒；不是截圖時下面那一行會做
         if (!_smoke)
@@ -175,7 +176,7 @@ public partial class IslandWindow : Window
         _close.Tick += (_, _) =>
         {
             _close.Stop();
-            if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _tab == Tab.Ask) return;
+            if (Host.IsMouseOver || Host.ContextMenu?.IsOpen == true || _tab == Tab.Ask || _opening != null) return;
             // 正在打字的分頁不因為滑鼠離開就收起來，點到別的視窗才收
             if (_tab is Tab.Chat or Tab.Tools or Tab.Library or Tab.Ai or Tab.Settings && IsActive) return;
             SetExpanded(false);
@@ -431,7 +432,7 @@ public partial class IslandWindow : Window
     {
         if (_expanded == expanded) return;
         // 權限請求顯示中不能收起來。要先擋，再改狀態：不然狀態說「收著」、畫面卻還開著，之後就再也收不起來
-        if (!expanded && _tab == Tab.Ask) return;
+        if (!expanded && (_tab == Tab.Ask || _opening != null)) return;
         _expanded = expanded;
         if (expanded) SeeRecent();
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();

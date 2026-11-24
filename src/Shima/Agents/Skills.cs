@@ -35,7 +35,7 @@ public static class Skills
             return tool switch
             {
                 "weather" => await WeatherAsync(Arg("location"), Arg("country"), CancellationToken.None).ConfigureAwait(false),
-                "open" => Open(Arg("target")),
+                "open" => await OpenAsync(Arg("target")).ConfigureAwait(false),
                 "alarm" => Alarms is { } alarms ? Alarm(arguments, alarms, DateTime.Now) : "提醒功能還沒準備好",
                 "datetime" => Now(DateTimeOffset.Now),
                 "calc" => Calculate(Arg("expression")),
@@ -117,21 +117,59 @@ public static class Skills
 
     // ---------------------------------------------------------------- 開網站或程式
 
-    private static string Open(string target)
+    /// <summary>
+    /// 不在常用網站清單裡的網址，開之前在島上問使用者：網址 → 開（true）、取消（false），或現在沒辦法問（null，
+    /// 例如島因為全螢幕藏起來、正在問 Claude Code 的權限、已經有一個網址在等）。
+    /// 由程式啟動時設定；沒設定就一律當作沒辦法問。逾時的時候 token 會取消，畫面要把確認收起來。
+    /// </summary>
+    public static Func<string, CancellationToken, Task<bool?>>? Confirm { get; set; }
+
+    /// <summary>使用者多久沒按就當作取消。</summary>
+    public static TimeSpan Patience { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>真的去開網址或程式。測試換成記下來的假動作，不會開瀏覽器。</summary>
+    public static Action<string> Launcher { get; set; } = Launch;
+
+    /// <summary>
+    /// AI 讀得到外來的文字（網頁設的歌名、匿名上傳的歌詞、剪貼簿），被注入時可能想把剪貼簿之類的內容帶在網址上送出去。
+    /// 常用網站（Opener.Trusted）照舊直接開：資料頂多到那個網站本身。其他的要使用者在島上看過完整網址、按了才開。
+    /// </summary>
+    public static async Task<string> OpenAsync(string target)
     {
         var what = Opener.Classify(target);
         switch (what.Kind)
         {
             case OpenKind.Url:
-                Launch(what.Target);
+                if (!Opener.Trusted(what.Target))
+                {
+                    var allowed = await AskAsync(what.Target).ConfigureAwait(false);
+                    if (allowed == null) return $"這個網址要使用者自己確認才能開，現在沒辦法在島上問他，所以沒有開。請把網址原樣告訴使用者，讓他自己決定要不要複製去開：{what.Target}";
+                    if (allowed == false) return "使用者沒有同意開啟這個網址（或沒有在時間內回應），網址沒有開。不要再試著開它。";
+                }
+                Launcher(what.Target);
                 return $"已用瀏覽器開啟 {what.Target}";
             case OpenKind.App:
-                try { Launch(what.Target); }
+                try { Launcher(what.Target); }
                 catch { return $"打不開{what.Name}（這台電腦可能沒有安裝）"; }
                 return $"已開啟{what.Name}";
             default:
                 return what.Name.Length > 0 ? what.Name : "不認得這個程式";
         }
+    }
+
+    /// <summary>在島上問；逾時當作取消。問的那一端出錯就當作沒辦法問。</summary>
+    private static async Task<bool?> AskAsync(string url)
+    {
+        if (Confirm is not { } confirm) return null;
+        using var giveUp = new CancellationTokenSource(Patience);
+        try
+        {
+            var asked = confirm(url, giveUp.Token);
+            var done = await Task.WhenAny(asked, Task.Delay(Patience)).ConfigureAwait(false);
+            if (done != asked) { giveUp.Cancel(); return false; }
+            return await asked.ConfigureAwait(false);
+        }
+        catch (Exception e) { Log.Write("open confirm: " + e.GetType().Name); return null; }
     }
 
     /// <summary>只會拿到白名單的固定字串或檢查過的網址，不會有使用者給的參數。</summary>
@@ -394,6 +432,8 @@ public static class Opener
     /// <summary>
     /// 本機或區域網路的位址。AI 讀得到剪貼簿與歌詞，裡面如果藏著「幫我開 http://localhost:…」這種話，
     /// 不該真的用使用者已經登入的瀏覽器去開本機的服務或路由器的管理頁。
+    /// 只看字面：127.0.0.1.nip.io、localtest.me 這種會解析到本機的名稱擋不到，但它們不在常用網站裡（Trusted），
+    /// 會落到「要使用者確認」，確認時看得到完整的網址。
     /// </summary>
     public static bool Local(Uri uri)
     {
@@ -405,6 +445,67 @@ public static class Opener
         var b = ip.GetAddressBytes();
         if (b.Length != 4) return ip.Equals(System.Net.IPAddress.IPv6Any);
         return b[0] is 0 or 10 or 127 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127;
+    }
+
+    /// <summary>
+    /// 常用網站：這些主機與它們的子網域直接開。挑的是「資料送到這裡也只會到那個網站本身」的大網站；
+    /// 縮網址（t.co、goo.gl、b23.tv…；youtu.be 只會轉到 YouTube，算在內）、任何人都能架頁面的主機（github.io、blogspot、*.booth.pm）、
+    /// 能收表單的（Google 表單在 docs.google.com）一律不放，落到「要使用者確認」。
+    /// </summary>
+    private static readonly string[] Domains =
+    [
+        // 搜尋、百科、字典、翻譯
+        "bing.com", "duckduckgo.com", "baidu.com", "yahoo.co.jp", "yahoo.com", "wikipedia.org", "wiktionary.org",
+        "weblio.jp", "jisho.org", "deepl.com",
+        // 影音、串流
+        "youtube.com", "youtu.be", "bilibili.com", "nicovideo.jp", "twitch.tv", "netflix.com", "abema.tv", "crunchyroll.com", "tver.jp",
+        // 音樂
+        "spotify.com", "apple.com", "music.163.com", "y.qq.com", "kugou.com", "kkbox.com", "last.fm", "roonlabs.com",
+        "recochoku.jp", "mora.jp", "uta-net.com", "utaten.com", "j-lyric.net", "vgmdb.net",
+        // 動畫、插畫、LoveLive
+        "pixiv.net", "myanimelist.net", "anilist.co", "bangumi.tv", "bgm.tv", "lovelive-anime.jp",
+        // 社群、購物、開發
+        "x.com", "twitter.com", "amazon.com", "amazon.co.jp", "github.com",
+        // 地圖
+        "openstreetmap.org",
+    ];
+
+    /// <summary>
+    /// 只有這幾個主機本身，不含子網域：google.com 底下有 docs（表單用網址就能送出）、sites、script 這種任何人都能放東西的主機。
+    /// </summary>
+    private static readonly string[] Hosts =
+    [
+        "google.com", "www.google.com", "maps.google.com", "translate.google.com", "news.google.com", "images.google.com",
+        "google.co.jp", "www.google.co.jp", "google.com.tw", "www.google.com.tw", "animestore.docomo.ne.jp",
+    ];
+
+    /// <summary>常見的轉址路徑（第一段）：google.com/url?q=…、bing.com/ck/a?…、youtube.com/redirect?q=…、pixiv.net/jump.php?…</summary>
+    private static readonly string[] Redirects = ["url", "amp", "redirect", "link", "l", "ck", "out", "away", "jump", "goto", "interstitial"];
+
+    /// <summary>
+    /// 這個網址可以不問使用者就開：主機（照 IDN 轉成 punycode、小寫、去掉結尾的點）是常用網站或它的子網域、
+    /// 沒有帳號密碼、用預設的埠號、不是 IP 位址，也不像是轉址（路徑是常見的轉址、或網址裡又夾了一個網址）。
+    /// 長得像的（google.com.evil.example、evil-google.com、gооgle.com 用西里爾字母）都不算。
+    /// 其他的都要使用者在島上看過完整網址、按了才開。
+    /// </summary>
+    public static bool Trusted(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")) return false;
+        if (uri.UserInfo.Length > 0 || !uri.IsDefaultPort || uri.HostNameType != UriHostNameType.Dns) return false;
+        var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+        if (!Hosts.Contains(host) && !Domains.Any(d => host == d || host.EndsWith("." + d, StringComparison.Ordinal))) return false;
+        var first = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        if (Redirects.Contains(first.Split('.')[0].ToLowerInvariant())) return false;
+        // 解開跳脫（最多三層，%252F 這種）之後還有「//」或反斜線：網址裡夾了另一個網址
+        var rest = uri.PathAndQuery + uri.Fragment;
+        for (int i = 0; i < 3; i++)
+        {
+            string next;
+            try { next = Uri.UnescapeDataString(rest); } catch { return false; }
+            if (next == rest) break;
+            rest = next;
+        }
+        return !rest.Contains("//", StringComparison.Ordinal) && !rest.Contains('\\');
     }
 
     /// <summary>代表「預設瀏覽器」：開的時候才從登錄檔查是哪一個。</summary>
