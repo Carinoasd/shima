@@ -434,7 +434,9 @@ public partial class IslandWindow : Window
         // 權限請求顯示中不能收起來。要先擋，再改狀態：不然狀態說「收著」、畫面卻還開著，之後就再也收不起來
         if (!expanded && (_tab == Tab.Ask || _opening != null)) return;
         _expanded = expanded;
-        if (expanded) SeeRecent();
+        if (expanded && _tab == Tab.Tools) EnterTools();
+        if (expanded) FitPages();
+        if (expanded && _tab == Tab.Chat) Place();   // 收著時拖到邊上：聊天比較寬，展開前再夾一次
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
     }
@@ -450,11 +452,11 @@ public partial class IslandWindow : Window
         _tab = tab;
         if (tab == Tab.Tools)
         {
-            // 收著期間跨了日：重畫月曆與圓點；清單已經攤開的話也算看過了
-            if (Month.Today.Date != DateTime.Today) RefreshAlarms();
-            SeeRecent();
+            EnterTools();
         }
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
+        if (_expanded) FitPages();
+        Place();   // 聊天比別頁寬：靠邊時重新夾一次，切回別頁也會回到存的位置
         if (tab == Tab.Ai) RefreshAi();
         if (tab == Tab.Settings) RefreshSettings();
         if (tab == Tab.Library) RefreshLibrary();
@@ -696,11 +698,14 @@ public partial class IslandWindow : Window
     // ---------------------------------------------------------------- 位置：可以拖，會記住
 
     /// <summary>島的中心 X 與視窗上緣；沒拖過就在主螢幕頂端正中間。存的位置跑出螢幕外（換了螢幕）就回到預設。</summary>
+    /// <summary>展開時面板的寬：聊天分頁比較寬。靠邊時要照目前這一頁的寬度夾，不然切到聊天會超出螢幕。</summary>
+    private static double PanelWidth(Tab tab) => tab == Tab.Chat ? 528 : 440;
+
     private void Place()
     {
         var s = AppSettings.Current;
         var screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
-        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, 440 * _scale);
+        var at = IslandScale.TopLeft(SystemParameters.WorkArea, screens, s.IslandX, s.IslandY, Width, PanelWidth(_tab) * _scale);
         Left = _smoke ? -5000 : at.X;
         Top = at.Y;
     }

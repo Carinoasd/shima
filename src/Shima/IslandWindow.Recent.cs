@@ -59,6 +59,7 @@ public partial class IslandWindow
         ToolsBody.Visibility = _recentOpen ? Visibility.Collapsed : Visibility.Visible;
         RecentPage.Visibility = _recentOpen ? Visibility.Visible : Visibility.Collapsed;
         if (_recentOpen) BuildRecentList();
+        else RecentList.Children.Clear();   // 清除之後那些通知的文字不要還留在看不見的畫面物件裡
         UpdateRecentDot();
         if (_tab == Tab.Tools && _expanded) Morph();
     }

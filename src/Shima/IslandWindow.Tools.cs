@@ -30,6 +30,8 @@ public partial class IslandWindow
         {
             if (!Shelfable(e.Data)) return;
             _close.Stop();
+            // 「最近的通知」開著時暫存架藏在它後面：先收回去，才看得到要放的地方
+            if (_recentOpen) SetRecentOpen(false);
             TabTools.IsChecked = true;
             _expanded = true;
             ShowTab(Tab.Tools);
@@ -98,6 +100,16 @@ public partial class IslandWindow
         if (_tab == Tab.Tools && _expanded) Morph();
     }
 
+    /// <summary>
+    /// 進到工具分頁（切過來，或停在這一頁時展開）：收著期間跨了日就重畫月曆與提醒；清單已經攤開的話也算看過了。
+    /// 權限請求結束回到工具頁時也要呼叫（IslandWindow.Agents.cs 的 NextAsk）。
+    /// </summary>
+    private void EnterTools()
+    {
+        if (Month.Today.Date != DateTime.Today) RefreshAlarms();
+        SeeRecent();
+    }
+
     /// <summary>月曆的「今天」跟著日期走：島開著跨日、跨月之後，格子與標題才不會還是上個月的。</summary>
     private void SyncMonth()
     {
@@ -124,6 +136,7 @@ public partial class IslandWindow
         {
             var line = new System.Windows.Shapes.Rectangle { Height = 2, Fill = DropLine, RadiusX = 1, RadiusY = 1, VerticalAlignment = where, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
             System.Windows.Controls.Panel.SetZIndex(line, 5);
+            Grid.SetColumnSpan(line, 2);   // 不跨欄的話線只會出現在左邊 28 像素的勾選框上
             lines.Add(line);
             return line;
         }
@@ -147,13 +160,24 @@ public partial class IslandWindow
             row.Children.Add(hit);
             row.Children.Add(NewLine(VerticalAlignment.Top));
             if (todo == todos[^1]) row.Children.Add(NewLine(VerticalAlignment.Bottom));
-            row.MouseRightButtonUp += (_, e) => { e.Handled = true; todos.Remove(todo); AppSettings.Current.Save(); RefreshTools(); };
-
             // 按兩下改文字；按住上下拖換順序（自己追蹤滑鼠，不用 DragDrop：外面那層的拖放是給暫存架用的）
             Point start = default;
             var pressed = false;
             var dragging = false;
             var gap = 0;
+            row.MouseRightButtonUp += (_, e) =>
+            {
+                e.Handled = true;
+                // 左鍵還按著（拖到一半）：右鍵是取消這次拖曳，不是刪除
+                if (pressed)
+                {
+                    pressed = false;
+                    hit.ReleaseMouseCapture();
+                    RefreshTools();
+                    return;
+                }
+                todos.Remove(todo); AppSettings.Current.Save(); RefreshTools();
+            };
             hit.MouseLeftButtonDown += (_, e) =>
             {
                 e.Handled = true;
@@ -181,7 +205,9 @@ public partial class IslandWindow
                 if (!pressed) return;
                 pressed = false;
                 hit.ReleaseMouseCapture();
-                if (dragging && TodoOps.Move(todos, todos.IndexOf(todo), gap)) AppSettings.Current.Save();
+                // 單點沒有要改什麼：不重建，免得白白重新解暫存架的縮圖與重畫月曆
+                if (!dragging) return;
+                if (TodoOps.Move(todos, todos.IndexOf(todo), gap)) AppSettings.Current.Save();
                 RefreshTools();
             };
             hit.LostMouseCapture += (_, _) =>
@@ -198,14 +224,20 @@ public partial class IslandWindow
     private void EditTodo(Border host, TodoItem todo)
     {
         var box = new TextBox { Text = todo.Text, Style = (Style)FindResource("Input"), Height = 26, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(-6, 0, 0, 0) };
+        var label = host.Child as TextBlock;
         host.Child = box;
         var finished = false;
         void Finish(bool save)
         {
             if (finished) return;
             finished = true;
-            if (save && TodoOps.Rename(AppSettings.Current.Todos, todo, box.Text)) AppSettings.Current.Save();
-            RefreshTools();
+            var changed = save && TodoOps.Rename(AppSettings.Current.Todos, todo, box.Text);
+            if (changed) AppSettings.Current.Save();
+            // 只把這一列換回文字：失焦是在別顆按鈕的 MouseDown 裡同步觸發的，這時整頁重建會把剛按下去的那顆從畫面上拿掉，
+            // 這一下點擊就沒了。真的刪掉了一筆（Enter 改成空的）才需要重建，那時沒有別的點擊在進行
+            if (label == null || !AppSettings.Current.Todos.Contains(todo)) { RefreshTools(); return; }
+            label.Text = todo.Text;
+            host.Child = label;
         }
         box.KeyDown += (_, e) =>
         {
