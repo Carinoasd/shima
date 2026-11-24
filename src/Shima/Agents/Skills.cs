@@ -623,7 +623,7 @@ public static partial class Opener
         var raw = input.Trim();
         if (raw.Length == 0) return new(OpenKind.Refused, "", "沒有說要開什麼");
         if (raw.Length > 2048) return new(OpenKind.Refused, "", "網址太長");
-        var text = raw.Normalize(NormalizationForm.FormKC);
+        var text = Titles.Wellformed(raw).Normalize(NormalizationForm.FormKC);   // 孤立的代理字元會讓 Normalize 丟例外
 
         // 先看是不是白名單的名字（整個字串就是名字，不能多帶東西）
         var key = Regex.Replace(text.ToLowerInvariant(), @"\s+", " ");
@@ -676,7 +676,7 @@ public static class Calculator
         value = 0;
         problem = "";
         if (expression.Length > 300) { problem = "算式太長"; return false; }
-        var text = expression.Normalize(NormalizationForm.FormKC)
+        var text = Titles.Wellformed(expression).Normalize(NormalizationForm.FormKC)
             .Replace('×', '*').Replace('÷', '/').Replace('−', '-').Replace("**", "^")
             .Replace("（", "(").Replace("）", ")");
         // 千分位的逗號拿掉：1,000 → 1000

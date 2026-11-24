@@ -37,6 +37,8 @@ public static partial class Untrusted
     /// </summary>
     public static string Scrub(string text)
     {
+        // 孤立的代理字元（網頁把標題設成 "\uD800"、剪貼簿被截在 emoji 中間）會讓 Normalize 丟例外、整輪問答失敗；送給模型的也該是完整的字
+        text = Shima.Lyrics.Titles.Wellformed(text);
         for (int i = 0; i < 20; i++)
         {
             var next = Marker().Replace(text, "");
