@@ -66,3 +66,12 @@ jobs:
       - name: 在沒有任何設定檔的機器上開起來
         run: ./tools/first-run.ps1 -Exe dist\Shima.exe
 
+      # main 上的這一個就是發佈用的執行檔：發出去的跟剛剛在乾淨的機器上開起來的是同一個檔案，不另外在別處打包
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'push'
+        with:
+          name: Shima
+          path: dist/Shima.exe
+          if-no-files-found: error
+          retention-days: 14
+
