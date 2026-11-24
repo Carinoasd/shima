@@ -45,3 +45,75 @@ public class DeckDoorTests
         Assert.Equal(3, checks);
     }
 }
+
+/// <summary>Stream Dock 的允許／拒絕只認外掛畫出來的那一則。</summary>
+public class DeckAnswerTests
+{
+    private const string Current = "A1B2C3D4E5F60718", Other = "0000000000000000";
+    private const long Fresh = DeckAnswer.Glance - 1, Seen = DeckAnswer.Glance;
+
+    [Theory]
+    // 識別碼對
+    [InlineData("allow", Current, Seen, true, DeckVerdict.Apply)]
+    [InlineData("allow", Current, Fresh, true, DeckVerdict.Ignore)]      // 剛出現：使用者不可能已經看完
+    [InlineData("allow", Current, Seen, false, DeckVerdict.Ignore)]      // 設定關掉
+    [InlineData("allow", Current, Fresh, false, DeckVerdict.Ignore)]
+    [InlineData("deny", Current, Seen, true, DeckVerdict.Apply)]
+    [InlineData("deny", Current, Fresh, true, DeckVerdict.Apply)]        // 拒絕不會造成傷害，不用等
+    [InlineData("deny", Current, Seen, false, DeckVerdict.Apply)]
+    [InlineData("deny", Current, Fresh, false, DeckVerdict.Apply)]
+    // 識別碼錯（外掛畫的是上一則）
+    [InlineData("allow", Other, Seen, true, DeckVerdict.Ignore)]
+    [InlineData("allow", Other, Fresh, true, DeckVerdict.Ignore)]
+    [InlineData("allow", Other, Seen, false, DeckVerdict.Ignore)]
+    [InlineData("allow", Other, Fresh, false, DeckVerdict.Ignore)]
+    [InlineData("deny", Other, Seen, true, DeckVerdict.Ignore)]
+    [InlineData("deny", Other, Fresh, true, DeckVerdict.Ignore)]
+    [InlineData("deny", Other, Seen, false, DeckVerdict.Ignore)]
+    [InlineData("deny", Other, Fresh, false, DeckVerdict.Ignore)]
+    [InlineData("allow", "-", Seen, true, DeckVerdict.Ignore)]           // 新版外掛還沒畫出任何一則
+    // 沒帶（舊版外掛）
+    [InlineData("allow", null, Seen, true, DeckVerdict.OldPlugin)]
+    [InlineData("allow", null, Fresh, true, DeckVerdict.OldPlugin)]
+    [InlineData("allow", "", Seen, true, DeckVerdict.OldPlugin)]
+    [InlineData("allow", null, Seen, false, DeckVerdict.Ignore)]
+    [InlineData("allow", null, Fresh, false, DeckVerdict.Ignore)]
+    [InlineData("deny", null, Seen, true, DeckVerdict.Apply)]
+    [InlineData("deny", null, Fresh, true, DeckVerdict.Apply)]
+    [InlineData("deny", null, Seen, false, DeckVerdict.Apply)]
+    [InlineData("deny", null, Fresh, false, DeckVerdict.Apply)]
+    [InlineData("deny", "", Seen, true, DeckVerdict.Apply)]
+    public void 允許要指名而且看過了_拒絕照舊(string action, string? id, long shownFor, bool allowOn, DeckVerdict expected) =>
+        Assert.Equal(expected, DeckAnswer.Judge(action, id, Current, shownFor, allowOn));
+
+    [Theory]
+    [InlineData("allow", Current)]
+    [InlineData("allow", null)]
+    [InlineData("deny", Current)]
+    [InlineData("deny", null)]
+    public void 沒有在問的時候什麼都不做(string action, string? id) =>
+        Assert.Equal(DeckVerdict.Ignore, DeckAnswer.Judge(action, id, null, 10_000, true));
+
+    [Fact]
+    public void 別的按鍵不會變成允許() =>
+        Assert.Equal(DeckVerdict.Ignore, DeckAnswer.Judge("playpause", Current, Current, 10_000, true));
+
+    [Fact]
+    public void 每一則請求的識別碼都不一樣()
+    {
+        PermissionRequest Ask() => new() { Project = "p", Tool = "Bash", Details = "ls" };
+        var a = Ask();
+        var b = Ask();
+        Assert.NotEqual(a.Id, b.Id);
+        Assert.Equal(16, a.Id.Length);
+        Assert.Equal(a.Id, a.Id);
+    }
+
+    [Fact]
+    public void 通知帶著識別碼()
+    {
+        var notice = new DeckNotice("ask", "Claude Code", "Bash  ls", "", "", false, Current);
+        Assert.Equal(Current, notice.Id);
+        Assert.Equal("", DeckNotice.None.Id);
+    }
+}

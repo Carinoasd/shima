@@ -58,8 +58,8 @@ public sealed record DeckState(Track? Track, LyricSheet? Sheet, IReadOnlyList<st
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource, byte[]> Encoded = [];
 }
 
-/// <summary>島上音樂以外的事，Stream Dock 的長條跟著插播。Kind：ask（Claude Code 要權限）、voice（語音助手）、toast（一句提示），或空字串。</summary>
-public sealed record DeckNotice(string Kind, string Title, string Text, string Timer, string Plan, bool Listening)
+/// <summary>島上音樂以外的事，Stream Dock 的長條跟著插播。Kind：ask（Claude Code 要權限）、voice（語音助手）、toast（一句提示），或空字串。Id：ask 時是那一則權限請求的識別碼。</summary>
+public sealed record DeckNotice(string Kind, string Title, string Text, string Timer, string Plan, bool Listening, string Id = "")
 {
     public static readonly DeckNotice None = new("", "", "", "", "", false);
 }

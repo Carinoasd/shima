@@ -19,6 +19,9 @@ public sealed class PermissionRequest
 {
     public const string Always = "always";
 
+    /// <summary>隨機的識別碼：Stream Dock 按允許時要指名是哪一則。</summary>
+    public string Id { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
+
     public required string Project { get; init; }
     /// <summary>哪一個 agent 在問。</summary>
     public AgentKind Agent { get; init; } = AgentKind.Claude;
@@ -93,8 +96,8 @@ public sealed class AgentBridge
     public bool DeckWatching => Environment.TickCount64 - Interlocked.Read(ref _deckSeen) < 5000;
     /// <summary>此刻的頻譜（低音到高音，每段 0–1）。</summary>
     public Func<int, float[]>? Bands;
-    /// <summary>Stream Dock 外掛按了按鍵：playpause、next、previous、allow、deny、ask、zone、mute。</summary>
-    public event Action<string>? DeckPressed;
+    /// <summary>Stream Dock 外掛按了按鍵：playpause、next、previous、allow、deny、ask、zone、mute；allow、deny 還帶著外掛畫出來的那一則權限請求的識別碼（舊版外掛不帶）。</summary>
+    public event Action<string, string?>? DeckPressed;
     /// <summary>Stream Dock 的旋鈕轉了幾格：volume、seek、shift、zone。</summary>
     public event Action<string, int>? DeckTurned;
 
@@ -323,7 +326,7 @@ public sealed class AgentBridge
                 Interlocked.Exchange(ref _deckSeen, Environment.TickCount64);
                 var now = deck.ToJson(query["have"] ?? "\0");
                 var notice = Notice;
-                now["notice"] = new JsonObject { ["kind"] = notice.Kind, ["title"] = notice.Title, ["text"] = notice.Text, ["listening"] = notice.Listening };
+                now["notice"] = new JsonObject { ["kind"] = notice.Kind, ["title"] = notice.Title, ["text"] = notice.Text, ["listening"] = notice.Listening, ["id"] = notice.Id };
                 now["timer"] = notice.Timer;
                 now["plan"] = notice.Plan;
                 now["level"] = Level?.Invoke() ?? -1;
@@ -344,7 +347,7 @@ public sealed class AgentBridge
                 else response.StatusCode = 404;
                 break;
             case "/deck/press" when query["do"] is "playpause" or "next" or "previous" or "allow" or "deny" or "ask" or "zone" or "mute":
-                DeckPressed?.Invoke(query["do"]!);
+                DeckPressed?.Invoke(query["do"]!, query["id"]);
                 response.StatusCode = 204;
                 break;
             case "/deck/turn" when query["what"] is "volume" or "seek" or "shift" or "zone" && int.TryParse(query["ticks"], out int ticks) && ticks != 0:
