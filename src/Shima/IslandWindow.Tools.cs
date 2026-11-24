@@ -30,6 +30,8 @@ public partial class IslandWindow
         {
             if (!Shelfable(e.Data)) return;
             _close.Stop();
+            // 「最近的通知」開著時暫存架藏在它後面：先收回去，才看得到要放的地方
+            if (_recentOpen) SetRecentOpen(false);
             TabTools.IsChecked = true;
             _expanded = true;
             ShowTab(Tab.Tools);
