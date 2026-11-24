@@ -95,20 +95,26 @@ public sealed record AiService(string Id, string Name, string BaseUrl, bool Need
     public static AiService Of(string id) => All.FirstOrDefault(s => s.Id == id) ?? All[0];
 
     /// <summary>
-    /// 自訂的網址能不能送：http:// 會把金鑰與對話用明文送出去，只給本機（localhost、127.0.0.0/8、::1）
-    /// 與區網的字面 IP（10/8、172.16/12、192.168/16、169.254/16）——在自己電腦或家裡另一台機器跑模型是常見的用法。
-    /// 其他的 http:// 一律不送。只看字面：「192.168.1.5.example.com」「127.0.0.1.nip.io」是網域名稱，不算。
+    /// 自訂的網址能不能送：http:// 會把金鑰與對話用明文送出去，只給本機與區網——在自己電腦、NAS 或家裡另一台機器跑模型是常見的用法：
+    /// localhost、沒有點的單一名稱（http://nas:11434）、.local／.lan／.home.arpa／.internal 結尾的名稱；
+    /// 127/8、10/8、172.16/12、192.168/16、169.254/16、Tailscale 的 100.64/10；IPv6 的 ::1、ULA（fc00::/7）、link-local（fe80::/10）。
+    /// 其他的 http:// 一律不送。IP 只看字面：「192.168.1.5.example.com」「127.0.0.1.nip.io」是公開的網域名稱，不算。
     /// https:// 與看不懂的網址照舊（看不懂的反正連不上）。
     /// </summary>
     public static bool Sendable(string url)
     {
         if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp) return true;
-        if (uri.HostNameType == UriHostNameType.Dns) return uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+        if (uri.HostNameType == UriHostNameType.Dns)
+        {
+            var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+            return host == "localhost" || host.Length > 0 && !host.Contains('.') ||
+                   new[] { ".local", ".lan", ".home.arpa", ".internal" }.Any(end => host.EndsWith(end, StringComparison.Ordinal) && host.Length > end.Length);
+        }
         if (!IPAddress.TryParse(uri.DnsSafeHost, out var ip)) return false;
         if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
-        if (IPAddress.IsLoopback(ip)) return true;
+        if (IPAddress.IsLoopback(ip) || ip.IsIPv6UniqueLocal || ip.IsIPv6LinkLocal) return true;
         var b = ip.GetAddressBytes();
-        return b.Length == 4 && (b[0] == 10 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254);
+        return b.Length == 4 && (b[0] == 10 || b[0] == 172 && b[1] is >= 16 and <= 31 || b[0] == 192 && b[1] == 168 || b[0] == 169 && b[1] == 254 || b[0] == 100 && b[1] is >= 64 and <= 127);
     }
 }
 
@@ -219,7 +225,7 @@ public static class Brain
         var url = service.Id == AiService.Custom ? s.AiCustomUrl.Trim().TrimEnd('/') : service.BaseUrl;
         if (url.Length == 0) { problem = L.T("先填 API 網址"); return null; }
         // 擋在建立之前：聊天、列出模型、翻譯歌詞都從這裡拿，一個請求都不會送出去
-        if (!AiService.Sendable(url)) { problem = L.T("http:// 只能用在本機或區網的 IP，其他網址請用 https://"); return null; }
+        if (!AiService.Sendable(url)) { problem = L.T("http:// 只能用在本機或區網，其他網址請用 https://"); return null; }
         if (model.Length == 0) { problem = L.T("先選模型"); return null; }
         return new OpenAiBrain(url, key, model, language, run);
     }

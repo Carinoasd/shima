@@ -124,29 +124,44 @@ public static class Updater
         finally { Interlocked.Exchange(ref _applying, 0); }
     }
 
+    /// <summary>下載時多久沒有收到任何資料就放棄。下載本身可以很久（慢的網路），但不能停住不動。</summary>
+    public static readonly TimeSpan Stalled = TimeSpan.FromSeconds(60);
+
     /// <summary>
     /// 下載到 <paramref name="path"/>，邊收邊算：超過 GitHub 回報的大小（<see cref="Release.Size"/>）就中止、刪掉暫存檔，回 false。
     /// 不能等寫完才比，不然對方（或中間人）送多大就寫多大到磁碟。網路錯誤照舊丟例外（暫存檔也會刪）。
+    /// 用 ResponseHeadersRead 時 HttpClient.Timeout 只管到收到標頭為止：之後 <paramref name="idle"/>（預設 <see cref="Stalled"/>）沒有收到任何資料，
+    /// 丟 TimeoutException，不然「正在更新」的狀態永遠不會結束。
     /// </summary>
-    public static async Task<bool> DownloadAsync(HttpClient http, Release release, string path)
+    public static async Task<bool> DownloadAsync(HttpClient http, Release release, string path, TimeSpan? idle = null)
     {
+        var patience = idle ?? Stalled;
+        using var quiet = new CancellationTokenSource();
         try
         {
             using var response = await http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength > release.Size) return false;
-            await using var from = await response.Content.ReadAsStreamAsync();
+            quiet.CancelAfter(patience);
+            await using var from = await response.Content.ReadAsStreamAsync(quiet.Token).WaitAsync(quiet.Token);
             await using var to = File.Create(path);
             var chunk = new byte[80 * 1024];
             long total = 0;
             int n;
-            while ((n = await from.ReadAsync(chunk)) > 0)
+            // 每次讀都另外用 WaitAsync 等：底下的串流不理會 token 的話也不會卡住
+            while ((n = await from.ReadAsync(chunk, quiet.Token).AsTask().WaitAsync(quiet.Token)) > 0)
             {
+                quiet.CancelAfter(patience);   // 有收到資料就重新計時
                 total += n;
                 if (total > release.Size) { to.Close(); TryDelete(path); return false; }
                 await to.WriteAsync(chunk.AsMemory(0, n));
             }
             return true;
+        }
+        catch (OperationCanceledException) when (quiet.IsCancellationRequested)
+        {
+            TryDelete(path);
+            throw new TimeoutException($"下載停住超過 {patience.TotalSeconds:0.#} 秒");
         }
         catch { TryDelete(path); throw; }
     }

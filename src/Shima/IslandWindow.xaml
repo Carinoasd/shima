@@ -320,10 +320,19 @@
               <Grid.RowDefinitions>
                 <RowDefinition Height="28"/>
                 <RowDefinition Height="8"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
               </Grid.RowDefinitions>
               <StackPanel x:Name="ChatSites" Orientation="Horizontal" HorizontalAlignment="Center"/>
-              <Border x:Name="ChatHost" Grid.Row="2" CornerRadius="12" Background="#1A1A1A"/>
+              <!-- 最上層的網頁離開了聊天網站自己的網域：島裡沒有網址列，這一列讓人看得到自己在哪裡 -->
+              <Border x:Name="ChatAway" Grid.Row="2" Height="30" Margin="0,0,0,8" CornerRadius="15" Background="#26FFFFFF" Padding="14,0,0,0" Visibility="Collapsed">
+                <DockPanel>
+                  <Button x:Name="ChatAwayOpen" DockPanel.Dock="Right" Style="{StaticResource Pill}" Background="Transparent" Padding="12,0"
+                          FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="13" Content="&#xE8A7;" ToolTip="在瀏覽器開啟" Click="ChatAwayOpen_Click"/>
+                  <TextBlock x:Name="ChatAwayHost" FontSize="13" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </DockPanel>
+              </Border>
+              <Border x:Name="ChatHost" Grid.Row="3" CornerRadius="12" Background="#1A1A1A"/>
             </Grid>
 
             <!-- AI：語音助手、API 金鑰、Claude Code -->
