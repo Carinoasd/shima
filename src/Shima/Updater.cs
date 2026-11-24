@@ -17,7 +17,7 @@ public static class Updater
 
     private static HttpClient Client()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5), MaxResponseContentBufferSize = 2 * 1024 * 1024 };   // 只管 releases/latest 的 JSON；安裝檔是邊收邊寫，另外用 release.Size 擋
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Shima");
         return http;
     }
