@@ -114,7 +114,7 @@ public sealed class SystemWatch : IDisposable
         catch { /* 沒有任何播放裝置 */ }
         CountOutputs();
 
-        if (_brightnessEvents == null || Environment.TickCount64 >= _brightnessDue) AskBrightness();
+        if (Volatile.Read(ref _brightnessEvents) == null || Environment.TickCount64 >= _brightnessDue) AskBrightness();
     }
 
     /// <summary>
@@ -123,14 +123,17 @@ public sealed class SystemWatch : IDisposable
     /// </summary>
     private void WatchBrightness()
     {
-        if (_brightnessEvents != null || _brightnessWatchFailed || _disposed) return;
+        if (Volatile.Read(ref _brightnessEvents) != null || _brightnessWatchFailed || _disposed) return;
         ManagementEventWatcher? watcher = null;
         try
         {
             watcher = new ManagementEventWatcher(new ManagementScope(@"root\wmi"), new EventQuery("SELECT * FROM WmiMonitorBrightnessEvent"));
             watcher.EventArrived += (_, _) => AskBrightness();
             watcher.Start();
-            _brightnessEvents = watcher;
+            // 「先存 watcher、再看 _disposed」跟 Dispose() 的「先設 _disposed、再取走 watcher」是兩邊各自「寫完再讀對方」：
+            // 一般的寫入不擋後面的讀取往前跑，兩邊可能都讀到舊值，watcher 就留著沒人關。
+            // Interlocked.Exchange 是完整屏障，寫入一定先被看見，兩邊至少有一邊會看到對方
+            Interlocked.Exchange(ref _brightnessEvents, watcher);
             if (_disposed) StopBrightnessEvents();
         }
         catch (Exception e)
@@ -158,7 +161,10 @@ public sealed class SystemWatch : IDisposable
     {
         if (!_hasBrightness || _disposed) return;
         _brightnessDue = Environment.TickCount64 + BrightnessSafetyMs;
-        if (Interlocked.CompareExchange(ref _askingBrightness, 1, 0) != 0) { _brightnessDirty = true; return; }
+        // 先留旗標、再搶「正在查」：反過來的話，搶輸之後、寫旗標之前，查的那一邊剛好歸零並讀到旗標還是 false，這次變化就漏了。
+        // 搶贏的話下面的迴圈一開始會把旗標清掉，不會多查
+        _brightnessDirty = true;
+        if (Interlocked.CompareExchange(ref _askingBrightness, 1, 0) != 0) return;
         _ = Task.Run(() =>
         {
             try
@@ -173,7 +179,8 @@ public sealed class SystemWatch : IDisposable
                 } while (_brightnessDirty && _hasBrightness && !_disposed);
             }
             catch (Exception e) { Log.Write("system (brightness): " + e.Message); }
-            finally { Volatile.Write(ref _askingBrightness, 0); }
+            // 用 Exchange 歸零：它的屏障讓下面讀旗標一定排在歸零之後，搭配上面「先寫旗標再搶」，不會兩邊都漏看對方
+            finally { Interlocked.Exchange(ref _askingBrightness, 0); }
             // 迴圈判斷完、旗標歸零之前剛好有事件進來：那時 CompareExchange 失敗、只留了 dirty，沒有人會再處理
             if (_brightnessDirty && _hasBrightness && !_disposed) AskBrightness();
         });
