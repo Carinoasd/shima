@@ -63,7 +63,9 @@ public partial class IslandWindow
         _webStarting = true;
         try
         {
-            var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "WebView2");
+            // 示範模式不能用真正的瀏覽器設定檔：裡面有登入的 cookie，兩份 Shima 同時開還會搶同一個設定檔的鎖
+            var data = Demo.On ? Path.Combine(AppSettings.Folder, "WebView2")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(null, data);
             var web = new WebView2CompositionControl();
             _chatFrame.Children.Add(web);   // 隔一層反向縮放，島的大小不是 100% 時瀏覽器才清楚（IslandWindow.Scale.cs）
