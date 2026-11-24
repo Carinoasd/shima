@@ -303,6 +303,12 @@ public partial class IslandWindow
                 LyricsList.Show(null, null);
                 Snap(); UpdateTexts();
                 await Save(folder, "c-furigana");
+                // 大字被截成「…」：把歌詞區縮窄，被截掉的漢字上方不該有讀音
+                LyricsList.MaxWidth = 100;
+                LyricsList.Show(null, null);
+                Snap(); UpdateTexts();
+                await Save(folder, "c-furigana-cut");
+                LyricsList.ClearValue(FrameworkElement.MaxWidthProperty);
                 AppSettings.Current.LyricsSecondLine = second;
                 Refresh();
             }

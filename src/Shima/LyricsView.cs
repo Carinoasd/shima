@@ -87,6 +87,7 @@ public sealed class LyricsView : FrameworkElement
         _sub = new FormattedText?[n];
         _prefixes = new double[]?[n];
         _japanese = sheet?.Lines.Any(l => Fonts.HasKana(l.Text)) == true;
+        _ellipsis = -1;
         _index = int.MinValue;
         Follow(jump: true);
         InvalidateVisual();
@@ -287,6 +288,8 @@ public sealed class LyricsView : FrameworkElement
     {
         if (_ruby is not { } ruby || i >= ruby.Lines.Count || ruby.Lines[i] is not { } pieces) return [];
         var prefixes = Prefixes(i);
+        // 大字被截成「…」時，結尾那段寬度是省略號的，落在裡面的漢字已經看不到，不能標讀音
+        double limit = prefixes[^1] > width + 0.5 ? width - Ellipsis() : width;
         var laid = new List<(FormattedText, double)>();
         double right = double.NegativeInfinity;
         int at = 0;
@@ -294,7 +297,7 @@ public sealed class LyricsView : FrameworkElement
         {
             int from = at, to = Math.Min(at + piece.Text.Length, prefixes.Length - 1);
             at += piece.Text.Length;
-            if (piece.Reading is not { Length: > 0 } reading || to <= from || prefixes[to] > width + 0.5) continue;
+            if (piece.Reading is not { Length: > 0 } reading || to <= from || prefixes[to] > limit + 0.5) continue;
             var text = Text(reading, RubySize, FontWeights.Normal, true);
             text.SetForegroundBrush(RubyFill);
             double w = text.WidthIncludingTrailingWhitespace, rx = (prefixes[from] + prefixes[to] - w) / 2;
@@ -304,6 +307,11 @@ public sealed class LyricsView : FrameworkElement
         }
         return [.. laid];
     }
+
+    private double _ellipsis = -1;
+
+    /// <summary>大字（同一個字型與大小）的「…」寬度；換歌詞時重量。</summary>
+    private double Ellipsis() => _ellipsis >= 0 ? _ellipsis : _ellipsis = Text("…", 16, FontWeights.SemiBold, _japanese).WidthIncludingTrailingWhitespace;
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
