@@ -306,6 +306,19 @@ public partial class IslandWindow
                 AppSettings.Current.LyricsSecondLine = second;
                 Refresh();
             }
+            // 待辦拖曳時的插入線：暫時把第二列上緣的線打開，拍完重建回來
+            if (Demo.On && TodoBox.Children.Count > 1)
+            {
+                _expanded = true;
+                TabTools.IsChecked = true;
+                _tab = Tab.Tools;
+                RefreshTools();
+                if (TodoBox.Children[1] is System.Windows.Controls.Grid row && row.Children.OfType<System.Windows.Shapes.Rectangle>().FirstOrDefault() is { } line)
+                    line.Visibility = Visibility.Visible;
+                Snap();
+                await Save(folder, "c-todo-drag");
+                RefreshTools();
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

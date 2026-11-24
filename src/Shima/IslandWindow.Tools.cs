@@ -124,6 +124,7 @@ public partial class IslandWindow
         {
             var line = new System.Windows.Shapes.Rectangle { Height = 2, Fill = DropLine, RadiusX = 1, RadiusY = 1, VerticalAlignment = where, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
             System.Windows.Controls.Panel.SetZIndex(line, 5);
+            Grid.SetColumnSpan(line, 2);   // 不跨欄的話線只會出現在左邊 28 像素的勾選框上
             lines.Add(line);
             return line;
         }
