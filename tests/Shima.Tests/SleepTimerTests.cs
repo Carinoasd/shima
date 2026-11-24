@@ -122,8 +122,9 @@ public class SleepTimerTests
         var timer = new SleepTimer();
         timer.AfterTrack("a\nb", S(200));
         Assert.False(timer.Tick(T0, "a\nb", S(239), Len, true));
-        // 清單的最後一首：停在結尾，沒有下一首
+        // 清單的最後一首：停在結尾，沒有下一首（先等一下看是不是換歌的空檔）
         Assert.False(timer.Tick(T0.AddSeconds(2), "a\nb", Len, Len, false));
+        Assert.False(timer.Tick(T0.AddSeconds(2) + SleepTimer.Grace, "a\nb", Len, Len, false));
         Assert.Equal(SleepMode.Off, timer.Mode);
         // 幾個小時後重播同一首
         Assert.False(timer.Tick(T0.AddHours(3), "a\nb", S(0), Len, true));

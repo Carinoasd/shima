@@ -30,6 +30,23 @@ public partial class IslandWindow
     {
         var menu = new ContextMenu { PlacementTarget = SleepButton, Placement = PlacementMode.Top };
         FillSleepMenu(menu.Items);
+        OpenButtonMenu(menu);
+    }
+
+    /// <summary>
+    /// 按鈕開出來的選單（睡眠定時、播放裝置）不是 Host.ContextMenu：選單拿走滑鼠後 Host.IsMouseOver 變 false，
+    /// 記下來讓 _close 在它開著的時候不收起島；關掉時滑鼠已經不在島上，就照常收起來。
+    /// </summary>
+    private ContextMenu? _buttonMenu;
+
+    private void OpenButtonMenu(ContextMenu menu)
+    {
+        _buttonMenu = menu;
+        menu.Closed += (_, _) =>
+        {
+            if (_buttonMenu == menu) _buttonMenu = null;
+            if (_expanded && !Host.IsMouseOver) _close.Start();
+        };
         menu.IsOpen = true;
     }
 
@@ -64,7 +81,7 @@ public partial class IslandWindow
     private bool StartSleepAfterTrack()
     {
         var track = _track;
-        if (!_sleep.AfterTrack(track == null ? null : SleepTimer.KeyOf(track.Title, track.Artist), track?.Now ?? default))
+        if (!_sleep.AfterTrack(track == null ? null : SleepTimer.KeyOf(track.Title, track.Artist), track?.Now ?? default, track?.Duration ?? default, track?.Playing == true))
         {
             Toast(L.T("沒有正在播放的音樂"), 2.5, cheer: false);
             return false;
@@ -86,7 +103,7 @@ public partial class IslandWindow
         var track = _track;
         bool playing = track?.Playing == true;
         var key = track == null ? null : SleepTimer.KeyOf(track.Title, track.Artist);
-        if (_sleep.Tick(DateTime.Now, key, track?.Now ?? default, track?.Duration ?? default, playing))
+        if (_sleep.Tick(DateTime.Now, key, track?.Now ?? default, track?.Duration ?? default, playing, () => _media.AnyPlaying))
         {
             _media.PauseAll();
             Toast(L.T("睡眠定時：已暫停播放"), 4, cheer: false);
