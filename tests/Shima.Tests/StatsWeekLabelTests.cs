@@ -48,4 +48,29 @@ public class StatsWeekLabelTests
     {
         Assert.Equal("11月2日 – 11月8日", Stats.Label(StatsPeriod.Week, new DateTime(2025, 11, 2), CultureInfo.GetCultureInfo("zh-TW")));
     }
+
+    [Theory]
+    [InlineData("en-US", "9/21 – 9/27")]
+    [InlineData("es-ES", "21/9 – 27/9")]
+    [InlineData("de-DE", "21.09 – 27.09")]
+    [InlineData("zh-TW", "9月21日 – 9月27日")]
+    [InlineData("ja-JP", "9月21日 – 9月27日")]
+    public void 九月的週今年不帶年份(string name, string expected)
+    {
+        var label = Stats.Label(StatsPeriod.Week, new DateTime(2026, 9, 21), CultureInfo.GetCultureInfo(name), Now);
+        Assert.DoesNotContain("2026", label);
+        Assert.Equal(expected, label);
+    }
+
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("es-ES")]
+    [InlineData("de-DE")]
+    [InlineData("zh-TW")]
+    [InlineData("ja-JP")]
+    public void 九月的週去年帶年份(string name)
+    {
+        var label = Stats.Label(StatsPeriod.Week, new DateTime(2025, 9, 22), CultureInfo.GetCultureInfo(name), Now);
+        Assert.Contains("2025", label);
+    }
 }
