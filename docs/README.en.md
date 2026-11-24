@@ -90,13 +90,13 @@ This publishes a single executable, installs it to `%LOCALAPPDATA%\Shima\Shima.e
 
 Open the island → the microphone tab.
 
-**Claude Code**: Connect adds four hooks to Claude Code's `settings.json` (one for Windows, one for the default WSL distribution). They only use `curl.exe` to send events to `localhost:47813`, which Shima listens on. Disconnect removes them and leaves everything else alone. Before the first change a copy is kept as `settings.json.before-shima.bak`. When Shima is not running, or the island is hidden behind a full-screen app, Claude Code asks in the terminal as usual.
+**Claude Code**: Connect adds four hooks to Claude Code's `settings.json` (one for Windows, one for the default WSL distribution). They only use `curl.exe` to send events to `localhost:47813`, which Shima listens on. Disconnect removes them and leaves everything else alone. Before the first change a copy is kept as `settings.json.before-shima.bak`. When Shima is not running, or the island is hidden behind a full-screen app, Claude Code asks in the terminal as usual. The bridge only accepts requests that come from this computer and are addressed to `localhost`; if another program already holds port `47813` the island says so, and Claude Code's requests do not reach Shima. Each agent can have at most 8 permission requests waiting on the island; further ones go back to the terminal.
 
 **Other agents**: Codex CLI uses `~/.codex/hooks.json`; after connecting, run `/hooks` in Codex and trust Shima's hook for it to take effect. Gemini CLI uses `~/.gemini/settings.json`; its hooks cannot approve on your behalf, so only status and completion are shown. Each agent has its own key that only opens its own URLs, and "Always allow" applies to Claude Code only. A `.before-shima.bak` copy is kept before the first change here too.
 
 **Last.fm**: fill in your own API key and shared secret (from last.fm/api) under Settings → Music and press Connect to authorise in the browser. Once connected, the title, artist, album, duration and start time of what you play are sent to ws.audioscrobbler.com. The shared secret and session key are stored encrypted with Windows DPAPI.
 
-**Ask an AI**: pick a service, paste that provider's API key (stored encrypted with Windows DPAPI, readable only by your Windows account), then press the model button and choose from the list that provider actually offers. After that, type in the box, or press the microphone and speak: one question, and it stops after answering; it listens once more only when it asks you something back. The conversation goes to the provider you chose and is billed by them.
+**Ask an AI**: pick a service, paste that provider's API key (stored encrypted with Windows DPAPI, readable only by your Windows account), then press the model button and choose from the list that provider actually offers. After that, type in the box, or press the microphone and speak: one question, and it stops after answering; it listens once more only when it asks you something back. What you say, and what the assistant gets back from its tools (the current track and its full lyrics, to-dos and reminders, the place name for the weather, clipboard text you ask it to read), goes to the provider you chose and is billed by them. Titles, lyrics and other outside text are handed to the model marked as data, but a model can still be swayed by instructions hidden in them, so before the assistant opens an address outside a built-in list of common sites, the island shows the full URL and waits for you to press Open. "Explain this line" and "Translate with AI" run without any tools.
 
 Speech is recognised on your own computer with [Whisper](https://github.com/ggerganov/whisper.cpp) by default: no Windows setting to turn on, no language pack to install, the audio never leaves the machine, and Chinese, Japanese, English and many more are understood. The first use downloads a model (about 150 MB) to `%LOCALAPPDATA%\Shima\models` and creates a `runtimes` folder next to the executable for the recognition libraries. Windows dictation can be chosen in Settings instead; it needs "Online speech recognition" turned on in Windows and the speech pack for your language. Answers are read aloud with the voices built into Windows.
 
@@ -136,9 +136,11 @@ The four cells share one blurred cover as their backdrop; the spectrum along the
 
 The strip follows the island: when Claude Code asks for permission it shows the tool and its input with allow and deny buttons on the right; the voice assistant, Claude Code progress, message notifications and the water reminder show up too.
 
-The plugin only talks to Shima on `localhost:47813`, with a token written into the plugin folder at install time. Any player Shima can read (Roon, Spotify, browsers…) shows up. The strip layout has only been checked on an N4 Pro.
+The plugin only talks to Shima on `localhost:47813`, with a key of its own: it exists only while the Stream Dock switch is on (turning the switch off deletes it) and is written into the plugin folder at install time. Allow on a key only applies to the request shown on that key or strip, and only once the request has been on the island for 0.6 s; requests allowed from the Stream Dock are listed under recent notifications. After updating Shima, restart Stream Dock before using it to allow. "Allow from Stream Dock" in Settings can be switched off, which leaves only Deny working. Any player Shima can read (Roon, Spotify, browsers…) shows up. The strip layout has only been checked on an N4 Pro.
 
 **Always allow**: this button on a permission request remembers "tool + the first two words of the command" (for example `git status`) and auto-allows the same request in the same project folder from then on. It is a convenience, **not a security boundary**: Shima refuses the forms it can recognise as dangerous (chained commands, `=`, dangerous flags, paths that leave the project or point into `.claude` / `.git` / `.env`; commands such as `bash`, `python` and `sed` cannot be remembered), but it cannot promise to catch everything, and it cannot see symlinks that point outside the project. Do not use it in projects you do not trust, and be especially careful about remembering both `Edit` and commands that run project files such as `npm run` or `make`. Rules live in `%APPDATA%\Shima\agent-rules.json`; delete the file to start over.
+
+**What the keys protect against**: the hooks and the Stream Dock plugin each use a random key (`%APPDATA%\Shima\*.token`). They keep out other computers and web pages in a browser. They do not keep out three things: other programs running under the same Windows account, which can read the key files; other Linux accounts in a WSL distribution where the hook is installed, which can read the key in `~/.claude/settings.json`; and a program that takes port `47813` while Shima is not running, which then receives whatever the hooks send. Keep that in mind on a computer you share.
 
 ## Settings
 
@@ -154,6 +156,7 @@ The plugin only talks to Shima on `localhost:47813`, with a token written into t
 | `Language` | empty | `zh-TW`, `zh-CN`, `en`, `ja`, `ko`, `es`, `fr`, `de`, `pt`, `it`, `ru`; empty follows Windows |
 | `Water` / `WaterMinutes` | `false` / `60` | Water reminder |
 | `SystemStatus` | `true` | Show volume, battery, network changes |
+| `DeckAllow` | `true` | Whether the Stream Dock may press Allow; when off, only Deny works |
 | `Character` | `claude` | `claude`, `eyes`, `cat`, `ghost`, `none` |
 | `AudioReactive` | `true` | Capture what the computer plays so the character and bars move with it |
 | `LyricsSecondLine` | `translation` | `translation`, `romaji`, `furigana` (needs the Japanese IME), `none` |
@@ -167,12 +170,23 @@ The plugin only talks to Shima on `localhost:47813`, with a token written into t
 | `VoiceContinuous` | `false` | Keep the conversation going after one press of the microphone until you press again. By default it is one question, one answer; not recommended while speakers are playing music, because the microphone takes the song for speech |
 | `AiService` | `claude` | Which provider answers: `claude`, `openai`, `gemini`, `deepseek`, `xai`, `mistral`, `groq`, `openrouter`, `ollama`, `custom` |
 | `AiModels` | `{}` | The model chosen for each provider |
-| `AiCustomUrl` | empty | API URL when `custom` is chosen |
+| `AiCustomUrl` | empty | API URL when `custom` is chosen; `http://` is only accepted for this computer or a LAN IP, anything else needs `https://` |
 | `VoiceLanguage` | empty | Language the voice assistant listens and speaks in; empty follows the interface language |
 
 Put your own lyrics in `%APPDATA%\Shima\lyrics`, named `Title.lrc`, `Artist - Title.lrc` or `01 Title.lrc`.
 
-Looking up lyrics sends the title and artist to lrclib.net, music.163.com, y.qq.com and kugou.com (whichever sources are on); with Discord covers on, the title, artist and album go to itunes.apple.com.
+What leaves this computer:
+
+- **Lyrics lookup**: title and artist go to lrclib.net, music.163.com, y.qq.com and kugou.com (whichever sources are on; Kugou also gets the track length), all over HTTPS
+- **ListenBrainz** (only with a token): title, artist, album, length, the player's name and the time playback started go to listenbrainz.org; "now playing" is sent as soon as a track starts, the actual listen once enough of it was heard
+- **Last.fm** (once connected): title, artist, album, length and start time go to ws.audioscrobbler.com
+- **Discord status** (only with an Application ID): the title, artist, album and progress of whatever is playing appear on your Discord profile, video titles from a browser tab included; with Discord covers on, title, artist and album go to itunes.apple.com to find the artwork
+- **Ask an AI**: see the AI section above. Weather questions send the place name to open-meteo.com
+- **Speech recognition**: happens on this computer, and the model is downloaded from huggingface.co on first use; with Windows dictation instead, audio goes through Windows' online speech recognition
+- **Chat tab**: it is claude.ai, gemini.google.com or chatgpt.com itself; what you do there is between you and them
+- **Updates**: only the latest version number of this project is requested from api.github.com, with no data attached. The update is downloaded from this project's GitHub Releases and checked against the size and SHA-256 that GitHub reports: that catches a download altered on the way, not a compromised GitHub account; the executable is not code-signed
+
+Listening history, to-dos, reminders, saved lines and recent notifications stay on this computer.
 
 For the Discord status, create an application in the [Developer Portal](https://discord.com/developers/applications) (its name is what "Listening to ___" shows) and put its Application ID in `DiscordClientId`.
 

@@ -94,11 +94,13 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 展開島 → 麥克風分頁。
 
-**Claude Code**：按「連接」會在 Claude Code 的 `settings.json`（Windows 與預設的 WSL 發行版各一份）加上四個 hook，只是用 `curl.exe` 把事件送到 Shima 開在本機的 `localhost:47813`；按「中斷」會拿掉，其他設定不動。第一次更動前會留一份 `settings.json.before-shima.bak`。Shima 沒開、或島因為全螢幕藏起來時，Claude Code 照常在終端機詢問。
+**Claude Code**：按「連接」會在 Claude Code 的 `settings.json`（Windows 與預設的 WSL 發行版各一份）加上四個 hook，只是用 `curl.exe` 把事件送到 Shima 開在本機的 `localhost:47813`；按「中斷」會拿掉，其他設定不動。第一次更動前會留一份 `settings.json.before-shima.bak`。Shima 沒開、或島因為全螢幕藏起來時，Claude Code 照常在終端機詢問。橋接只收這台電腦送來、而且是連到 `localhost` 的請求；`47813` 被別的程式佔住時島上會提示，這時 Claude Code 的請求不會送到 Shima。每個 agent 同時最多 8 則權限請求在島上等，再多的回終端機問。
 
 **以後都允許**：權限請求上的這顆按鈕會記住「工具＋指令的前兩個字」（例如 `git status`），之後在同一個專案資料夾裡相同的請求自動允許。它是省掉重複點按的便利功能，**不是安全邊界**：Shima 會擋掉看得出危險的寫法（串接指令、`=`、危險旗標、跑出專案或指到 `.claude`／`.git`／`.env` 的路徑；`bash`、`python`、`sed` 這類指令不給記），但沒辦法保證擋得完，也看不出專案裡指向外面的捷徑。不信任的專案請不要用，同時記住 `Edit` 與 `npm run`、`make` 這類會執行專案檔案的指令時尤其要小心。規則存在 `%APPDATA%\Shima\agent-rules.json`，刪掉就全部重來。
 
-**問 AI**：先選服務，貼上那一家的 API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），再按模型的按鈕從那一家實際提供的清單裡選一個。之後在輸入框打字，或按麥克風用說的：問一句，它回答完就結束；它反過來問你問題時會再聽一次。對話內容送到你選的那一家，費用由那一家計算。
+**金鑰擋得住什麼**：hook 與 Stream Dock 各用一把隨機的金鑰（`%APPDATA%\Shima\*.token`），擋的是別台電腦與瀏覽器裡的網頁。擋不了的有三種：這個 Windows 帳號底下的其他程式讀得到金鑰檔；裝了 hook 的 WSL 發行版裡，其他 Linux 帳號讀得到 `~/.claude/settings.json` 裡的那一把；hook 只認 `localhost:47813`，Shima 沒開的時候如果有別的程式佔了這個埠，hook 送的內容會落到它手上。跟別人共用的電腦請留意。
+
+**問 AI**：先選服務，貼上那一家的 API 金鑰（用 Windows DPAPI 加密保存，只有這個 Windows 帳號解得開），再按模型的按鈕從那一家實際提供的清單裡選一個。之後在輸入框打字，或按麥克風用說的：問一句，它回答完就結束；它反過來問你問題時會再聽一次。你說的話，以及助手用工具拿到的結果（正在播的歌與整份歌詞、待辦與提醒、查天氣的地名、你要它讀的剪貼簿文字），會送到你選的那一家，費用由那一家計算。歌名、歌詞這些外來的文字會標成資料才交給模型，但模型不保證不受裡面夾帶的指示影響，所以助手要開「常用網站」以外的網址時，島上會先顯示完整的網址，按「開啟」才會開。「解釋這句歌詞」與「用 AI 翻譯」不帶任何工具。
 
 **其他 agent**：Codex CLI 用 `~/.codex/hooks.json`，連接後要在 Codex 輸入 `/hooks` 信任 Shima 的 hook 才會生效；Gemini CLI 用 `~/.gemini/settings.json`，它的 hook 不能替人允許，所以只有狀態與完成通知。每個 agent 各用一把金鑰，只進得了自己的網址；「以後都允許」只適用於 Claude Code。第一次更動前同樣會留一份 `.before-shima.bak`。
 
@@ -140,7 +142,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 
 長條會跟著島插播：Claude Code 要權限時顯示工具與內容，右邊兩顆按鈕是允許、拒絕；語音助手在聽與回答、Claude Code 的進度、訊息通知、喝水提醒也會顯示。
 
-外掛只跟 Shima 開在本機的 `localhost:47813` 說話，用的 token 在安裝時寫進外掛資料夾。Shima 讀得到的播放器（Roon、Spotify、瀏覽器…）都會顯示。長條的版面只在 N4 Pro 上看過。
+外掛只跟 Shima 開在本機的 `localhost:47813` 說話，用的是另一把金鑰：只在 Stream Dock 開關開著時存在，關掉就刪除，安裝時寫進外掛資料夾。按鍵上的「允許」只對按鍵或長條上顯示的那一則有效，而且那一則要在島上出現 0.6 秒以上；由 Stream Dock 允許的請求會記在「最近的通知」。更新 Shima 之後要重新啟動 Stream Dock，才能用它按允許。設定裡可以關掉「Stream Dock 可以按允許」，關掉後只剩拒絕有用。Shima 讀得到的播放器（Roon、Spotify、瀏覽器…）都會顯示。長條的版面只在 N4 Pro 上看過。
 
 ## 設定
 
@@ -156,6 +158,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `Language` | 空 | 介面語言：`zh-TW`、`zh-CN`、`en`、`ja`、`ko`、`es`、`fr`、`de`、`pt`、`it`、`ru`；留空跟著 Windows |
 | `Water` / `WaterMinutes` | `false` / `60` | 喝水提醒 |
 | `SystemStatus` | `true` | 顯示音量、電量、網路等變化 |
+| `DeckAllow` | `true` | Stream Dock 可以按「允許」；關掉後只有拒絕有用 |
 | `RoonSearch` | `false` | Roon 的搜尋；打開後要到 Roon 重新啟用 Shima 一次 |
 | `Opacity` / `AccentMode` | `1` / `cover` | 底色的不透明度（0.55–1）；強調色 `cover`（跟著封面）、`white`、`clay`、`sky`、`mint`、`sakura`、`lavender`、`lemon`、`custom`（用 `AccentCustom` 的 `#RRGGBB`） |
 | `PillProgress` / `LyricsLines` | `false` / `5` | 膠囊底邊的進度線；音樂分頁的歌詞行數（3、5、7） |
@@ -164,7 +167,7 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `FullscreenToast` | `true` | 全螢幕時的換歌提示 |
 | `History` | `true` | 聆聽紀錄 |
 | `HistoryExcluded` | `[]` | 不算聆聽的來源，例如 `["Chrome"]` |
-| `ListenBrainzToken` | 空 | 填了就把聽過的歌回報到 ListenBrainz |
+| `ListenBrainzToken` | 空 | 填了就把聽過的歌回報到 ListenBrainz；加密保存，請從設定頁填 |
 | `LastFmApiKey` | 空 | 自己到 last.fm/api 申請的 API key；Shared secret 與授權後的 session key 加密存在 `LastFmSecret`、`LastFmSession`，請從設定頁填與連接 |
 | `WakeWord` | `false` | 說「Shima」就開始聽；麥克風會一直開著，放音樂時可能誤觸 |
 | `HotkeyToggle` / `HotkeyAsk` | 空 | 展開／收起與問 AI 的快速鍵，例如 `Ctrl+Alt+Space`；留空用預設 |
@@ -182,12 +185,23 @@ Windows 螢幕頂端的一座小島：顯示正在播放的音樂、同步歌詞
 | `VoiceContinuous` | `false` | 按一次麥克風就一直對話到再按一次。預設是問一句答一句；喇叭在放音樂時不建議開，麥克風會把歌聲當成有人講話 |
 | `AiService` | `claude` | 問 AI 用哪一家：`claude`、`openai`、`gemini`、`deepseek`、`xai`、`mistral`、`groq`、`openrouter`、`qwen`、`zhipu`、`moonshot`、`doubao`、`qianfan`、`hunyuan`、`minimax`、`stepfun`、`siliconflow`（有國際站的加 `-intl`）、`ollama`、`custom` |
 | `AiModels` | `{}` | 每一家選的模型 |
-| `AiCustomUrl` | 空 | 選 `custom` 時的 API 網址 |
+| `AiCustomUrl` | 空 | 選 `custom` 時的 API 網址；`http://` 只接受這台電腦或區網的 IP，其他要用 `https://` |
 | `VoiceLanguage` | 空 | 語音助手聽與說的語言；留空跟著介面語言 |
 
 自己的歌詞放在 `%APPDATA%\Shima\lyrics`，檔名用 `歌名.lrc`、`藝人 - 歌名.lrc` 或 `01 歌名.lrc`。
 
-問天氣時地名會送到 open-meteo.com；填了 ListenBrainz 的 token 才會把歌名與藝人送到 listenbrainz.org；連接 Last.fm 後，歌名、藝人、專輯、長度與開始播放的時間會送到 ws.audioscrobbler.com。檢查新版時只會向 api.github.com 詢問這個專案最新的版本號，不帶任何資料。查歌詞時，歌名與藝人會送到 lrclib.net、music.163.com、y.qq.com 與 kugou.com（看開了哪些來源）；開啟 Discord 封面時，歌名、藝人、專輯會送到 itunes.apple.com。
+會送出這台電腦的資料：
+
+- **查歌詞**：歌名與藝人送到 lrclib.net、music.163.com、y.qq.com 與 kugou.com（看開了哪些來源；酷狗另外會送歌的長度），全部走 HTTPS
+- **ListenBrainz**（填了 token 才有）：歌名、藝人、專輯、長度、來源程式與開始播放的時間送到 listenbrainz.org；一開始播就送「正在播放」，聽夠了才送正式的紀錄
+- **Last.fm**（連接後）：歌名、藝人、專輯、長度與開始播放的時間送到 ws.audioscrobbler.com
+- **Discord 狀態**（填了 Application ID 才有）：正在播的歌名、藝人、專輯與進度會顯示在你的 Discord 個人狀態上，瀏覽器分頁裡的影片標題也算；開啟「Discord 顯示封面」時，歌名、藝人、專輯會送到 itunes.apple.com 查封面
+- **問 AI**：見上面「AI」一節。問天氣時地名會送到 open-meteo.com
+- **語音辨識**：在這台電腦上進行，第一次使用時從 huggingface.co 下載模型；改用 Windows 的聽寫時，聲音會交給 Windows 的線上語音辨識
+- **聊天分頁**：就是 claude.ai、gemini.google.com、chatgpt.com 這三個網站本身，在裡面做的事由它們各自處理
+- **檢查新版**：只向 api.github.com 詢問這個專案最新的版本號，不帶任何資料。更新檔從這個專案的 GitHub Releases 下載，並核對 GitHub 回報的大小與 SHA-256：擋得住下載途中被換掉，擋不住 GitHub 帳號本身被盜用；執行檔沒有程式碼簽章
+
+聆聽紀錄、待辦、提醒、收藏的歌詞、最近的通知都只存在這台電腦。
 
 Discord 狀態要先到 [Developer Portal](https://discord.com/developers/applications) 建立一個應用程式（名稱就是「正在聽 ___」顯示的字），把 Application ID 填進 `DiscordClientId`。
 
