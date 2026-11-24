@@ -266,4 +266,26 @@ public class CommandsTests
         Assert.DoesNotContain("/下一首", chinese);
         Assert.Equal(Commands.All.Count, plain.Split('\n').Length);
     }
+
+    // Roon 的音量多半是 DAC／擴大機的音量：設到百分之幾時，往上一次最多走全程的一成
+    [Theory]
+    [InlineData(20, 0, 100, 1, 30, 30.0)]      // 一成以內：照設
+    [InlineData(20, 0, 100, 1, 100, 30.0)]     // 打錯成 100：只往上 10
+    [InlineData(20, 0, 100, 1, 5, 5.0)]        // 往下不限制
+    [InlineData(-40, -80, 0, 1, 100, -32.0)]   // dB：全程 80，一次最多 +8
+    [InlineData(-40, -80, 0, 1, 55, -36.0)]
+    [InlineData(-40, -80, 0, 1, 0, -80.0)]
+    [InlineData(20, 0, 100, 5, 33, 30.0)]      // 對齊刻度（33% → 35），再受一成的限制
+    [InlineData(98, 0, 100, 1, 100, 100.0)]    // 不會超過上限
+    [InlineData(20, 0, 100, 1, 999, 30.0)]     // 超出範圍的百分比先收進 0–100
+    public void Roon設定音量_往上一次最多一成(double current, double min, double max, double step, int percent, double expected) =>
+        Assert.Equal(expected, Shima.Playback.RoonSource.VolumeTarget(current, min, max, step, percent));
+
+    [Theory]
+    [InlineData(0, 0, 0, 1)]       // 只能加減的輸出沒有上下限
+    [InlineData(0, 10, 5, 1)]
+    [InlineData(0, 0, 100, 0)]
+    [InlineData(0, double.NaN, 100, 1)]
+    public void Roon設定音量_上下限不成立就不設(double current, double min, double max, double step) =>
+        Assert.Null(Shima.Playback.RoonSource.VolumeTarget(current, min, max, step, 50));
 }
