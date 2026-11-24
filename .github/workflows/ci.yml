@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      PYTHONUTF8: 1
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # 介面上的每一句都要有 11 種語言的翻譯
+      - name: 翻譯表
+        run: python tools/strings.py
+
+      # strings.tsv 是產生出來的，要跟著 strings.py 一起提交
+      - name: 翻譯表有一起提交
+        run: git diff --exit-code -- src/Shima/Assets/strings.tsv
+
+      # 套件的安全性通告不算在這裡：那不是這次改動造成的，不該擋住不相干的 PR
+      - name: 建置
+        run: dotnet build src/Shima/Shima.csproj -c Release -warnaserror -p:NuGetAudit=false
+
+      - name: 測試
+        run: dotnet test tests/Shima.Tests/Shima.Tests.csproj -c Release
+
+  # 單元測試碰不到「整個程式在一台全新的電腦上啟動」這一段：照發佈的方式打包，實際開一次
+  first-run:
+    name: 第一次啟動
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: 打包（跟 install.sh 一樣）
+        run: >
+          dotnet publish src/Shima/Shima.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
+          -p:DebugType=none -p:NuGetAudit=false -o dist
+
+      - name: 在沒有任何設定檔的機器上開起來
+        run: ./tools/first-run.ps1 -Exe dist\Shima.exe
+
