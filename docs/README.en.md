@@ -25,7 +25,7 @@ A small island at the top of your Windows screen: it shows what is playing with 
 
 - **Live lyrics**: the whole text scrolls smoothly, the line being sung is larger and a light runs across it as it is sung; click any line to jump there
 - **Fixing lyrics**: when the wrong text was found, switch to another source or shift it 0.1 s earlier or later; remembered per song (right-click → Lyrics for this song)
-- **Second line**: a Chinese translation or romaji under Japanese songs (right-click → Second lyrics line)
+- **Second line**: a Chinese translation or romaji under Japanese songs (right-click → Second lyrics line). "Furigana" instead puts hiragana readings above the kanji of the line being sung, and makes the second line of the desktop lyrics the whole line in hiragana. Readings come from the Japanese IME that ships with Windows, computed on this PC with no network; the option only appears when the Japanese language is installed
 - **Character**: lives in the pill and moves to the actual sound (right-click → Character). The default is a pixel Claude, a homage to the Claude Code mascot, animated frame by frame like a GIF
 - **Reacts to sound**: the level bars and the character follow what your computer is really playing; the light and the progress bar take their colour from the cover
 - **Discord status**: the song, cover and progress on your profile
@@ -38,20 +38,22 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **Claude Code**: permission requests appear on the island with Allow / Deny / In terminal; frequent commands can be set to "Always allow", and the remembered rules can be removed one by one on the AI tab; its task progress is shown (3/5 · what it is doing) and you are told when it finishes
 - **Codex CLI, Gemini CLI**: when their settings are found on this PC, each gets its own Connect row on the AI tab. Codex permission requests can be allowed or denied on the island; Gemini CLI only shows session status and completion
 - **Ask an AI**: type on the AI tab, or speak and have the answer read aloud; answers appear as they are generated, with Markdown (bold, lists, code) laid out, scrolling when long and a copy button on hover; it can skip songs for you; Ctrl+Alt+V asks one question from anywhere. Works with Claude, OpenAI, Gemini, DeepSeek, xAI, Mistral, Groq, OpenRouter, a local Ollama, or any OpenAI-compatible service
+- **Quick commands**: lines starting with `/` in the box on the AI tab run on this PC, without the AI and without an API key: `/play`, `/pause`, `/next`, `/prev`, `/vol 30` (or `+`, `-`), `/sleep 30` (or `track`, `off`), `/remind 15:30 meeting`, `/todo buy milk`, `/focus`, `/dnd`, `/lyrics`, `/earlier`, `/later`, `/settings`. Typing `/` shows a list of matches and `/help` lists everything. Roon's volume is usually the volume of a DAC or an amplifier, so `/vol` raises it by at most a tenth of the range at a time
 - **Message notifications**: Discord, LINE, Telegram and other messengers flash on the island (turn it on in Settings)
 - **Recent notifications**: messages, reminders that went off and "finished" notices from Claude Code and other agents are kept (the latest 30, in memory only); press the bell on the tools tab to look back, and a small dot appears on the pill while some are unread. The calendar marks days that have reminders, and clicking a day starts a reminder for it (up to 60 days ahead)
 - **Roon queue**: the list button on the music tab shows what plays next; click a track to start from it, toggle shuffle and loop. Search is off by default (`RoonSearch`): turning it on makes Roon ask you to enable Shima again under Settings → Extensions
 - **Word-by-word lyrics**: when a lyric file carries per-word timing (enhanced LRC), the sweep follows each word; the online sources do not provide it today
 - **Desktop lyrics**: a line of lyrics floating on the desktop, visible over borderless fullscreen apps (right-click → Desktop lyrics); locked and click-through by default; hidden for tracks (or videos) without synced lyrics
-- **Listening history**: kept only on this PC (`history.jsonl`), with weekly / monthly / yearly time, plays and top tracks on the listening tab; the year view is a heat map with one cell per day, and the month / all-time views can switch to "what time of day"; hover the chart for a day's figure, and step back through earlier weeks, months and years with the arrows or the mouse wheel. The share button turns the current period into a recap card (copied to the clipboard and saved to Pictures\Shima); optional scrobbling to ListenBrainz and Last.fm (both can be on at once)
+- **Listening history**: kept only on this PC (`history.jsonl`), with weekly / monthly / yearly time, plays and top tracks on the listening tab; the year view is a heat map with one cell per day, and the month / all-time views can switch to "what time of day"; hover the chart for a day's figure, and step back through earlier weeks, months and years with the arrows or the mouse wheel. The share button turns the current period into a recap card (copied to the clipboard and saved to Pictures\Shima); optional scrobbling to ListenBrainz and Last.fm (both can be on at once), and plays that could not be sent (offline, service down) are kept on this PC and sent later (up to 500, within 14 days). On the Music settings page, click a source (a browser playing videos, say) to exclude it: it is no longer recorded or scrobbled, and what was already recorded stays but is left out of the statistics
 - **Saved lines, explain a line**: save the line being sung, search it later, turn it into a card; or ask the AI to explain its reading, words and grammar
 - **Claude Code sessions**: one row per session with its state and plan progress, today's token use and estimated cost, and "always allow" for commands you approve often
 - **More assistant skills**: weather, reminders, opening sites and common apps, arithmetic, reading clipboard text; an optional wake word
 - **Save as .lrc, copy all, AI translation**: right-click → Lyrics for this song. Saving writes the timing you adjusted, the translation and word-level timing into your own lyrics folder, and that file is used from then on; when no translation is found, the service set up on the AI tab can translate line by line into the interface language (remembered in the `translations` folder)
 - **Gestures and looks**: scroll on the pill for volume (Shift for previous / next), middle-click to pause; island size (90%–130%, text and icons scale with it), background opacity, what the pill shows when nothing is playing (clock, date, next reminder or nothing), accent colour (a row of swatches or your own hex code), an optional progress line along the bottom of the pill, 3 / 5 / 7 lines of lyrics, your own GIF or PNG sprite as the character
 - **Lyric card**: the line being sung, set against the cover, as an image on the clipboard and in `Pictures\Shima` (right-click → Copy lyric card)
-- **Updates**: checks GitHub for a new release after startup and once a day; a tray menu item downloads it and swaps it in (`CheckUpdates`, on by default; only the latest version number of this project is requested from api.github.com)
+- **Updates**: checks GitHub for a new release after startup and once a day; a tray menu item downloads it and swaps it in (`CheckUpdates`, on by default; only the latest version number of this project is requested from api.github.com). The first start after an update says "Updated to x" and adds "What's new in this version" to the tray menu
 - **Stream Dock**: puts the island on a Stream Dock touch strip or keys: cover, the line being sung, little Claude, progress; press to pause or skip (turn it on in Settings)
+- **Backup and restore**: Settings → General exports your settings, listening history, saved lines, reminders, your own lyrics, AI translations and the shelf to one zip, to restore after moving to another PC or reinstalling. A backup contains no keys or connection data (AI API keys, Last.fm, ListenBrainz and Roon tokens) and not the Roon host or the custom AI address; on restore those always stay as they are on this PC, and paths in the backup that point to network shares are dropped. Before restoring, the current folder is copied next to itself as `Shima-before-restore-…`
 - **Draggable**: hold the pill and drag it anywhere, on any monitor; the place is remembered. Right-click to send it back to the centre
 - Hides itself while a full-screen app (a game, a video) is in front
 
@@ -154,7 +156,7 @@ The plugin only talks to Shima on `localhost:47813`, with a token written into t
 | `SystemStatus` | `true` | Show volume, battery, network changes |
 | `Character` | `claude` | `claude`, `eyes`, `cat`, `ghost`, `none` |
 | `AudioReactive` | `true` | Capture what the computer plays so the character and bars move with it |
-| `LyricsSecondLine` | `translation` | `translation`, `romaji`, `none` |
+| `LyricsSecondLine` | `translation` | `translation`, `romaji`, `furigana` (needs the Japanese IME), `none` |
 | `DiscordClientId` | empty | Application ID of a Discord application; empty shows no status |
 | `DiscordCover` | `true` | Look the cover up on iTunes Search for Discord |
 | `FocusMinutes` / `BreakMinutes` | `25` / `5` | Pomodoro |
@@ -191,6 +193,8 @@ It writes `src/Shima/Assets/strings.tsv` and checks that every sentence the app 
 ```bash
 cd /mnt/c && dotnet.exe test "$(wslpath -w ~/projects/shima/tests/Shima.Tests/Shima.Tests.csproj)"
 ```
+
+Every pull request is built, tested and checked for missing translations, and the app is packaged the way a release is and actually started once on a Windows machine with no settings at all (`tools/first-run.ps1`): the island has to appear and the log must hold no unhandled exception.
 
 ## License
 

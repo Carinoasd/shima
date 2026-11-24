@@ -13,7 +13,7 @@ Une petite île en haut de l'écran Windows : elle affiche la musique en cours e
 - **Sources musicales** : Roon (position, volume, zones) et tout lecteur visible dans le panneau de volume de Windows — YouTube dans le navigateur, Spotify, Apple Music…
 - **Paroles** : vos `.lrc`, LRCLIB, NetEase, QQ Music et Kugou ; distingue les versions d'un même titre (`104期Ver.`, `SAKURA Ver.`)
 - **Paroles animées** : le texte défile en douceur et une lumière suit le chant ; cliquez sur une ligne pour y aller ; changez de source ou ajustez le décalage
-- **Deuxième ligne** : traduction chinoise ou romaji sous les titres japonais
+- **Deuxième ligne** : traduction chinoise ou romaji sous les titres japonais, ou furigana au-dessus des kanji
 - **Personnage** : il vit dans la capsule et bouge au rythme du son réel ; par défaut, un Claude en pixels en hommage à la mascotte de Claude Code
 - **Statut Discord** : titre, pochette et progression
 - **Outils** : pomodoro, étagère de fichiers, liste de tâches, calendrier, rappel d'hydratation
@@ -29,6 +29,8 @@ Une petite île en haut de l'écran Windows : elle affiche la musique en cours e
 - **Paroles enregistrées et traduites** : enregistrez les paroles calées en `.lrc` ; sans traduction, l'IA traduit ligne par ligne
 - **Codex CLI et Gemini CLI** : comme pour Claude Code, l'île affiche l'état et signale la fin ; les demandes d'autorisation de Codex se règlent sur l'île
 - **Last.fm** : envoie vos écoutes à Last.fm (en même temps que ListenBrainz si vous voulez)
+- **Commandes rapides** : tapez `/next`, `/vol 30`, `/sleep 30` ou `/remind 15:30 réunion` dans le champ de l'IA ; elles s'exécutent aussitôt, sans clé d'API
+- **Sauvegarde** : exportez réglages, historique, favoris, rappels et paroles dans un zip et restaurez-les sur un autre PC (sans les clés)
 - Déplaçable où vous voulez ; masquée devant les applications en plein écran ; 11 langues
 
 ## Installation
