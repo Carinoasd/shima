@@ -326,20 +326,22 @@ public partial class IslandWindow : Window
         QueueButton.Visibility = roon ? Visibility.Visible : Visibility.Collapsed;
         if (!roon && _queueOpen) { _queueOpen = false; Morph(); }
         var track = _track;
-        // 語音助手正在聽或回答：優先顯示，音量條換成麥克風的音量
+        // 語音助手正在聽或回答（音量條換成麥克風的音量）、或有提示：只換掉膠囊上那一行字，
+        // 進度、展開的歌詞、桌面歌詞、Stream Dock 照常跟著歌走（不然存 .lrc、翻譯之後會錯位好幾秒）
+        string? say = null;
         if (_voice != null && _voiceLine.Length > 0)
         {
             Meter.Visibility = _micOpen ? Visibility.Visible : Visibility.Collapsed;
-            Pill_Say(_voiceLine);
-            return;
+            say = _voiceLine;
         }
-        if (_toast.Length > 0 && DateTime.Now < _toastUntil) { Pill_Say(_toast); return; }
-        _toast = "";
+        else if (_toast.Length > 0 && DateTime.Now < _toastUntil) say = _toast;
+        else _toast = "";
         if (track == null)
         {
             if (_bridge.Deck.Track != null) _bridge.Deck = new Agents.DeckState(null, null, null, TimeSpan.Zero);
             Spectrum.Active = false;
             if (_desk != null && _deskTitle.Length > 0) { _deskTitle = ""; _deskSheet = null; FeedDesktopLyrics(); }
+            if (say != null) { Pill_Say(say); return; }
             var line = IdleLine.Text(AppSettings.Current.IdleShows, DateTime.Now, TimerLine(), _alarms?.List ?? [], Loc.Culture, L.T("明天"));
             PillLine.Say(line);
             // 不顯示：只剩角色，左右邊距一樣、寬度縮到剛好包住它（邊距 8＋8、角色 5＋26）
@@ -365,16 +367,17 @@ public partial class IslandWindow : Window
             int i = Lrc.LineAt(sheet.Lines, pos + LyricLead + _lyricShift);
             string text = i >= 0 ? sheet.Lines[i].Text : "";
             _lyricIndex = i;
-            if (text.Length > 0)
+            // 有那一句要說就不唱歌詞：同一格先唱再換掉，字會閃
+            if (say == null && text.Length > 0)
             {
                 var start = sheet.Lines[i].Time;
                 var length = Singing.Length(text, start, i + 1 < sheet.Lines.Count ? sheet.Lines[i + 1].Time : null);
                 // 暫停時膠囊回到歌名，繼續播才換回歌詞
                 if (track.Playing) PillLine.Sing(text, start, length, sheet.Lines[i].Words); else PillLine.Say(name);
             }
-            else PillLine.Say(name);
+            else if (say == null) PillLine.Say(name);
         }
-        else PillLine.Say(name);
+        else if (say == null) PillLine.Say(name);
 
         var shown = _sheet is { Synced: true } ? _sheet : null;
         var second = AppSettings.Current.LyricsSecondLine switch
@@ -397,6 +400,7 @@ public partial class IslandWindow : Window
         Spectrum.Active = LyricsList.Active && track.Playing && AppSettings.Current.AudioReactive;
         LyricsList.Wake();
 
+        if (say != null) { Pill_Say(say); return; }
         // 膠囊跟著這一行字的長短伸縮
         double buddy = (Buddy.Kind == "none" ? 8 : 32) + (Meter.Visibility == Visibility.Visible ? 21 : 0);
         double wanted = Math.Clamp(Math.Ceiling(PillLine.TextWidth) + 7 + 22 + 9 + 8 + buddy, MinPill, MaxPill);
