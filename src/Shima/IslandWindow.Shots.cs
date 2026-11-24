@@ -356,6 +356,18 @@ public partial class IslandWindow
                 AppSettings.Current.Scale = 1;
                 ApplyScale();
             }
+            // 聊天分頁的網頁離開了聊天網站自己的網域：上方顯示現在的主機（示範模式不會真的載入網頁，暫時給一個假的）
+            if (Demo.On)
+            {
+                FitPages();
+                _expanded = true;
+                _tab = Tab.Chat;
+                TabChat.IsChecked = true;
+                ShowChatAway("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?redirect_uri=https%3A%2F%2Fevil.example%2F");
+                Snap(); UpdateTexts();
+                await Save(folder, "c-chat-host");
+                ShowChatAway(null);
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

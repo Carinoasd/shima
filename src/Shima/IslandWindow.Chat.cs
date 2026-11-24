@@ -23,6 +23,7 @@ public partial class IslandWindow
 
     private WebView2CompositionControl? _web;
     private bool _webStarting;
+    private string? _chatAway;   // 上方那一列顯示的是哪一頁（離開聊天網站時）
 
     private void InitChat()
     {
@@ -34,6 +35,7 @@ public partial class IslandWindow
                 AppSettings.Current.ChatSite = id;
                 AppSettings.Current.Save();
                 MarkChatSite();
+                ShowChatAway(_web?.CoreWebView2?.Source);   // 換了網站，「自己的網域」也換了
                 _web?.CoreWebView2?.Navigate(Site().Url);
             };
             ChatSites.Children.Add(button);
@@ -54,6 +56,28 @@ public partial class IslandWindow
             b.Background = on ? Brushes.White : new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF));
             b.Foreground = on ? Brushes.Black : Brushes.White;
         }
+    }
+
+    /// <summary>聊天分頁上方那一列：不在聊天網站自己的網域時顯示主機名稱，回到自己的網域就收起來。聊天分頁的高度是固定的，不用重新變形。</summary>
+    private void ShowChatAway(string? url)
+    {
+        var host = ChatLinks.Away(url, Site().Url);
+        _chatAway = host == null ? null : url;
+        ChatAwayHost.Text = host ?? "";
+        ChatAway.Visibility = host == null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ChatAwayOpen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_chatAway != null) OpenOutside(_chatAway);
+    }
+
+    /// <summary>交給預設的瀏覽器開。只開 http／https。</summary>
+    private static void OpenOutside(string url)
+    {
+        if (ChatLinks.Decide(url) == ChatLinks.Where.Nowhere) return;
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(new Uri(url).AbsoluteUri) { UseShellExecute = true }); }
+        catch (Exception ex) { Log.Write("chat: " + ex.Message); }
     }
 
     /// <summary>第一次打開聊天分頁時才啟動瀏覽器（它要用不少記憶體）。</summary>
@@ -80,12 +104,14 @@ public partial class IslandWindow
                 switch (ChatLinks.Decide(e.Uri))
                 {
                     case ChatLinks.Where.Island: web.CoreWebView2.Navigate(e.Uri); break;
-                    case ChatLinks.Where.Browser:
-                        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(new Uri(e.Uri).AbsoluteUri) { UseShellExecute = true }); }
-                        catch (Exception ex) { Log.Write("chat: " + ex.Message); }
-                        break;
+                    case ChatLinks.Where.Browser: OpenOutside(e.Uri); break;
                 }
             };
+            // 同一個視窗裡的導覽不限制（企業的單一登入會經過清單以外的網域），但最上層的網頁離開聊天網站自己的網域時，上方顯示現在的主機。
+            // NavigationStarting 連轉址也會來（OAuth 出錯轉回 redirect_uri）；沒走完的導覽由 NavigationCompleted 換回實際的那一頁
+            web.CoreWebView2.NavigationStarting += (_, e) => ShowChatAway(e.Uri);
+            web.CoreWebView2.SourceChanged += (_, _) => ShowChatAway(web.CoreWebView2.Source);
+            web.CoreWebView2.NavigationCompleted += (_, _) => ShowChatAway(web.CoreWebView2.Source);
             web.CoreWebView2.Navigate(Site().Url);
             _web = web;
             ScaleChat();

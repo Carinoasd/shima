@@ -43,6 +43,24 @@ public static class ChatLinks
         return Where.Browser;
     }
 
+    /// <summary>
+    /// 聊天分頁最上層的網頁現在在哪裡。在目前選的聊天網站自己的網域（<paramref name="site"/> 的主機與它的子網域、https）是 null，不用顯示；
+    /// 不在的話是要顯示的主機名稱（IDN 用 punycode：長得像的網域才分得出來）。
+    /// 留在島裡的登入網域可以轉到任何地方（OAuth 出錯時轉回 redirect_uri），所以不看「留在島裡」的清單，只看是不是聊天網站自己。
+    /// 不是 http／https 的：about:blank 不顯示；blob: 看它裡面的來源；其他的（data:、file:…）顯示協定。
+    /// </summary>
+    public static string? Away(string? url, string site)
+    {
+        if (string.IsNullOrEmpty(url) || !Uri.TryCreate(site, UriKind.Absolute, out var home)) return null;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        if (uri.Scheme == "about") return null;
+        if (uri.Scheme == "blob")
+            return Uri.TryCreate(url[(url.IndexOf(':') + 1)..], UriKind.Absolute, out var inner) && inner.Scheme is "http" or "https" ? Away(inner.AbsoluteUri, site) : "blob:";
+        if (uri.Scheme is not ("http" or "https")) return uri.Scheme + ":";
+        var host = uri.IdnHost.TrimEnd('.').ToLowerInvariant();
+        return uri.Scheme == Uri.UriSchemeHttps && InDomain(host, home.IdnHost) ? null : host;
+    }
+
     /// <summary>host 就是 domain，或是 domain 的子網域（要有那個點：evilclaude.ai 不算）。</summary>
     private static bool InDomain(string host, string domain)
     {
