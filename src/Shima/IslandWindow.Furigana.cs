@@ -25,7 +25,7 @@ public partial class IslandWindow
     /// </summary>
     private RubySheet? RubyFor(LyricSheet? shown)
     {
-        if (!FuriganaOn || shown == null || !Furigana.Wanted(shown))
+        if (!FuriganaOn || shown == null)
         {
             _rubyFor = null;
             _ruby = null;
@@ -34,6 +34,8 @@ public partial class IslandWindow
         if (!ReferenceEquals(shown, _rubyFor))
         {
             _rubyFor = shown;
+            // 中文歌：記住這份不用標（_ruby 是 null），不用每 0.1 秒再掃一次整份歌詞
+            if (!Furigana.Wanted(shown)) { _ruby = null; return null; }
             var task = _rubyTask = Furigana.ForAsync(shown);
             _ruby = task.IsCompleted ? task.Result : RubySheet.Pending;
             if (!task.IsCompleted) Arrive(shown, task);
