@@ -53,7 +53,7 @@ A small island at the top of your Windows screen: it shows what is playing with 
 - **Lyric card**: the line being sung, set against the cover, as an image on the clipboard and in `Pictures\Shima` (right-click → Copy lyric card)
 - **Updates**: checks GitHub for a new release after startup and once a day; a tray menu item downloads it and swaps it in (`CheckUpdates`, on by default; only the latest version number of this project is requested from api.github.com). The first start after an update says "Updated to x" and adds "What's new in this version" to the tray menu
 - **Stream Dock**: puts the island on a Stream Dock touch strip or keys: cover, the line being sung, little Claude, progress; press to pause or skip (turn it on in Settings)
-- **Backup and restore**: Settings → General exports your settings, listening history, saved lines, reminders, your own lyrics, AI translations and the shelf to one zip, to restore after moving to another PC or reinstalling. A backup contains no keys or connection data (AI API keys, Last.fm, ListenBrainz and Roon tokens) and not the Roon host or the custom AI address; on restore those always stay as they are on this PC, and paths in the backup that point to network shares are dropped. Before restoring, the current folder is copied next to itself as `Shima-before-restore-…`
+- **Backup and restore**: Settings → General exports your listening history, saved lines, reminders, to-dos, your own lyrics, AI translations, the text and images on the shelf, and settings such as appearance and language to one zip, to restore after moving to another PC or reinstalling. A restore brings back data and appearance, not connections, keys or permission-like switches: a backup contains no keys, tokens or accounts, and the following always stay as they are on this PC — AI provider and models, the custom AI address, the Roon host, the Last.fm and ListenBrainz connections, the Discord Application ID, wake word and continuous conversation, the speech engine and model, message notifications, global shortcuts, "Allow from Stream Dock", and update checks. Listening history, Discord covers and lyrics sources can only be switched off by a backup, never on; excluded listening sources are merged; paths that point to network shares are dropped. Before restoring, the current folder is copied next to itself as `Shima-before-restore-…`
 - **Draggable**: hold the pill and drag it anywhere, on any monitor; the place is remembered. Right-click to send it back to the centre
 - Hides itself while a full-screen app (a game, a video) is in front
 
@@ -173,7 +173,7 @@ The plugin only talks to Shima on `localhost:47813`, with a key of its own: it e
 | `AiCustomUrl` | empty | API URL when `custom` is chosen; `http://` is only accepted for this computer or a LAN IP, anything else needs `https://` |
 | `VoiceLanguage` | empty | Language the voice assistant listens and speaks in; empty follows the interface language |
 
-Put your own lyrics in `%APPDATA%\Shima\lyrics`, named `Title.lrc`, `Artist - Title.lrc` or `01 Title.lrc`.
+Put your own lyrics in `%APPDATA%\Shima\lyrics`, named `Title.lrc`, `Artist - Title.lrc` or `01 Title.lrc`. If `settings.json` cannot be understood (a hand edit gone wrong, say) it is not simply overwritten: it is first renamed to `settings.json.broken-<date-time>` and kept, and Shima starts again from the defaults.
 
 What leaves this computer:
 
