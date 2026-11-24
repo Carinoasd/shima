@@ -37,4 +37,27 @@ public class DemoIsolationTests
         Log.Write("測試用的訊息");
         Assert.False(System.IO.File.Exists(Log.PathFor(AppSettings.Folder, "")));
     }
+
+    [Fact]
+    public void 示範模式的agent狀態是固定的假結果()
+    {
+        // 跟截圖 4-ai.png 一致：Claude Code 已連接，Codex 與 Gemini CLI 找得到但還沒連接
+        var status = Shima.Agents.AgentInstaller.DemoStatuses();
+        Assert.Equal(3, status.Count);
+        Assert.All(status, s => Assert.True(s.Detected));
+        Assert.All(status, s => Assert.False(s.Outdated));
+        Assert.True(status.Single(s => s.Agent == Shima.Agents.AgentKind.Claude).Installed);
+        Assert.False(status.Single(s => s.Agent == Shima.Agents.AgentKind.Codex).Installed);
+        Assert.False(status.Single(s => s.Agent == Shima.Agents.AgentKind.Gemini).Installed);
+    }
+
+    [Fact]
+    public void 不是示範模式時照舊掃這台電腦()
+    {
+        // Demo.On 在測試裡是 false：Scan(home) 讀的是給定的資料夾（這裡是空的暫存資料夾，不碰真實的設定）
+        var home = System.IO.Path.Combine(FreshFolder.Path, "scan-home");
+        var status = Shima.Agents.AgentInstaller.Scan(new Shima.Agents.AgentHooks.Home(home, null));
+        Assert.False(Demo.On);
+        Assert.All(status, s => Assert.False(s.Installed));
+    }
 }

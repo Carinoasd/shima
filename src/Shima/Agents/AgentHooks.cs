@@ -69,7 +69,9 @@ public static class AgentHooks
     /// <summary>
     /// 找兩邊的家目錄。要啟動 wsl.exe（最多等六秒），每個 agent 的安裝器共用同一次的結果，不要每個各問一次。
     /// </summary>
-    public static Home Homes() => Cache.Get(DateTime.UtcNow, Find);
+    public static Home Homes() => Demo.On
+        ? new Home(Path.Combine(AppSettings.Folder, "home"), null)   // 示範模式：不問 WSL、不指向真正的家目錄，萬一哪裡漏擋了寫的也是暫存資料夾
+        : Cache.Get(DateTime.UtcNow, Find);
 
     private static readonly HomeCache Cache = new();
 

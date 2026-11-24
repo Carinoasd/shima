@@ -37,7 +37,18 @@ public abstract class AgentInstaller
     /// <summary>每個 agent 此刻的樣子（Detected：這台電腦找得到它的設定資料夾）。會啟動一次 wsl.exe，不要在畫面的執行緒上呼叫。</summary>
     public sealed record Status(AgentKind Agent, bool Detected, bool Installed, bool Outdated);
 
-    public static List<Status> Scan() => Scan(AgentHooks.Homes());
+    public static List<Status> Scan() => Demo.On ? DemoStatuses() : Scan(AgentHooks.Homes());
+
+    /// <summary>
+    /// 示範模式的固定結果：Claude Code 已連接，Codex 與 Gemini CLI 找得到但還沒連接。
+    /// 不啟動 wsl.exe、不讀這台電腦真正的設定檔：截圖裡哪個連接了不該是開發者自己那台的狀態。
+    /// </summary>
+    public static List<Status> DemoStatuses() =>
+    [
+        new(AgentKind.Claude, true, true, false),
+        new(AgentKind.Codex, true, false, false),
+        new(AgentKind.Gemini, true, false, false),
+    ];
 
     public static List<Status> Scan(AgentHooks.Home home) =>
         [.. All.Select(i =>
