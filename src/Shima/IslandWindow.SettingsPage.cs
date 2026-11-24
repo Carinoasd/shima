@@ -216,7 +216,7 @@ public partial class IslandWindow
         rows.Add(Gap());
         rows.Add(Toggle("記下聽了什麼", s.History, v => s.History = v));
         if (HistorySourceChips(s) is { } sourceChips) rows.Add(sourceChips);
-        rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => s.ListenBrainzToken = v));
+        rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => { if (v != s.ListenBrainzToken) _pending.Clear("listenbrainz"); s.ListenBrainzToken = v; }));
         foreach (var row in LastFmSettingsRows()) rows.Add(row);
 
         rows.Add(Gap());
