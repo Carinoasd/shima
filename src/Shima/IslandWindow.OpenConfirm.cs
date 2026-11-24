@@ -19,6 +19,7 @@ public partial class IslandWindow
     private TaskCompletionSource<bool?>? _opening;
     private Border? _openCard;
     private bool _expandedBeforeOpen;
+    private Action? _openUnhook;
 
     private void InitOpenConfirm() => Skills.Confirm = ConfirmOpenAsync;
 
@@ -51,7 +52,17 @@ public partial class IslandWindow
         var cancel = new Button { Style = (Style)FindResource("Pill"), Content = L.T("取消") };
         var open = new Button { Style = (Style)FindResource("Pill"), Content = L.T("開啟"), Margin = new Thickness(8, 0, 0, 0), Background = Brushes.White, Foreground = Brushes.Black };
         cancel.Click += (_, _) => answer.TrySetResult(false);
-        open.Click += (_, _) => answer.TrySetResult(true);
+        // 卡片會自動切到 AI 分頁並展開，「開啟」可能剛好長在滑鼠正要點的地方：按鈕在畫面上停穩之前的點擊（或空白鍵）不算
+        var guard = new OpenGuard();
+        EventHandler moved = (_, _) =>
+        {
+            Point? where = null;
+            try { if (open.IsVisible) where = open.PointToScreen(new Point()); } catch (InvalidOperationException) { }
+            guard.Seen(where, Environment.TickCount64);
+        };
+        open.LayoutUpdated += moved;   // LayoutUpdated 是整個畫面共用的事件，收起來時一定要拿掉
+        _openUnhook = () => open.LayoutUpdated -= moved;
+        open.Click += (_, _) => { if (guard.Counts(Environment.TickCount64)) answer.TrySetResult(true); };
         buttons.Children.Add(cancel);
         buttons.Children.Add(open);
         DockPanel.SetDock(buttons, Dock.Right);
@@ -80,8 +91,31 @@ public partial class IslandWindow
         _opening = null;
         if (_openCard != null) AiPage.Children.Remove(_openCard);
         _openCard = null;
+        _openUnhook?.Invoke();
+        _openUnhook = null;
         // 本來收著（例如用快速鍵問一句）就收回去；滑鼠還在島上就留著
         if (!_expandedBeforeOpen && !Host.IsMouseOver && _tab != Tab.Ask) SetExpanded(false);
         else Morph();
     }
+}
+
+/// <summary>
+/// 「開啟網址」的按鈕停在同一個位置多久了：剛出現、或還在跟著島變形移動時，點擊不算。
+/// 跟 Stream Dock 的 <see cref="Shima.Agents.DeckAnswer.Glance"/> 同一個想法：使用者還來不及看到的東西，按下去不能算數。
+/// </summary>
+public sealed class OpenGuard
+{
+    private Point? _at;
+    private long _since;
+
+    /// <summary>按鈕現在在螢幕上的位置（看不到是 null）。位置變了就重新計時。</summary>
+    public void Seen(Point? where, long now)
+    {
+        if (where == _at) return;
+        _at = where;
+        _since = now;
+    }
+
+    /// <summary>現在按下去算不算：看得到，而且停在同一個位置至少 600 毫秒。</summary>
+    public bool Counts(long now) => _at != null && now - _since >= Shima.Agents.DeckAnswer.Glance;
 }
