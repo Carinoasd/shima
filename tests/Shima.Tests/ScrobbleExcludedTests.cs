@@ -63,3 +63,45 @@ public class ScrobbleExcludedTests : IDisposable
         Assert.Empty(store.Items("listenbrainz"));
     }
 }
+
+/// <summary>被排除、紀錄裡卻沒有的來源，設定頁仍然要有膠囊可以改回來。</summary>
+public class ExcludedSourceChipTests
+{
+    private static Listen From(string source) => new(new DateTimeOffset(2026, 11, 24, 12, 0, 0, TimeSpan.Zero), "歌", "人", "專輯", source, 240, 200);
+
+    [Fact]
+    public void 紀錄是空的但有排除_仍然列出來()
+    {
+        var seen = ListenSources.Seen([], ["Spotify"]);
+        var spotify = Assert.Single(seen);
+        Assert.Equal(("Spotify", 0, false), spotify);
+    }
+
+    [Fact]
+    public void 紀錄裡沒有的排除來源接在後面_有的照常算()
+    {
+        var seen = ListenSources.Seen([From("Roon"), From("Roon"), From("Chrome")], ["chrome", " Spotify ", "", "SPOTIFY"]);
+        Assert.Equal(["Chrome", "Roon", "Spotify"], seen.Select(x => x.Name).Order());
+        Assert.Equal(1, seen.Single(x => x.Name == "Chrome").Count);
+        Assert.False(seen.Single(x => x.Name == "Chrome").Counted);
+        Assert.Equal((0, false), (seen.Single(x => x.Name == "Spotify").Count, seen.Single(x => x.Name == "Spotify").Counted));
+        Assert.True(seen.Single(x => x.Name == "Roon").Counted);
+    }
+
+    [Fact]
+    public void 點一下可以改回來()
+    {
+        var excluded = new List<string> { "Spotify" };
+        Assert.Equal("Spotify", Assert.Single(ListenSources.Seen([], excluded)).Name);
+        excluded = ListenSources.Toggle(excluded, "Spotify");
+        Assert.Empty(excluded);
+        Assert.Empty(ListenSources.Seen([], excluded));   // 改回來之後紀錄是空的，那一排也就沒了
+    }
+
+    [Fact]
+    public void 排除很多個也全部列出()
+    {
+        var excluded = Enumerable.Range(0, 12).Select(i => "X" + i).ToList();
+        Assert.Equal(12, ListenSources.Seen([From("Roon")], excluded).Count(x => !x.Counted));
+    }
+}

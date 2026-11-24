@@ -31,7 +31,7 @@ public static class ListenSources
 
     /// <summary>
     /// 紀錄裡出現過的來源，出現次數多的在前，最多 <see cref="MaxShown"/> 個；
-    /// 已被排除的一定要列出來（不然排除了就沒辦法再改回來）。同一個來源大小寫不同的合併，名稱用最常見的寫法。
+    /// 已被排除的一定要列出來（不然排除了就沒辦法再改回來）：紀錄裡沒有出現過的（紀錄檔刪了、只還原了設定）也列，次數 0。同一個來源大小寫不同的合併，名稱用最常見的寫法。
     /// </summary>
     public static List<(string Name, int Count, bool Counted)> Seen(IEnumerable<Listen> listens, IReadOnlyCollection<string>? excluded)
     {
@@ -42,11 +42,15 @@ public static class ListenSources
                           Count: g.Count()))
             .Select(g => (g.Name, g.Count, Counted: Counts(g.Name, excluded)))
             .ToList();
+        // 被排除的來源不會再被記下來：紀錄裡沒有的，沒有這一步就永遠不會出現、也改不回來
+        foreach (var name in (excluded ?? []).Select(Normalize).Where(n => n.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+            if (!groups.Any(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase))) groups.Add((name, 0, false));
         return groups
             .OrderBy(g => g.Counted)                      // 被排除的先挑
             .ThenByDescending(g => g.Count)
             .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
-            .Take(MaxShown)
+            .Take(Math.Max(MaxShown, groups.Count(g => !g.Counted)))   // 被排除的全部要在，不受上限限制
+
             .OrderByDescending(g => g.Count)
             .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
