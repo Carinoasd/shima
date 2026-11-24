@@ -69,8 +69,20 @@ public partial class IslandWindow
             _chatFrame.Children.Add(web);   // 隔一層反向縮放，島的大小不是 100% 時瀏覽器才清楚（IslandWindow.Scale.cs）
             ChatHost.Child = _chatFrame;
             await web.EnsureCoreWebView2Async(environment);
-            // 登入流程常會開新視窗：留在同一頁裡
-            web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; web.CoreWebView2.Navigate(e.Uri); };
+            // 登入流程常會開新視窗：聊天網站與登入用的網域留在同一頁裡，其他的交給預設瀏覽器（這個瀏覽器沒有網址列，分辨不出假的登入頁）。
+            // 只管「新視窗」；同一個視窗裡的導覽（登入時的轉址）不限制
+            web.CoreWebView2.NewWindowRequested += (_, e) =>
+            {
+                e.Handled = true;
+                switch (ChatLinks.Decide(e.Uri))
+                {
+                    case ChatLinks.Where.Island: web.CoreWebView2.Navigate(e.Uri); break;
+                    case ChatLinks.Where.Browser:
+                        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(new Uri(e.Uri).AbsoluteUri) { UseShellExecute = true }); }
+                        catch (Exception ex) { Log.Write("chat: " + ex.Message); }
+                        break;
+                }
+            };
             web.CoreWebView2.Navigate(Site().Url);
             _web = web;
             ScaleChat();

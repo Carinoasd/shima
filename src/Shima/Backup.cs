@@ -36,7 +36,7 @@ public static class Backup
 
     /// <summary>
     /// 只在這台電腦上有意義、或是機密的設定欄位：DPAPI 加密的（AI 金鑰、Last.fm 的 secret 與 session）、
-    /// Roon 的 token，以及明文存放的 ListenBrainz token。匯出時拿掉，還原時保留這台原本的。
+    /// Roon 的 token，以及 ListenBrainz token（同樣是 DPAPI 加密的）。匯出時拿掉，還原時保留這台原本的。
     /// </summary>
     public static readonly string[] SecretFields = ["AiKeys", "AnthropicKey", "LastFmSecret", "LastFmSession", "RoonTokens", "ListenBrainzToken"];
 

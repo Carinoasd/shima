@@ -19,7 +19,10 @@ public sealed class RoonSource : IMediaSource
     public const string AppId = "Roon";
     private const string Transport = "com.roonlabs.transport:2";
     private const int QueueSize = 100;
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
+    /// <summary>單一 WebSocket 訊息的上限；超過就中斷連線重來，免得 Core（或假冒的 Core）把記憶體撐爆。</summary>
+    public const int MaxMessageBytes = 8 * 1024 * 1024;
+    // 封面圖（Roon 會依 width/height 縮好，通常幾十 KB）：上限抓寬一點
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8), MaxResponseContentBufferSize = 12 * 1024 * 1024 };
 
     private readonly object _lock = new();
     private readonly SemaphoreSlim _sending = new(1, 1);
@@ -81,7 +84,7 @@ public sealed class RoonSource : IMediaSource
                 lock (_lock) { _ws = ws; _pending.Clear(); _httpPort = port; }
                 logged = false;
                 await RequestAsync("com.roonlabs.registry:1/info", "info");
-                await ReceiveAsync(ws);
+                await ReceiveAsync(ws, HandleAsync);
             }
             catch (Exception e)
             {
@@ -107,7 +110,8 @@ public sealed class RoonSource : IMediaSource
         }
     }
 
-    private async Task ReceiveAsync(ClientWebSocket ws)
+    /// <summary>收訊息直到連線關閉。單一訊息超過 <see cref="MaxMessageBytes"/> 丟 <see cref="InvalidDataException"/>（呼叫端中斷連線、照重連流程重來）。</summary>
+    public static async Task ReceiveAsync(WebSocket ws, Func<MooMessage, Task> handle)
     {
         var buffer = new byte[64 * 1024];
         var message = new MemoryStream();
@@ -115,11 +119,12 @@ public sealed class RoonSource : IMediaSource
         {
             var r = await ws.ReceiveAsync(buffer, CancellationToken.None);
             if (r.MessageType == WebSocketMessageType.Close) return;
+            if (message.Length + r.Count > MaxMessageBytes) throw new InvalidDataException($"roon 訊息超過 {MaxMessageBytes / 1024 / 1024} MB，中斷連線");
             message.Write(buffer, 0, r.Count);
             if (!r.EndOfMessage) continue;
             var msg = Moo.Parse(message.GetBuffer().AsSpan(0, (int)message.Length));
             message.SetLength(0);
-            if (msg != null) await HandleAsync(msg);
+            if (msg != null) await handle(msg);
         }
     }
 

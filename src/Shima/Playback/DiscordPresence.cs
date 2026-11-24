@@ -23,7 +23,7 @@ public sealed class DiscordPresence : IDisposable
     private const int Handshake = 0, Frame = 1, Close = 2, Ping = 3, Pong = 4;
     private static readonly TimeSpan MinInterval = PresenceSchedule.MinInterval;
     private static readonly TimeSpan SafetyWait = TimeSpan.FromSeconds(30);
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5), MaxResponseContentBufferSize = 2 * 1024 * 1024 };   // iTunes 搜尋結果只是十筆 JSON
 
     private readonly string _clientId;
     private readonly object _lock = new();

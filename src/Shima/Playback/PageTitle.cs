@@ -15,7 +15,7 @@ public static class PageTitle
     /// <summary>拿掉標題尾巴的網站名稱；拿掉之後什麼都不剩（標題就是網站名稱）就保持原樣。</summary>
     public static string Clean(string? title)
     {
-        var text = (title ?? "").Trim();
+        var text = Lyrics.Titles.Cap(title).Trim();   // 網頁能控制標題：先截長度，後面的比對才不會被長輸入拖慢
         foreach (var tail in Tails)
             if (text.Length > tail.Length && text.EndsWith(tail, StringComparison.OrdinalIgnoreCase) && text[..^tail.Length].Trim() is { Length: > 0 } rest)
                 return rest;

@@ -17,7 +17,7 @@ public static class Updater
 
     private static HttpClient Client()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5), MaxResponseContentBufferSize = 2 * 1024 * 1024 };   // 只管 releases/latest 的 JSON；安裝檔是邊收邊寫，另外用 release.Size 擋
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Shima");
         return http;
     }
@@ -106,12 +106,7 @@ public static class Updater
         string fresh = exe + ".new", old = exe + ".old";
         try
         {
-            using (var response = await Http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead))
-            {
-                response.EnsureSuccessStatusCode();
-                await using var to = File.Create(fresh);
-                await response.Content.CopyToAsync(to);
-            }
+            if (!await DownloadAsync(Http, release, fresh)) { Log.Write("update: 下載的內容比發佈的大小還大，中止"); return false; }
             if (!Matches(fresh, release.Size, release.Sha256)) { TryDelete(fresh); Log.Write("update: 下載到的檔案跟發佈的不一樣（大小或雜湊不符），不安裝"); return false; }
 
             await RetryAsync(() => { if (File.Exists(old)) File.Delete(old); });
@@ -127,6 +122,33 @@ public static class Updater
         }
         catch (Exception e) { Log.Write("update: " + e.Message); TryDelete(fresh); return false; }
         finally { Interlocked.Exchange(ref _applying, 0); }
+    }
+
+    /// <summary>
+    /// 下載到 <paramref name="path"/>，邊收邊算：超過 GitHub 回報的大小（<see cref="Release.Size"/>）就中止、刪掉暫存檔，回 false。
+    /// 不能等寫完才比，不然對方（或中間人）送多大就寫多大到磁碟。網路錯誤照舊丟例外（暫存檔也會刪）。
+    /// </summary>
+    public static async Task<bool> DownloadAsync(HttpClient http, Release release, string path)
+    {
+        try
+        {
+            using var response = await http.GetAsync(release.Url, HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+            if (response.Content.Headers.ContentLength > release.Size) return false;
+            await using var from = await response.Content.ReadAsStreamAsync();
+            await using var to = File.Create(path);
+            var chunk = new byte[80 * 1024];
+            long total = 0;
+            int n;
+            while ((n = await from.ReadAsync(chunk)) > 0)
+            {
+                total += n;
+                if (total > release.Size) { to.Close(); TryDelete(path); return false; }
+                await to.WriteAsync(chunk.AsMemory(0, n));
+            }
+            return true;
+        }
+        catch { TryDelete(path); throw; }
     }
 
     /// <summary>檔案是不是發佈的那一個：大小一樣、SHA-256 一樣，而且是 Windows 執行檔。</summary>

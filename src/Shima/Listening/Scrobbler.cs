@@ -100,6 +100,7 @@ public sealed class Scrobbler : IListenSink, IDisposable
         _spacing = spacing ?? TimeSpan.FromSeconds(1);
         _http = handler == null ? new HttpClient() : new HttpClient(handler);
         _http.Timeout = TimeSpan.FromSeconds(10);
+        _http.MaxResponseContentBufferSize = 1024 * 1024;   // 回應只是一小段 JSON／XML
         _http.DefaultRequestHeaders.UserAgent.ParseAdd($"Shima/{ListenBrainzJson.Version} ( https://github.com/Carinoasd/shima )");
     }
 

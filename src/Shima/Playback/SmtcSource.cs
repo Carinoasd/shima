@@ -152,8 +152,8 @@ public sealed class SmtcSource : IMediaSource
             {
                 if (s != _session) return;
                 _title = PageTitle.Clean(p.Title);
-                _artist = p.Artist ?? "";
-                _album = p.AlbumTitle ?? "";
+                _artist = Lyrics.Titles.Cap(p.Artist);
+                _album = Lyrics.Titles.Cap(p.AlbumTitle);
                 _cover = cover;
             }
             Changed?.Invoke();
