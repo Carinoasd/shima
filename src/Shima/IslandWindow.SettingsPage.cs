@@ -220,7 +220,7 @@ public partial class IslandWindow
         rows.Add(Toggle("記下聽了什麼", s.History, v => s.History = v));
         if (HistorySourceChips(s) is { } sourceChips) rows.Add(sourceChips);
         // 清空才算中斷（還沒送的一併丟掉）；只是把填錯的 token 改對，等著的那些要留著補送
-        rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => { if (v.Length == 0) _pending.Clear("listenbrainz"); s.ListenBrainzToken = v; }));
+        rows.Add(Entry("ListenBrainz", s.ListenBrainzTokenText(), 190, v => { if (v.Length == 0) _pending.Clear("listenbrainz"); s.SetListenBrainzToken(v); }));
         foreach (var row in LastFmSettingsRows()) rows.Add(row);
 
         rows.Add(Gap());

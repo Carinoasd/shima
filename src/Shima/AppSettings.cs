@@ -150,7 +150,7 @@ public sealed class AppSettings
     public bool History { get; set; } = true;
     /// <summary>不算聆聽的來源（Listen.Source，例如 Chrome）：不記錄、不回報、統計不算。預設全算。</summary>
     public List<string> HistoryExcluded { get; set; } = [];
-    /// <summary>ListenBrainz 的 user token；留空就不回報。</summary>
+    /// <summary>ListenBrainz 的 user token；留空就不回報。存的是「dpapi:」加 DPAPI 加密後的 base64，用 <see cref="ListenBrainzTokenText"/> 讀、<see cref="SetListenBrainzToken"/> 寫。</summary>
     public string ListenBrainzToken { get; set; } = "";
     /// <summary>Last.fm：使用者自己申請的 API key（不算機密）。</summary>
     public string LastFmApiKey { get; set; } = "";
@@ -195,13 +195,42 @@ public sealed class AppSettings
     public void SetLastFmSecret(string secret) { LastFmSecret = Conceal(secret); Save(); }
     public void SetLastFmSession(string session, string user) { LastFmSession = Conceal(session); LastFmUser = session.Length > 0 ? user : ""; Save(); }
 
+    /// <summary>加密過的 ListenBrainz token 的開頭：分得出舊版存的明文（UUID 不會長這樣），升級時不會把加密過的再加密一次。</summary>
+    private const string SealedPrefix = "dpapi:";
+
+    private (string Stored, string Plain)? _tokenCache;
+
+    /// <summary>
+    /// 解密後的 ListenBrainz token；沒填、或解不開（設定檔是從別台電腦或別的帳號帶來的）都是空字串。
+    /// 回報會頻繁呼叫，所以記住上次的結果；存的值變了（改設定、還原備份）才重新解密。
+    /// </summary>
+    public string ListenBrainzTokenText()
+    {
+        var stored = ListenBrainzToken;
+        if (_tokenCache is { } cache && cache.Stored == stored) return cache.Plain;
+        var plain = stored.StartsWith(SealedPrefix, StringComparison.Ordinal) ? Reveal(stored[SealedPrefix.Length..], "listenbrainz token 解密") : "";
+        _tokenCache = (stored, plain);
+        return plain;
+    }
+
+    /// <summary>不存檔：呼叫端（設定頁的輸入框）接著會存。</summary>
+    public void SetListenBrainzToken(string token) => ListenBrainzToken = token.Length == 0 ? "" : SealedPrefix + Conceal(token);
+
+    /// <summary>舊版把 ListenBrainz token 存成明文：轉成加密的。回傳有沒有改動（要存檔）。</summary>
+    public bool EncryptListenBrainzToken()
+    {
+        if (ListenBrainzToken.Length == 0 || ListenBrainzToken.StartsWith(SealedPrefix, StringComparison.Ordinal)) return false;
+        SetListenBrainzToken(ListenBrainzToken);
+        return true;
+    }
+
     private static string Conceal(string text) =>
         text.Length == 0 ? "" : Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(text), null, DataProtectionScope.CurrentUser));
 
-    private static string Reveal(string stored)
+    private static string Reveal(string stored, string what = "lastfm 金鑰解密")
     {
         try { return stored.Length == 0 ? "" : Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(stored), null, DataProtectionScope.CurrentUser)); }
-        catch (Exception e) { Log.Write("lastfm 金鑰解密: " + e.Message); return ""; }
+        catch (Exception e) { Log.Write($"{what}: {e.Message}"); return ""; }
     }
 
     /// <summary>設了這個環境變數就把設定與資料放在那個資料夾（測試用暫存資料夾，不碰平常的那一份）。</summary>
@@ -228,6 +257,8 @@ public sealed class AppSettings
                     loaded.AnthropicKey = "";
                     loaded.Save();
                 }
+                // 舊版的 ListenBrainz token 是明文：轉成加密的存回去
+                if (loaded.EncryptListenBrainzToken()) loaded.Save();
                 if (loaded.Version < 2)
                 {
                     // 版本 2 新增 QQ 音樂與酷狗：舊設定檔沒有它們，排到最後面

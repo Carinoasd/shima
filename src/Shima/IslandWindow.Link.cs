@@ -58,9 +58,11 @@ public partial class IslandWindow
     {
         var sinks = new List<QueuedSink>();
         var s = AppSettings.Current;
-        if (s.ListenBrainzToken.Length > 0)
+        // 解密的結果由 AppSettings 記著，這裡每次呼叫都很便宜
+        var token = s.ListenBrainzTokenText();
+        if (token.Length > 0)
         {
-            if (_scrobbler == null) _scrobbler = new Scrobbler(s.ListenBrainzToken); else if (_scrobbler.Token != s.ListenBrainzToken) _scrobbler.Token = s.ListenBrainzToken;
+            if (_scrobbler == null) _scrobbler = new Scrobbler(token); else if (_scrobbler.Token != token) _scrobbler.Token = token;
             sinks.Add(_scrobblerQueue ??= new QueuedSink("listenbrainz", _scrobbler, _pending));
         }
         if (s.LastFmSession.Length > 0 && s.LastFmApiKey.Length > 0)
