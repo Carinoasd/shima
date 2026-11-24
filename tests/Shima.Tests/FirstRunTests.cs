@@ -95,6 +95,27 @@ public class FirstRunTests
     }
 
     [Fact]
+    public void 設定檔一時讀不到但內容是好的_不改名也不寫新的()
+    {
+        var folder = NewFolder();
+        try
+        {
+            var path = System.IO.Path.Combine(folder, "settings.json");
+            const string mine = "{ \"Language\": \"ja\" }";
+            File.WriteAllText(path, mine);
+            // 別的程式開著這個檔：讀不到，但改得了名。「讀不到」不等於「壞了」，不可以把好好的設定檔改名成 broken 再用預設值重來
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Delete))
+            {
+                var settings = AppSettings.LoadFrom(path, Now);
+                Assert.Equal(2, settings.Version);   // 這次先用預設值跑
+            }
+            Assert.Equal(mine, File.ReadAllText(path));
+            Assert.Empty(Directory.GetFiles(folder, "settings.json.broken-*"));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
     public void 轉換步驟丟例外時_原本的設定不變()
     {
         var folder = NewFolder();

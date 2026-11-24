@@ -262,18 +262,25 @@ public sealed class AppSettings
     public static AppSettings LoadFrom(string path, DateTime now, IEnumerable<Func<AppSettings, bool>>? upgrades = null)
     {
         AppSettings? loaded = null;
-        bool exists = false;
+        bool exists = false, unreadable = false;
         try
         {
             exists = File.Exists(path);
-            if (exists) loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path));
+            if (exists)
+            {
+                var text = File.ReadAllText(path);
+                // 讀到了但內容看不懂，跟「讀不到」（被別的程式鎖住、磁碟一時出錯）要分開：後者檔案多半還是好的
+                try { loaded = JsonSerializer.Deserialize<AppSettings>(text); unreadable = loaded == null; }
+                catch (Exception e) { unreadable = true; Log.Write("settings: " + e.Message); }
+            }
         }
         catch (Exception e) { Log.Write("settings: " + e.Message); }
 
         if (loaded == null)
         {
             var fresh = new AppSettings { Version = 2 };
-            if (exists && !KeepBroken(path, now)) fresh._keepFile = true;
+            // 看不懂的：改名留一份再寫新的。讀不到的、或改名失敗的：這次先用預設值跑，不寫回去，原本的檔案不動
+            if (exists && (!unreadable || !KeepBroken(path, now))) fresh._keepFile = true;
             fresh.SaveTo(path);
             return fresh;
         }
