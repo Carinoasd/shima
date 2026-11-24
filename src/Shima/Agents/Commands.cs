@@ -51,11 +51,12 @@ public static class Commands
         new(CommandKind.Help, "help", ["說明", "说明", "幫助", "帮助", "?"], "/help", ArgNeed.None, () => L.T("所有指令")),
     ];
 
-    private static readonly Regex Minutes = new(@"^(\d{1,6})\s*(?:m|min|mins|minutes?|分|分鐘|分钟)?$", RegexOptions.CultureInvariant);
-    private static readonly Regex Percent = new(@"^(\d{1,6})\s*%?$", RegexOptions.CultureInvariant);
+    // 只認 0-9：\d 也會比對到阿拉伯-印度數字（٥٠）這些 int.Parse 轉不了的字。全形數字在 Fold 時已經變成半形
+    private static readonly Regex Minutes = new(@"^([0-9]{1,6})\s*(?:m|min|mins|minutes?|分|分鐘|分钟)?$", RegexOptions.CultureInvariant);
+    private static readonly Regex Percent = new(@"^([0-9]{1,6})\s*%?$", RegexOptions.CultureInvariant);
 
-    /// <summary>全形轉半形（／、全形空白、全形數字）、轉小寫。中文輸入法下很容易打出全形。</summary>
-    private static string Fold(string text) => text.Normalize(NormalizationForm.FormKC).ToLowerInvariant();
+    /// <summary>全形轉半形（／、全形空白、全形數字）、轉小寫。中文輸入法下很容易打出全形。孤立的代理字元先換掉，不然 Normalize 會丟例外。</summary>
+    private static string Fold(string text) => Shima.Lyrics.Titles.Wellformed(text).Normalize(NormalizationForm.FormKC).ToLowerInvariant();
 
     private static bool Slash(char c) => c is '/' or '／';
 

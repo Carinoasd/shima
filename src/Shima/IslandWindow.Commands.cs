@@ -30,7 +30,10 @@ public partial class IslandWindow
 
     private void RefreshHints()
     {
-        var found = AskBox.IsEnabled ? Commands.Suggest(AskBox.Text) : [];
+        IReadOnlyList<(CommandSpec Spec, string Shown)> found;
+        // 每打一個字都會來：解析出錯就當作沒有符合的指令，不能讓例外從 TextChanged 漏出去
+        try { found = AskBox.IsEnabled ? Commands.Suggest(AskBox.Text) : []; }
+        catch (Exception x) { Log.Write("command hints: " + x.GetType().Name); found = []; }
         if (found.Count == 0) { HideHints(); return; }
         if (found.SequenceEqual(_hints) && CommandHints.Visibility == Visibility.Visible) return;
 
@@ -123,7 +126,9 @@ public partial class IslandWindow
     /// <summary>是指令就在本機做完並回 true；不是指令回 false，照舊交給 AI。</summary>
     private bool TryCommand(string line)
     {
-        var command = Commands.Parse(line);
+        Command command;
+        try { command = Commands.Parse(line); }
+        catch (Exception x) { Log.Write("command: " + x.GetType().Name); return false; }   // 解析不了就照舊交給 AI
         switch (command.State)
         {
             case CommandState.NotCommand:
