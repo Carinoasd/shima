@@ -649,7 +649,7 @@ public partial class IslandWindow : Window
         var id = LyricsFinder.IdOf(track);
         if (total == 0) AppSettings.Current.LyricsShift.Remove(id); else AppSettings.Current.LyricsShift[id] = total;
         AppSettings.Current.Save();
-        Toast(total == 0 ? L.T("歌詞時間：原本") : L.F(total > 0 ? "歌詞提早 {0} 秒" : "歌詞延後 {0} 秒", (Math.Abs(total) / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)), 2);
+        Toast(total == 0 ? L.T("歌詞時間：原本") : L.F(total > 0 ? "歌詞提早 {0} 秒" : "歌詞延後 {0} 秒", (Math.Abs(total) / 1000.0).ToString("0.0", Loc.Culture)), 2);
     }
 
     /// <summary>現在這句歌詞（沒有歌詞就是歌名）做成一張圖：放進剪貼簿，同時存到「圖片\Shima」。</summary>
