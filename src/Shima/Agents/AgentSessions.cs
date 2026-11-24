@@ -97,7 +97,8 @@ public sealed class AgentSessions
         e.LastActive = _clock();
         e.Order = ++_order;
         if (hook["cwd"]?.ToString() is { Length: > 0 } cwd) e.Cwd = cwd;
-        if (hook["transcript_path"]?.ToString() is { Length: > 0 } transcript) e.Transcript = transcript;
+        // 用量統計之後會去讀這個檔：只收 Claude Code 自己的對話紀錄，其他路徑當成沒有
+        if (hook["transcript_path"]?.ToString() is { Length: > 0 } transcript && TranscriptOk(transcript)) e.Transcript = transcript;
 
         switch (name)
         {
@@ -165,4 +166,47 @@ public sealed class AgentSessions
 
     private static AgentSession View(Entry e) =>
         new(e.Id, ProjectOf(e.Cwd), e.Cwd, e.Transcript, e.State, e.Plan.Done, e.Plan.Steps.Count, e.Plan.Current, e.LastActive, e.Agent);
+
+    private static readonly System.Text.RegularExpressions.Regex WindowsRoot =
+        new(@"^(?:[A-Za-z]:|\\\\(?:wsl\.localhost|wsl\$))\\(.+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex Device =
+        new(@"^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[0-9¹²³]|LPT[0-9¹²³])(?:\..*)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// hook 送來的 transcript_path 能不能讀：只收落在某個 .claude\projects\ 底下的 .jsonl。
+    /// 可以是 Windows 磁碟機上的路徑、\\wsl.localhost\&lt;發行版&gt;\… 或 \\wsl$\&lt;發行版&gt;\…，或 WSL 裡的 Linux 路徑（AgentUsage.Local 會換成 Windows 讀得到的）。
+    /// 其他一律不收：\\server\share 會讓 Windows 連到外面的 SMB、把使用者的 NTLM 雜湊送出去；\\?\、\\.\ 是裝置路徑；
+    /// 含 .. 的可以繞出 projects；不是 .jsonl 的會把任意檔案的內容讀進用量統計。
+    /// 不用 Path.GetFullPath：它在 Windows 上會把 / 開頭的路徑接到目前的磁碟機，而且會碰到檔案系統的規則；這裡只看字串。
+    /// </summary>
+    public static bool TranscriptOk(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || path.Length > 1024) return false;
+        foreach (char c in path)
+            if (char.IsControl(c) || c is '"' or '<' or '>' or '|' or '*' or '?') return false;
+
+        string[] parts;
+        if (path.StartsWith('/'))
+        {
+            // WSL 的 Linux 路徑（/home/…、/mnt/c/…）。// 開頭會被當成 UNC，空的段落一律不收
+            if (path.Contains('\\')) return false;
+            parts = path[1..].Split('/');
+        }
+        else
+        {
+            var m = WindowsRoot.Match(path.Replace('/', '\\'));
+            if (!m.Success) return false;
+            parts = m.Groups[1].Value.Split('\\');
+        }
+
+        foreach (var part in parts)
+            // 空段落、. 與 ..；Windows 會把結尾的點與空白去掉（".. " 等於 ".."）；冒號是替代資料流；裝置名稱帶副檔名也還是裝置
+            if (part.Length == 0 || part.EndsWith('.') || part.EndsWith(' ') || part.Contains(':') || Device.IsMatch(part)) return false;
+
+        if (!parts[^1].EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) return false;
+        for (int i = 0; i + 3 < parts.Length; i++)   // projects 底下至少還有一層專案資料夾
+            if (parts[i].Equals(".claude", StringComparison.OrdinalIgnoreCase) && parts[i + 1].Equals("projects", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 }

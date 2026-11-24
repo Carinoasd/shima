@@ -362,7 +362,7 @@ public sealed class AgentUsage
     /// </summary>
     public void Watch(string transcriptPath)
     {
-        if (transcriptPath.Length == 0) return;
+        if (!AgentSessions.TranscriptOk(transcriptPath)) return;   // 呼叫的人應該已經擋過；這裡再擋一次，之後才會去碰檔案
         lock (_watched) _watched.Add(transcriptPath);
     }
 

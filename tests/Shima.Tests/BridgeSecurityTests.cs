@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.IO;
+using System.Text.Json.Nodes;
 using Shima.Agents;
 using Xunit;
 
@@ -115,5 +117,70 @@ public class DeckAnswerTests
         var notice = new DeckNotice("ask", "Claude Code", "Bash  ls", "", "", false, Current);
         Assert.Equal(Current, notice.Id);
         Assert.Equal("", DeckNotice.None.Id);
+    }
+}
+
+/// <summary>hook 送來的 transcript_path 只收 Claude Code 自己的對話紀錄。</summary>
+public class TranscriptPathTests
+{
+    [Theory]
+    [InlineData(@"C:\Users\someone\.claude\projects\C--src-alpha\0b1c.jsonl")]
+    [InlineData(@"c:/Users/someone/.claude/projects/C--src-alpha/0b1c.jsonl")]
+    [InlineData(@"D:\home\.claude\projects\x\y\z.JSONL")]
+    [InlineData("/home/someone/.claude/projects/-home-someone-alpha/0b1c.jsonl")]
+    [InlineData("/mnt/c/Users/someone/.claude/projects/x/0b1c.jsonl")]
+    [InlineData(@"\\wsl.localhost\Ubuntu\home\someone\.claude\projects\x\0b1c.jsonl")]
+    [InlineData(@"\\wsl$\Ubuntu-24.04\home\someone\.claude\projects\x\0b1c.jsonl")]
+    public void 收(string path) => Assert.True(AgentSessions.TranscriptOk(path));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(@"\\attacker.example\s\x.jsonl")]                                   // 外面的 SMB
+    [InlineData(@"\\attacker.example\s\.claude\projects\x\y.jsonl")]
+    [InlineData("//attacker.example/s/.claude/projects/x/y.jsonl")]               // 斜線寫的 UNC
+    [InlineData(@"\\?\UNC\attacker.example\s\.claude\projects\x\y.jsonl")]
+    [InlineData(@"\\?\C:\Users\someone\.claude\projects\x\y.jsonl")]
+    [InlineData(@"\\.\C:\Users\someone\.claude\projects\x\y.jsonl")]                // 裝置路徑
+    [InlineData(@"\\.\pipe\.claude\projects\x\y.jsonl")]
+    [InlineData(@"C:\Users\someone\.claude\projects\x\CON.jsonl")]
+    [InlineData(@"C:\Users\someone\.claude\projects\x\..\..\..\secret.jsonl")]       // 繞出去
+    [InlineData(@"C:\Users\someone\.claude\projects\..\..\Documents\notes.jsonl")]
+    [InlineData(@"C:\Users\someone\.claude\projects\x\.. \y.jsonl")]
+    [InlineData("/home/someone/.claude/projects/../../../etc/shadow.jsonl")]
+    [InlineData("/home/someone/.claude/projects/./x/./y.jsonl")]
+    [InlineData(@"\\wsl.localhost\..\C$\.claude\projects\x\y.jsonl")]
+    [InlineData(@"C:\Users\someone\.claude\projects\x\y.txt")]                    // 不是 .jsonl
+    [InlineData(@"C:\Users\someone\.ssh\id_ed25519")]
+    [InlineData(@"C:\Users\someone\.claude\projects\x\y.jsonl:secret")]            // 替代資料流
+    [InlineData(@"C:\Users\someone\.claude\projects\x\y.jsonl.")]
+    [InlineData(@"C:\Users\someone\.claude\x\y.jsonl")]                           // 不在 projects 底下
+    [InlineData(@"C:\Users\someone\.claude\projects\y.jsonl")]                    // 至少要有一層專案資料夾
+    [InlineData(@"C:\Users\someone\Documents\y.jsonl")]
+    [InlineData(@"Users\someone\.claude\projects\x\y.jsonl")]                     // 相對路徑
+    [InlineData(@"C:Users\someone\.claude\projects\x\y.jsonl")]
+    [InlineData("home/someone/.claude/projects/x/y.jsonl")]
+    [InlineData("/home/someone/.claude/projects/x\\..\\y.jsonl")]
+    [InlineData("C:\\Users\\someone\\.claude\\projects\\x\\y\n.jsonl")]
+    public void 不收(string? path) => Assert.False(AgentSessions.TranscriptOk(path));
+
+    [Fact]
+    public void 不收的路徑當成沒有_之前收過的也不會被蓋掉()
+    {
+        var s = new AgentSessions();
+        JsonObject Hook(string transcript) => new() { ["session_id"] = "a", ["hook_event_name"] = "UserPromptSubmit", ["cwd"] = @"C:\src\alpha", ["transcript_path"] = transcript };
+        s.Apply(Hook(@"\\attacker.example\s\x.jsonl"), out _);
+        Assert.Equal("", s.Find("a")!.TranscriptPath);
+        s.Apply(Hook(@"C:\Users\someone\.claude\projects\x\a.jsonl"), out _);
+        s.Apply(Hook(@"\\attacker.example\s\x.jsonl"), out _);
+        Assert.Equal(@"C:\Users\someone\.claude\projects\x\a.jsonl", s.Find("a")!.TranscriptPath);
+    }
+
+    [Fact]
+    public void Codex_送來的也一樣擋()
+    {
+        var bridge = new AgentBridge(new AgentRules(Path.Combine(Path.GetTempPath(), "shima-sec-" + Guid.NewGuid().ToString("N") + ".json")));
+        bridge.Notify(new JsonObject { ["session_id"] = "s1", ["hook_event_name"] = "SessionStart", ["cwd"] = @"C:\src\alpha", ["transcript_path"] = @"\\attacker.example\s\x.jsonl" }, AgentKind.Codex);
+        Assert.Equal("", Assert.Single(bridge.Sessions).TranscriptPath);
     }
 }
