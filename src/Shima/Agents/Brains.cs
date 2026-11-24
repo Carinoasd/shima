@@ -389,7 +389,9 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
 /// <summary>OpenAI 相容的 Chat Completions：OpenAI、Gemini、DeepSeek、Ollama 等等。</summary>
 public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, string language, Brain.Run run) : IBrain
 {
-    private static readonly HttpClient Shared = new() { Timeout = TimeSpan.FromSeconds(90) };
+    // 逾時要比呼叫端自己訂的期限長（AI 翻譯給 3 分鐘）：長歌詞配上慢的模型，該由呼叫端的期限決定，不是在這裡 90 秒就先切斷。
+    // 不走串流的回應是整包讀進記憶體的，設個上限。
+    private static readonly HttpClient Shared = new() { Timeout = TimeSpan.FromSeconds(190), MaxResponseContentBufferSize = 16 * 1024 * 1024 };
 
     /// <summary>送請求用的 HttpClient；不給就用共用的那一個。測試用來換成假的，不經過真的網路。</summary>
     public HttpClient Http { get; init; } = Shared;

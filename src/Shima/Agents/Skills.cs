@@ -244,7 +244,7 @@ public static class Skills
 
     private static HttpClient CreateHttp()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10), MaxResponseContentBufferSize = 1024 * 1024 };   // 天氣的回應很小
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Shima");
         return http;
     }

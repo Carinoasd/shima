@@ -302,7 +302,9 @@ public partial class IslandWindow
 
     private void KeyToggle_Click(object sender, RoutedEventArgs e)
     {
-        _showKey = !_showKey;
+        // 照畫面上實際的樣子反過來，不是照旗標：還沒填金鑰時這一列是自己開著的（旗標沒設），
+        // 填完之後按鑰匙是要把它收起來，照旗標反轉的話第一下會沒反應
+        _showKey = KeyRow.Visibility != Visibility.Visible && UrlBox.Visibility != Visibility.Visible;
         RefreshAi();
     }
 
