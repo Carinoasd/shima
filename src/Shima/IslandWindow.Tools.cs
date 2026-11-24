@@ -148,13 +148,24 @@ public partial class IslandWindow
             row.Children.Add(hit);
             row.Children.Add(NewLine(VerticalAlignment.Top));
             if (todo == todos[^1]) row.Children.Add(NewLine(VerticalAlignment.Bottom));
-            row.MouseRightButtonUp += (_, e) => { e.Handled = true; todos.Remove(todo); AppSettings.Current.Save(); RefreshTools(); };
-
             // 按兩下改文字；按住上下拖換順序（自己追蹤滑鼠，不用 DragDrop：外面那層的拖放是給暫存架用的）
             Point start = default;
             var pressed = false;
             var dragging = false;
             var gap = 0;
+            row.MouseRightButtonUp += (_, e) =>
+            {
+                e.Handled = true;
+                // 左鍵還按著（拖到一半）：右鍵是取消這次拖曳，不是刪除
+                if (pressed)
+                {
+                    pressed = false;
+                    hit.ReleaseMouseCapture();
+                    RefreshTools();
+                    return;
+                }
+                todos.Remove(todo); AppSettings.Current.Save(); RefreshTools();
+            };
             hit.MouseLeftButtonDown += (_, e) =>
             {
                 e.Handled = true;
@@ -182,7 +193,9 @@ public partial class IslandWindow
                 if (!pressed) return;
                 pressed = false;
                 hit.ReleaseMouseCapture();
-                if (dragging && TodoOps.Move(todos, todos.IndexOf(todo), gap)) AppSettings.Current.Save();
+                // 單點沒有要改什麼：不重建，免得白白重新解暫存架的縮圖與重畫月曆
+                if (!dragging) return;
+                if (TodoOps.Move(todos, todos.IndexOf(todo), gap)) AppSettings.Current.Save();
                 RefreshTools();
             };
             hit.LostMouseCapture += (_, _) =>
