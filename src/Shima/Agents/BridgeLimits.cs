@@ -33,13 +33,19 @@ public sealed class Slots(int max)
 /// </summary>
 public sealed class DeckLog(Func<long>? ticks = null)
 {
-    public const int MaxLength = 600;
+    public const int MaxLength = 300;
+    /// <summary>
+    /// 一次執行期間總共最多收幾行：只限頻率的話，兩三分鐘就能寫滿紀錄檔的 512 KB 上限、把整份紀錄刪掉重來。
+    /// 300 行 × 300 字，遠低於上限。
+    /// </summary>
+    public const int MaxLines = 300;
     /// <summary>每 Window 毫秒最多收 Burst 行，超過的丟掉。</summary>
     public const int Burst = 20;
     public const long Window = 10_000;
 
     private readonly Func<long> _ticks = ticks ?? (() => Environment.TickCount64);
     private readonly Queue<long> _recent = new();
+    private int _total;
 
     /// <summary>這一行要不要寫進紀錄檔；要的話回傳清理過的內容，丟掉就是 null。</summary>
     public string? Admit(string? message)
@@ -48,7 +54,8 @@ public sealed class DeckLog(Func<long>? ticks = null)
         lock (_recent)
         {
             while (_recent.Count > 0 && now - _recent.Peek() >= Window) _recent.Dequeue();
-            if (_recent.Count >= Burst) return null;
+            if (_total >= MaxLines || _recent.Count >= Burst) return null;
+            _total++;
             _recent.Enqueue(now);
         }
         return Clean(message);
