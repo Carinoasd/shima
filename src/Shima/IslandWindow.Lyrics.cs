@@ -18,7 +18,7 @@ public partial class IslandWindow
         LyricsSaveItem.IsEnabled = _sheet is { Synced: true };
         LyricsCopyItem.IsEnabled = _sheet is { Lines.Count: > 0 };
         // AI 翻的可以再翻一次（翻壞了、錯位了）；歌詞來源自己帶的翻譯就不用
-        LyricsTranslateItem.IsEnabled = !_translating && _sheet is { Synced: true } current && (current.Translation == null || _aiTranslated);
+        LyricsTranslateItem.IsEnabled = !_translating.Contains(_trackKey) && _sheet is { Synced: true } current && (current.Translation == null || _aiTranslated);
     }
 
     /// <summary>
@@ -61,7 +61,11 @@ public partial class IslandWindow
 
     // ---------------------------------------------------------------- AI 翻譯
 
-    private bool _translating;
+    /// <summary>
+    /// 正在翻的歌（_trackKey）。翻到一半換了歌，上一首的照樣翻完存起來（之後播到用得上，也不會套到現在這首），
+    /// 不擋著現在這首也能請 AI 翻；只有同一首不能同時翻兩次。
+    /// </summary>
+    private readonly HashSet<string> _translating = [];
     /// <summary>現在顯示的翻譯是 AI 翻的（不是歌詞來源帶的）。</summary>
     private bool _aiTranslated;
 
@@ -81,7 +85,7 @@ public partial class IslandWindow
     /// </summary>
     private async void LyricsTranslate_Click(object sender, RoutedEventArgs e)
     {
-        if (_translating) return;
+        if (_translating.Contains(_trackKey)) return;
         if (_track is not { } track || _sheet is not { Synced: true } sheet) { Toast(L.T("現在沒有歌詞"), 3, false); return; }
         if (sheet.Translation != null && !_aiTranslated) return;
         var shown = sheet;                          // 現在畫面上那一份（可能帶著上一次 AI 翻的）
@@ -92,8 +96,15 @@ public partial class IslandWindow
         string key = _trackKey, id = LyricsFinder.IdOf(track), lang = Loc.Lang;
         var (system, text) = AiTranslation.Request(sheet, track.Title, track.Artist, AiTranslation.LanguageName(lang));
         var waiting = L.T("翻譯中…");
-        _translating = true;
+        _translating.Add(key);
         Toast(waiting, 15, false);
+        var waitingUntil = _toastUntil;   // 換歌後另一首也在翻的話，那邊的「翻譯中…」不是這一次的
+        // 沒翻成：還在這首才說；已經換歌的話不能蓋掉現在那首的提示（看起來像是它失敗了），只收掉自己的「翻譯中…」
+        void Failed(string message)
+        {
+            if (key == _trackKey) Toast(message, 4, false);
+            else if (_toast == waiting && _toastUntil == waitingUntil) { _toast = ""; UpdateTexts(); }
+        }
         try
         {
             // 最多等三分鐘：網路卡住時不要讓這一項永遠按不了
@@ -102,21 +113,21 @@ public partial class IslandWindow
             if (AiTranslation.Align(sheet, reply) is not { } lines)
             {
                 Log.Write($"AI 翻譯對不上: {track.Title}（{reply.Split('\n').Length} 行）");
-                Toast(L.T("AI 的翻譯跟歌詞對不上"), 4, false);
+                Failed(L.T("AI 的翻譯跟歌詞對不上"));
                 return;
             }
             // 換歌了也先存著（只看歌詞的句子），下次播到就用得上；但不能套到現在這首上
             AiTranslation.Save(AiTranslation.Folder, id, sheet, lang, lines);
             if (key != _trackKey || !ReferenceEquals(_sheet, shown))
             {
-                if (_toast == waiting) { _toast = ""; UpdateTexts(); }
+                if (_toast == waiting && _toastUntil == waitingUntil) { _toast = ""; UpdateTexts(); }
                 return;
             }
             _sheet = sheet with { Translation = lines };
             _aiTranslated = true;
             _lyricIndex = int.MinValue;
-            // 第二行設成不顯示（或讀音）的話，翻好了也看不到：改成顯示翻譯
-            if (AppSettings.Current.LyricsSecondLine is "none" or "furigana")
+            // 第二行設成不顯示、讀音或羅馬拼音（歌詞有拼音的話翻譯排在後面）的話，翻好了也看不到：改成顯示翻譯
+            if (AppSettings.Current.LyricsSecondLine != "translation")
             {
                 AppSettings.Current.LyricsSecondLine = "translation";
                 AppSettings.Current.Save();
@@ -125,7 +136,7 @@ public partial class IslandWindow
             Toast(L.T("翻譯好了"), 3);
             Morph();
         }
-        catch (Exception x) { Log.Write("AI 翻譯: " + x.Message); Toast(brain.Explain(x), 4, false); }
-        finally { _translating = false; }
+        catch (Exception x) { Log.Write("AI 翻譯: " + x.Message); Failed(brain.Explain(x)); }
+        finally { _translating.Remove(key); }
     }
 }

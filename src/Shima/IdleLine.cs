@@ -11,7 +11,7 @@ namespace Shima;
 /// 沒有歌在播的時候，膠囊上寫什麼。不看畫面也不看真的時鐘，全部由外面給：好測試。
 /// 番茄鐘在跑時永遠優先（提示與語音在更上一層就先處理掉了）。
 /// </summary>
-public static class IdleLine
+public static partial class IdleLine
 {
     public const string Clock = "clock", Date = "date", Alarm = "alarm", None = "none";
 
@@ -45,7 +45,7 @@ public static class IdleLine
     /// <summary>不含年份的短日期，順序與分隔符號照各語言自己的短日期（11/24、24.11.、11월 24일…）。</summary>
     public static string Day(DateTime date, CultureInfo culture)
     {
-        var pattern = Regex.Replace(culture.DateTimeFormat.ShortDatePattern, "y+", "").Trim(' ', '/', '.', '-', ',');
+        var pattern = Years().Replace(culture.DateTimeFormat.ShortDatePattern, "").Trim(' ', '/', '.', '-', ',');
         if (pattern.Length == 0) pattern = "M/d";
         try { return date.ToString(pattern, culture); }
         catch (FormatException) { return date.ToString("M/d", CultureInfo.InvariantCulture); }
@@ -70,5 +70,31 @@ public static class IdleLine
     {
         int n = c;
         return n >= 0x1100 && (n <= 0x11FF || n is >= 0x2E80 and <= 0xA4CF || n is >= 0xAC00 and <= 0xD7A3 || n is >= 0xF900 and <= 0xFAFF || n is >= 0xFE30 and <= 0xFE6F || n is >= 0xFF00 and <= 0xFF60 || n is >= 0xFFE0 and <= 0xFFE6);
+    }
+
+    [GeneratedRegex("y+")]
+    private static partial Regex Years();
+}
+
+/// <summary>
+/// 閒置時每 0.1 秒都會問一次膠囊上寫什麼，但答案只在分鐘、提醒清單、設定或語言變了才會變：沒變就拿上一次的。
+/// 提醒清單（要加鎖、排序）也只在「下一個提醒」模式、而且真的要重算時才去拿。
+/// </summary>
+public sealed class IdleLineCache
+{
+    private (string Mode, long Minute, int Alarms, string Culture, string Tomorrow)? _key;
+    private string _text = "";
+
+    /// <param name="alarmsVersion">提醒清單每變一次就不一樣。</param>
+    /// <param name="alarms">要重算「下一個提醒」時才呼叫。</param>
+    public string Text(string? mode, DateTime now, string? timer, int alarmsVersion, Func<IEnumerable<Shima.Agents.Alarm>> alarms, CultureInfo culture, string tomorrow)
+    {
+        if (timer != null) return timer;   // 番茄鐘本來就優先，也每秒在變
+        mode = IdleLine.Normalize(mode);
+        bool wantsAlarms = mode == IdleLine.Alarm;
+        var key = (mode, now.Ticks / TimeSpan.TicksPerMinute, wantsAlarms ? alarmsVersion : 0, culture.Name, tomorrow);
+        if (_key == key) return _text;
+        _key = key;
+        return _text = IdleLine.Text(mode, now, null, wantsAlarms ? alarms() : [], culture, tomorrow);
     }
 }
