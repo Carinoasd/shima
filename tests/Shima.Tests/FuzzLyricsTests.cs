@@ -307,9 +307,10 @@ public class FuzzLyricsTests
             Assert.DoesNotContain(stem, c => bad.Contains(c) || char.IsControl(c));
             Assert.False(stem.EndsWith('.') || stem.EndsWith(' '), "結尾的點或空白 Windows 會吃掉");
             Assert.Equal(name, Path.GetFileName(name));
-            // 裝置名稱：第一個點之前的部分不可以是保留字（實測 Windows 11 上 "aux .txt"、COM².lrc 都是普通檔案，所以只擋 COM0–9、LPT0–9）
-            var device = stem.Split('.')[0].ToUpperInvariant();
-            Assert.False(device is "CON" or "PRN" or "AUX" or "NUL" || System.Text.RegularExpressions.Regex.IsMatch(device, "^(COM|LPT)[0-9]$"), $"保留的裝置名稱：{device}");
+            // 裝置名稱：第一個點之前的部分（去掉結尾空白）不可以是保留字。微軟的檔名文件把 COM¹²³、LPT¹²³ 與 COM0／LPT0 也列進去，
+            // 而且 Windows 10 上「NUL .txt」仍然是裝置；這台 Windows 11 實測它們是普通檔案，但最低支援版本是 Windows 10，所以照文件嚴格擋
+            var device = stem.Split('.')[0].TrimEnd(' ').ToUpperInvariant();
+            Assert.False(device is "CON" or "PRN" or "AUX" or "NUL" || System.Text.RegularExpressions.Regex.IsMatch(device, "^(COM|LPT)[0-9¹²³]$"), $"保留的裝置名稱：{device}");
             Assert.False(stem.Any(char.IsSurrogate) && !IsWellFormed(stem), "檔名裡有孤立的代理字元");
             Assert.NotEmpty(LocalProvider.KeysOf(name).Intersect(LocalProvider.Keys(q)));
         }, q => $"title={Fuzz.Escape(q.Title)} artist={Fuzz.Escape(q.Artist)}");

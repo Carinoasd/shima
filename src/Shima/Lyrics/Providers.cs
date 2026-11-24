@@ -81,7 +81,7 @@ public sealed partial class LocalProvider : ILyricsProvider
         if (name.Length > 150) name = Safe(q.Title);
         if (name.Length > 150) name = Safe(name[..150]);   // 可能切在 emoji 中間，Safe 會把孤立的代理字元換掉
         if (name.Length == 0 || !KeysOf(name + ".lrc").Intersect(Keys(q)).Any()) return null;
-        // CON、NUL、COM1 這些是裝置名稱，不能當檔名
+        // CON、NUL、COM1（含 COM¹ 這種上標；名稱後面接空白再接副檔名，舊版 Windows 也算）這些是裝置名稱，不能當檔名
         if (Reserved().IsMatch(name)) name = "_" + name;
         return name + ".lrc";
     }
@@ -119,7 +119,7 @@ public sealed partial class LocalProvider : ILyricsProvider
         lock (this) _index = null;
     }
 
-    [GeneratedRegex(@"^(?:con|prn|aux|nul|com\d|lpt\d)(?:\..*)?$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]) *(?:\..*)?$", RegexOptions.IgnoreCase)]
     private static partial Regex Reserved();
 
     private Dictionary<string, string> Index()
