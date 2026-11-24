@@ -248,7 +248,7 @@ public static partial class Markdown
     /// 找收尾要掃過的字數上限（整個區塊共用）。沒收尾的 [ 或 * 每一個都掃到區塊結尾，兩萬字全是這種標記要花上好幾秒；
     /// 正常的回答連這個數字的百分之一都用不到。用完之後剩下的標記都當普通文字。
     /// </summary>
-    private sealed class Work { public long Left = 2_000_000; }
+    private sealed class Work { public long Left = 1_000_000; }
 
     private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth, Work work)
     {
