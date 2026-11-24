@@ -37,26 +37,31 @@ public partial class IslandWindow
     private readonly LyricFavorites _favorites = new();
     private Scrobbler? _scrobbler;
     private LastFm? _lastFm;
+    // 還沒回報出去的（離線、關掉程式之前沒送成的）：寫在檔案裡，之後補送
+    private readonly PendingScrobbles _pending = new();
+    private QueuedSink? _scrobblerQueue, _lastFmQueue;
     private StatsView? _stats;
     private FavoritesView? _favoritesView;
     private bool _libraryShowsFavorites;
 
     private void InitListening()
     {
+        _listening.Accepts = source => ListenSources.Counts(source, AppSettings.Current.HistoryExcluded);
         _listening.Listened += listen => { foreach (var s in Scrobbling()) _ = s.Submit(listen); };
         _listening.Started += track => { foreach (var s in Scrobbling()) _ = s.NowPlaying(track); };
+        foreach (var sink in Scrobbling()) _ = sink.Drain();   // 上次沒送出去的
         Closed += (_, _) => { _lastFmConnecting?.Cancel(); _listening.Flush(); _scrobbler?.Dispose(); _lastFm?.Dispose(); };
     }
 
     /// <summary>現在要回報的目的地：ListenBrainz 有填 token、Last.fm 有連接的才算；設定改了就換成新的。</summary>
-    private List<IListenSink> Scrobbling()
+    private List<QueuedSink> Scrobbling()
     {
-        var sinks = new List<IListenSink>();
+        var sinks = new List<QueuedSink>();
         var s = AppSettings.Current;
         if (s.ListenBrainzToken.Length > 0)
         {
             if (_scrobbler == null) _scrobbler = new Scrobbler(s.ListenBrainzToken); else if (_scrobbler.Token != s.ListenBrainzToken) _scrobbler.Token = s.ListenBrainzToken;
-            sinks.Add(_scrobbler);
+            sinks.Add(_scrobblerQueue ??= new QueuedSink("listenbrainz", _scrobbler, _pending));
         }
         if (s.LastFmSession.Length > 0 && s.LastFmApiKey.Length > 0)
         {
@@ -68,12 +73,13 @@ public partial class IslandWindow
                     // 被拒的是舊的那一把、使用者已經重新連接了：不要把新的清掉
                     if (s.LastFmSessionText() != rejected) return;
                     s.SetLastFmSession("", "");
+                    _pending.Clear("lastfm");
                     RefreshLastFmButton();
                     Toast(L.T("Last.fm 授權失效，請重新連接"), 6, false);
                 });
             }
             _lastFm.Use(s.LastFmApiKey, s.LastFmSecretText(), s.LastFmSessionText());
-            if (_lastFm.Enabled) sinks.Add(_lastFm);
+            if (_lastFm.Enabled) sinks.Add(_lastFmQueue ??= new QueuedSink("lastfm", _lastFm, _pending));
         }
         return sinks;
     }

@@ -215,7 +215,8 @@ public partial class IslandWindow
         rows.Add(Toggle("Roon 搜尋", s.RoonSearch, v => { s.RoonSearch = v; Toast(L.T("重新啟動 Shima，再到 Roon「設定 → 擴充功能」啟用一次"), 10, false); }));
         rows.Add(Gap());
         rows.Add(Toggle("記下聽了什麼", s.History, v => s.History = v));
-        rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => s.ListenBrainzToken = v));
+        if (HistorySourceChips(s) is { } sourceChips) rows.Add(sourceChips);
+        rows.Add(Entry("ListenBrainz", s.ListenBrainzToken, 190, v => { if (v != s.ListenBrainzToken) _pending.Clear("listenbrainz"); s.ListenBrainzToken = v; }));
         foreach (var row in LastFmSettingsRows()) rows.Add(row);
 
         rows.Add(Gap());

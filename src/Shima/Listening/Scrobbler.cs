@@ -64,6 +64,12 @@ public interface IListenSink
     Task NowPlaying(Track track);
     /// <summary>聽完一首；回傳有沒有送成功。</summary>
     Task<bool> Submit(Listen listen);
+    /// <summary>聽完一首，並說明沒送成功是暫時的還是被拒絕了（待送清單要靠這個決定留不留）。</summary>
+    Task<SubmitResult> Deliver(Listen listen);
+    /// <summary>有沒有設定好、可以送。</summary>
+    bool Enabled { get; }
+    /// <summary>這一筆送不送得出去（缺資料、沒聽到門檻就不用排進待送清單）。</summary>
+    bool Wants(Listen listen);
 }
 
 /// <summary>
@@ -109,21 +115,34 @@ public sealed class Scrobbler : IListenSink, IDisposable
     }
 
     /// <summary>聽完一首（ListeningLog.Listened 給的紀錄）；沒聽到官方的門檻就不送。回傳有沒有送成功。</summary>
-    public async Task<bool> Submit(Listen listen)
+    public async Task<bool> Submit(Listen listen) => await Deliver(listen).ConfigureAwait(false) == SubmitResult.Sent;
+
+    public bool Wants(Listen listen) =>
+        Enabled && ListenBrainzJson.CanSubmit(listen.Title, listen.Artist) && ListenBrainzJson.ShouldSubmit(listen.Listened, listen.Duration);
+
+    public async Task<SubmitResult> Deliver(Listen listen)
     {
-        if (!Enabled || !ListenBrainzJson.CanSubmit(listen.Title, listen.Artist)) return false;
-        if (!ListenBrainzJson.ShouldSubmit(listen.Listened, listen.Duration)) return false;
+        if (!Wants(listen)) return SubmitResult.Rejected;
         return await Send(ListenBrainzJson.Single(listen), "single", () => true).ConfigureAwait(false);
     }
 
-    private async Task<bool> Send(string body, string what, Func<bool> stillWanted)
+    /// <summary>
+    /// 暫時的：網路不通、逾時、5xx、429（太頻繁）；401 也留著，使用者可能只是 token 填錯、改對了還能補送。
+    /// 其他 4xx 是這筆內容本身被拒絕，再送也一樣。
+    /// </summary>
+    public static SubmitResult Classify(int status) =>
+        status is >= 200 and < 300 ? SubmitResult.Sent
+        : status is 401 or 408 or 429 or >= 500 ? SubmitResult.Retry
+        : SubmitResult.Rejected;
+
+    private async Task<SubmitResult> Send(string body, string what, Func<bool> stillWanted)
     {
         await _queue.WaitAsync().ConfigureAwait(false);
         try
         {
             var wait = _lastSent + _spacing - DateTime.UtcNow;
             if (wait > TimeSpan.Zero) await Task.Delay(wait).ConfigureAwait(false);
-            if (!stillWanted()) return false;   // 排隊的時候又換歌了
+            if (!stillWanted()) return SubmitResult.Rejected;   // 排隊的時候又換歌了（只有「正在播放」會走到這裡）
 
             using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint)
             {
@@ -132,16 +151,16 @@ public sealed class Scrobbler : IListenSink, IDisposable
             request.Headers.Authorization = new AuthenticationHeaderValue("Token", Token.Trim());
             _lastSent = DateTime.UtcNow;
             using var response = await _http.SendAsync(request).ConfigureAwait(false);
-            if (response.IsSuccessStatusCode) return true;
+            if (response.IsSuccessStatusCode) return SubmitResult.Sent;
             var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (text.Length > 300) text = text[..300];
             _log($"listenbrainz {what}: {(int)response.StatusCode} {text}");
-            return false;
+            return Classify((int)response.StatusCode);
         }
         catch (Exception e)
         {
             _log($"listenbrainz {what}: {e.GetType().Name} {e.Message}");
-            return false;
+            return SubmitResult.Retry;
         }
         finally { _queue.Release(); }
     }

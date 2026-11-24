@@ -38,8 +38,9 @@ public partial class IslandWindow
     private void Show(StatsView stats, (List<Listen> Listens, bool Changed) read, DateTime now)
     {
         // 檔案沒變、也還是同一天（「本週」「本月」從哪天算只看日期）：畫面上的就是最新的，不必重算
+        // 排除的來源換了也要重算（紀錄檔本身沒變）
         if (!read.Changed && ReferenceEquals(_statsShown, read.Listens) && _statsShownDay == now.Date) return;
-        stats.SetListens(read.Listens, now);
+        stats.SetListens(ListenSources.Filter(read.Listens, AppSettings.Current.HistoryExcluded), now);
         _statsShown = read.Listens;
         _statsShownDay = now.Date;
     }

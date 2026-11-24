@@ -123,9 +123,18 @@ public sealed class LastFm : IListenSink, IDisposable
     }
 
     /// <summary>聽完一首；沒聽到門檻就不送。回傳有沒有送成功（被 Last.fm 忽略也算沒成功）。</summary>
-    public async Task<bool> Submit(Listen listen)
+    public async Task<bool> Submit(Listen listen) => await Deliver(listen).ConfigureAwait(false) == SubmitResult.Sent;
+
+    public bool Wants(Listen listen) =>
+        Enabled && ListenBrainzJson.CanSubmit(listen.Title, listen.Artist) && LastFmApi.ShouldSubmit(listen.Listened, listen.Duration);
+
+    /// <summary>
+    /// 暫時的（留著以後再送）：網路不通、11、16，以及跟這一筆無關、使用者改好就能送的 9（session 失效）、10、26（api key 有問題）。
+    /// 其他錯誤代碼與被忽略的是這一筆本身有問題，再送也一樣。
+    /// </summary>
+    public async Task<SubmitResult> Deliver(Listen listen)
     {
-        if (!Enabled || !ListenBrainzJson.CanSubmit(listen.Title, listen.Artist) || !LastFmApi.ShouldSubmit(listen.Listened, listen.Duration)) return false;
+        if (!Wants(listen)) return SubmitResult.Rejected;
         var p = TrackParameters("track.scrobble", listen.Title, listen.Artist, listen.Album, listen.Duration);
         p.Add(new("timestamp", listen.Start.ToUnixTimeSeconds().ToString()));
         try
@@ -139,15 +148,16 @@ public sealed class LastFm : IListenSink, IDisposable
                     if (reply.Body?.Descendants("scrobbles").FirstOrDefault()?.Attribute("accepted")?.Value == "0")
                     {
                         Report($"track.scrobble: ignored {reply.Body.Descendants("ignoredMessage").FirstOrDefault()?.Attribute("code")?.Value}");
-                        return false;
+                        return SubmitResult.Rejected;
                     }
-                    return true;
+                    return SubmitResult.Sent;
                 }
-                if (!reply.Retryable || attempt >= Attempts) return false;
+                bool keep = reply.Retryable || reply.Code is 9 or 10 or 26 or -2;
+                if (!reply.Retryable || attempt >= Attempts) return keep ? SubmitResult.Retry : SubmitResult.Rejected;
                 await Task.Delay(_retryDelay * attempt, _stop.Token).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException) { return false; }
+        catch (OperationCanceledException) { return SubmitResult.Retry; }
     }
 
     private List<KeyValuePair<string, string>> TrackParameters(string method, string title, string artist, string album, double duration)
