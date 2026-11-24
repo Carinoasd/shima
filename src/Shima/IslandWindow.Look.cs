@@ -72,7 +72,8 @@ public partial class IslandWindow
         var rings = new List<(string Id, Ellipse Ring)>();
         var dots = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, -3, 0) };
 
-        var hex = new TextBox { Style = (Style)FindResource("Input"), Height = 26, Width = 92, MaxLength = 7, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        // 長度放寬：貼上「 #4FD1C5 」這種前後帶空白的不能先被截掉一位，空白在存的時候才去掉
+        var hex = new TextBox { Style = (Style)FindResource("Input"), Height = 26, Width = 92, MaxLength = 32, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
         var customDot = new Ellipse { Width = 16, Height = 16 };
         var customGlyph = new TextBlock { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 9, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
 
