@@ -240,8 +240,12 @@ public sealed class AppSettings
         return fresh;
     }
 
+    /// <summary>還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。</summary>
+    public static volatile bool Frozen;
+
     public void Save()
     {
+        if (Frozen) return;
         // 一次只讓一個存檔在跑：兩邊同時寫同一個暫存檔會撞在一起
         lock (Saving)
         {

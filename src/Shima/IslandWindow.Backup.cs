@@ -1,0 +1,78 @@
+// Shima
+// Copyright (C) 2026 Carinoasd
+// SPDX-License-Identifier: MIT
+
+using System.Windows;
+using System.Windows.Controls;
+
+namespace Shima;
+
+/// <summary>設定 → 一般的「備份」：匯出成 zip、從 zip 還原。打包與驗證的邏輯在 <see cref="Backup"/>。</summary>
+public partial class IslandWindow
+{
+    private bool _backupBusy;
+
+    private DockPanel BackupRow()
+    {
+        Button Make(string text, RoutedEventHandler click)
+        {
+            var button = new Button { Style = (Style)FindResource("Pill"), Height = 26, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(6, 0, 0, 0), Content = text };
+            button.Click += click;
+            return button;
+        }
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        buttons.Children.Add(Make(L.T("匯出"), Export_Click));
+        buttons.Children.Add(Make(L.T("還原備份"), Restore_Click));
+        return SettingsRow("備份", buttons);
+    }
+
+    private async void Export_Click(object sender, RoutedEventArgs e)
+    {
+        if (_backupBusy) return;
+        var dialog = new Microsoft.Win32.SaveFileDialog { FileName = $"Shima-backup-{DateTime.Now:yyyyMMdd}.zip", DefaultExt = ".zip", Filter = "ZIP|*.zip" };
+        if (dialog.ShowDialog(this) != true) return;
+        _backupBusy = true;
+        try
+        {
+            var folder = AppSettings.Folder;
+            var result = await Task.Run(() => Backup.Export(folder, dialog.FileName));
+            Toast(result.Status == BackupStatus.Ok ? L.T("已匯出備份") : BackupMessage(result.Status, L.T("匯出失敗")), 5, false);
+        }
+        finally { _backupBusy = false; }
+    }
+
+    private async void Restore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_backupBusy) return;
+        var dialog = new Microsoft.Win32.OpenFileDialog { DefaultExt = ".zip", Filter = "ZIP|*.zip" };
+        if (dialog.ShowDialog(this) != true) return;
+        _backupBusy = true;
+        try
+        {
+            _listening.Flush();   // 目前這首的紀錄先寫掉：關閉時才寫的話會接在還原好的紀錄後面
+            AppSettings.Frozen = true;
+            var folder = AppSettings.Folder;
+            var result = await Task.Run(() => Backup.Restore(dialog.FileName, folder, DateTime.Now));
+            if (result.Status != BackupStatus.Ok)
+            {
+                AppSettings.Frozen = false;
+                Toast(BackupMessage(result.Status, L.T("還原失敗，資料沒有變動")), 6, false);
+                return;
+            }
+            Toast(L.T("已還原，重新啟動中"), 10, false);
+            ((App)Application.Current).Restart();
+            if (Demo.On) AppSettings.Frozen = false;   // 示範模式不會真的重啟
+            else Close();
+        }
+        finally { _backupBusy = false; }
+    }
+
+    private static string BackupMessage(BackupStatus status, string fallback) => status switch
+    {
+        BackupStatus.Unreadable or BackupStatus.Empty => L.T("這不是有效的備份檔"),
+        BackupStatus.Unsafe => L.T("備份檔含有不安全的路徑，已拒絕"),
+        BackupStatus.TooBig => L.T("備份檔太大，已拒絕"),
+        BackupStatus.BadSettings => L.T("備份裡的設定檔壞了，已拒絕"),
+        _ => fallback,
+    };
+}
