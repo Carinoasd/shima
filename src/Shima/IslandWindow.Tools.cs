@@ -118,6 +118,9 @@ public partial class IslandWindow
         MonthTitle.Text = today.ToString("Y", Loc.Culture);
     }
 
+    /// <summary>正在原地編輯的那一筆待辦的收尾（存下打到一半的字）；沒有在編輯時是 null。</summary>
+    private Action? _commitTodoEdit;
+
     private static readonly Brush DropLine = Frozen(Color.FromRgb(0xD9, 0x77, 0x57));
     private const double TodoRowHeight = 28;
 
@@ -168,6 +171,7 @@ public partial class IslandWindow
             row.MouseRightButtonUp += (_, e) =>
             {
                 e.Handled = true;
+                _commitTodoEdit?.Invoke();   // 在別列按右鍵不會搶走焦點：先把正在編輯的字存下來，重建才不會吃掉
                 // 左鍵還按著（拖到一半）：右鍵是取消這次拖曳，不是刪除
                 if (pressed)
                 {
@@ -181,6 +185,7 @@ public partial class IslandWindow
             hit.MouseLeftButtonDown += (_, e) =>
             {
                 e.Handled = true;
+                _commitTodoEdit?.Invoke();   // 在列上按下不會搶走鍵盤焦點：拖曳放開後的重建會把還在編輯的輸入框當成「不用存」
                 if (e.ClickCount >= 2) { EditTodo(hit, todo); return; }
                 start = e.GetPosition(TodoBox);
                 pressed = true;
@@ -227,10 +232,12 @@ public partial class IslandWindow
         var label = host.Child as TextBlock;
         host.Child = box;
         var finished = false;
+        Action? commit = null;
         void Finish(bool save)
         {
             if (finished) return;
             finished = true;
+            if (_commitTodoEdit == commit) _commitTodoEdit = null;
             var changed = save && TodoOps.Rename(AppSettings.Current.Todos, todo, box.Text);
             if (changed) AppSettings.Current.Save();
             // 只把這一列換回文字：失焦是在別顆按鈕的 MouseDown 裡同步觸發的，這時整頁重建會把剛按下去的那顆從畫面上拿掉，
@@ -239,6 +246,14 @@ public partial class IslandWindow
             label.Text = todo.Text;
             host.Child = label;
         }
+        // 失焦時是空的不算刪除，所以收尾也一樣：空的就當取消
+        commit = () =>
+        {
+            // 輸入框已經被別的重建移走了：不要把過期的字寫回去
+            if (PresentationSource.FromVisual(box) == null) { finished = true; if (_commitTodoEdit == commit) _commitTodoEdit = null; return; }
+            Finish(box.Text.Trim().Length > 0);
+        };
+        _commitTodoEdit = commit;
         box.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter) { e.Handled = true; Finish(true); }
@@ -247,7 +262,12 @@ public partial class IslandWindow
         box.LostKeyboardFocus += (_, _) =>
         {
             // 清單被重建（點了別列的勾、語音助手改了待辦）把輸入框移走：當成取消，不要把打到一半的字存下來
-            if (_rebuildingTools || PresentationSource.FromVisual(box) == null) { finished = true; return; }
+            if (_rebuildingTools || PresentationSource.FromVisual(box) == null)
+            {
+                finished = true;
+                if (_commitTodoEdit == commit) _commitTodoEdit = null;
+                return;
+            }
             // 失焦時是空的不算刪除（可能只是全選刪掉準備重打）：要刪請按 Enter
             Finish(box.Text.Trim().Length > 0);
         };
