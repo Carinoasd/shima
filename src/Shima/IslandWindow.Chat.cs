@@ -84,6 +84,8 @@ public partial class IslandWindow
     private async Task EnsureChatAsync()
     {
         if (_web != null || _webStarting) return;
+        // 截圖與啟動檢查不載入聊天網站：不該對外發請求，載入的進度也會讓每次拍出來的圖不一樣
+        if (_smoke) return;
         _webStarting = true;
         WebView2CompositionControl? created = null;
         try

@@ -61,7 +61,7 @@ public partial class IslandWindow
             switch (what)
             {
                 case "volume":
-                    if ((_media.Nudge(ticks) ?? _system.Nudge(ticks * 2)) is { } volume) Toast(L.F("音量 {0}", volume), 2, false);
+                    NudgeVolume(ticks, ticks * 2);
                     break;
                 case "seek":
                     if (_track is { } t && t.Duration > TimeSpan.Zero)
@@ -547,8 +547,10 @@ public partial class IslandWindow
                 {
                     int steps = (int)Math.Clamp(Number("steps", 2), 1, 10) * (Arg("direction") == "down" ? -1 : 1);
                     // Roon 有自己的音量；不是 Roon 在播就調整台電腦的音量
-                    if (_media.Nudge(steps) is { } roon) return $"Roon 音量現在是 {roon}";
-                    return _system.Nudge(steps * 4) is { } system ? $"電腦音量現在是 {system}%" : "沒有可以調音量的裝置";
+                    var (level, roonCannot) = Playback.MediaHub.Route(_media.OnRoon, () => _media.Nudge(steps), () => _system.Nudge(steps * 4));
+                    if (roonCannot) return "現在是 Roon 在播，而這個輸出的音量不能從這裡調";
+                    if (level is not { } now) return "沒有可以調音量的裝置";
+                    return _media.OnRoon ? $"Roon 音量現在是 {now}" : $"電腦音量現在是 {now}%";
                 }
 
                 case "lyrics_fix":

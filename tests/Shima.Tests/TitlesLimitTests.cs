@@ -73,4 +73,14 @@ public class TitlesLimitTests
         Assert.Equal("A", Titles.MainArtist("A feat. B"));
         Assert.Equal("歌名", PageTitle.Clean("歌名 - YouTube"));
     }
+
+    [Fact]
+    public void 播放器給的文字一進來就把孤立的代理字元換掉()
+    {
+        Assert.Equal("a\uFFFD", Titles.Cap("a\uD83D"));
+        Assert.Equal("\uFFFDb", Titles.Cap("\uDE00b"));
+        Assert.Equal("歌😀", Titles.Cap("歌😀"));   // 成對的不動
+        // 換過之後後面的正規化不會丟例外
+        Assert.Equal("a", Titles.Norm(Titles.Cap("a\uD83D")));
+    }
 }

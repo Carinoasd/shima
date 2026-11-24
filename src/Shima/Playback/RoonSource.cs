@@ -408,6 +408,8 @@ public sealed class RoonSource : IMediaSource
             output = o["output_id"]?.ToString() ?? "";
             value = Number(volume["value"]); min = Number(volume["min"]); max = Number(volume["max"]);
             step = Math.Max(1, Number(volume["step"]));
+            // 只能加減的輸出沒有上下限（讀出來都是 0）：照下面的算法會變成「設成 0」。這種輸出這裡調不了
+            if (!(max > min)) return null;
             value = Math.Clamp(value + steps * step, min, max);
             volume["value"] = value;   // 先當作成功，Core 之後會回報實際的值
         }

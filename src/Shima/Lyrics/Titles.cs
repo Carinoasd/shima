@@ -20,9 +20,10 @@ public static partial class Titles
     public static string Cap(string? s)
     {
         s ??= "";
-        if (s.Length <= MaxLength) return s;
+        // 孤立的代理字元（網頁把標題截在 emoji 中間）在這裡就換掉：後面任何一個 string.Normalize 遇到它都會丟例外
+        if (s.Length <= MaxLength) return Wellformed(s);
         int end = char.IsHighSurrogate(s[MaxLength - 1]) ? MaxLength - 1 : MaxLength;
-        return s[..end];
+        return Wellformed(s[..end]);
     }
 
     /// <summary>逾時就用原本的字串，不讓例外往外丟。</summary>

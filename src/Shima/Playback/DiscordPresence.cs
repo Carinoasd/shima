@@ -134,7 +134,7 @@ public sealed class DiscordPresence : IDisposable
         var key = $"{track.Title}\n{track.Artist}\n{track.Album}";
         lock (_covers) if (_covers.TryGetValue(key, out var known)) return known;
 
-        static string N(string s) => new(s.ToLowerInvariant().Normalize(NormalizationForm.FormKC).Where(char.IsLetterOrDigit).ToArray());
+        static string N(string s) => new(Lyrics.Titles.Wellformed(s).ToLowerInvariant().Normalize(NormalizationForm.FormKC).Where(char.IsLetterOrDigit).ToArray());
         static bool Close(string a, string b) { string x = N(a), y = N(b); return x.Length > 0 && y.Length > 0 && (x.Contains(y) || y.Contains(x)); }
         var artist = Lyrics.Titles.MainArtist(track.Artist);
         string? found = null;

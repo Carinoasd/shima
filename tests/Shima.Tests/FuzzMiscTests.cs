@@ -66,9 +66,11 @@ public class FuzzMiscTests
         Fuzz.Run("PageTitle.Clean", 8003, 4000, r => r.Chance(0.05) ? null : r.Build(parts.Concat(Gen.Noise).ToArray(), 0, 6, 0.2), title =>
         {
             var clean = PageTitle.Clean(title);
-            var trimmed = (title ?? "").Trim();
+            // 孤立的代理字元（標題被截在 emoji 中間）一進來就換成 U+FFFD，所以比的是換過之後的標題
+            var trimmed = Shima.Lyrics.Titles.Wellformed(title ?? "").Trim();
             Assert.Equal(clean.Trim(), clean);
             Assert.True(trimmed.StartsWith(clean, StringComparison.Ordinal), "結果要是原標題的開頭");
+            Assert.Equal(clean, Shima.Lyrics.Titles.Wellformed(clean));   // 出來的一定是合法的文字
             if (trimmed.Length > 0) Assert.NotEqual("", clean);
         }, v => Fuzz.Escape(v ?? "null"));
     }

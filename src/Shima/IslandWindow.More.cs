@@ -58,7 +58,18 @@ public partial class IslandWindow
             return;
         }
         int steps = e.Delta > 0 ? 1 : -1;
-        if ((_media.Nudge(steps) ?? _system.Nudge(steps * 2)) is { } volume) Toast(L.F("音量 {0}", volume), 2, false);
+        NudgeVolume(steps, steps * 2);
+    }
+
+    /// <summary>
+    /// 音量加減：在播的是 Roon 就調 Roon，不然調這台電腦。Roon 在播而它的輸出調不了時不碰系統音量
+    /// （那不是使用者要調的東西），只說調不了。
+    /// </summary>
+    private void NudgeVolume(int roonSteps, int systemSteps)
+    {
+        var (volume, roonCannot) = Playback.MediaHub.Route(_media.OnRoon, () => _media.Nudge(roonSteps), () => _system.Nudge(systemSteps));
+        if (volume is { } v) Toast(L.F("音量 {0}", v), 2, false);
+        else if (roonCannot) Toast(L.T("這個 Roon 輸出不能這樣調音量"), 2, false);
     }
 
     /// <summary>在膠囊上按滑鼠中鍵：播放／暫停。</summary>
