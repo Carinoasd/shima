@@ -97,6 +97,7 @@ public partial class IslandWindow
     private void Deck_Click(object sender, RoutedEventArgs e)
     {
         if (_loadingSettings) return;
+        if (RefuseInDemo()) { DeckSwitch.IsChecked = !DeckSwitch.IsChecked; return; }   // 開關還原成點之前的樣子，不假裝改了
         if (DeckSwitch.IsChecked == true)
         {
             DeckSwitch.IsChecked = Agents.StreamDock.Install();

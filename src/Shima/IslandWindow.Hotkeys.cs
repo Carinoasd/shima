@@ -30,9 +30,9 @@ public partial class IslandWindow
     {
         var button = new Button { Style = (Style)FindResource("Pill"), Height = 26, MinWidth = 120, Padding = new Thickness(12, 0, 12, 0), Focusable = true };
         bool recording = false;
-        // 截圖模式不註冊全域快速鍵，沒有「實際用的那一組」：顯示設定的或預設的
+        // 截圖模式與示範模式不註冊全域快速鍵，沒有「實際用的那一組」：顯示設定的或預設的
         void Show() => button.Content = recording ? L.T("按下新的組合") : actual() is { Length: > 0 } text ? text
-            : _smoke ? (saved() is { Length: > 0 } wanted ? wanted : standard) : "—";
+            : _smoke || Demo.On ? (saved() is { Length: > 0 } wanted ? wanted : standard) : "—";
         _hotkeyShows.Add(Show);
 
         // 錄製時兩組都拆掉了：結束後照設定註冊回去，兩列都更新
@@ -72,6 +72,7 @@ public partial class IslandWindow
         button.Click += (_, _) =>
         {
             if (recording) return;
+            if (RefuseInDemo()) return;   // 示範模式不註冊全域快速鍵：錄了也不會生效，不假裝
             recording = true;
             _recordingHotkey = true;
             UnregisterHotKey(_hwnd, HotkeyToggle);

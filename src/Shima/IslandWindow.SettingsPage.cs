@@ -120,7 +120,12 @@ public partial class IslandWindow
         };
         LanguageButton.Click += Language_Click;
         rows.Add(SettingsRow("語言", LanguageButton));
-        rows.Add(Toggle("開機時啟動", Startup.Enabled, v => Startup.Enabled = v));
+        rows.Add(SettingsSwitch("開機時啟動", Startup.Enabled, (sender, _) =>
+        {
+            var box = (CheckBox)sender;
+            if (RefuseInDemo()) box.IsChecked = !box.IsChecked;   // 示範模式不碰真正的登錄值；開關還原
+            else Startup.Enabled = box.IsChecked == true;
+        }));
         rows.Add(Toggle("全螢幕時隱藏", s.HideInFullscreen, v => s.HideInFullscreen = v));
         rows.Add(Toggle("檢查新版", s.CheckUpdates, v => s.CheckUpdates = v));
         rows.Add(Gap());

@@ -61,11 +61,14 @@ public partial class IslandWindow
     {
         if (_web != null || _webStarting) return;
         _webStarting = true;
+        WebView2CompositionControl? created = null;
         try
         {
-            var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "WebView2");
+            // 示範模式不能用真正的瀏覽器設定檔：裡面有登入的 cookie，兩份 Shima 同時開還會搶同一個設定檔的鎖
+            var data = Demo.On ? Path.Combine(AppSettings.Folder, "WebView2")
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Shima", "WebView2");
             var environment = await CoreWebView2Environment.CreateAsync(null, data);
-            var web = new WebView2CompositionControl();
+            var web = created = new WebView2CompositionControl();
             _chatFrame.Children.Add(web);   // 隔一層反向縮放，島的大小不是 100% 時瀏覽器才清楚（IslandWindow.Scale.cs）
             ChatHost.Child = _chatFrame;
             await web.EnsureCoreWebView2Async(environment);
@@ -90,6 +93,8 @@ public partial class IslandWindow
         catch (Exception e)
         {
             Log.Write("chat: " + e.Message);
+            // 已經加進去的控制項要拿掉：下次打開聊天分頁會重試，不拿掉就一次疊一個
+            if (created != null) { _chatFrame.Children.Remove(created); if (ReferenceEquals(_web, created)) _web = null; try { created.Dispose(); } catch { } }
             ChatHost.Child = new TextBlock
             {
                 Text = L.T("無法啟動內嵌瀏覽器（需要 Microsoft Edge WebView2）"), Foreground = Brushes.White, FontSize = 13,

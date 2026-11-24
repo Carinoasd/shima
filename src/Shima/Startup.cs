@@ -15,6 +15,7 @@ public static class Startup
     {
         get
         {
+            if (Demo.On) return false;   // 示範模式看不到、也不改真正的登錄值
             try
             {
                 using var run = Registry.CurrentUser.OpenSubKey(Key);
@@ -24,6 +25,7 @@ public static class Startup
         }
         set
         {
+            if (Demo.On) return;
             try
             {
                 using var run = Registry.CurrentUser.CreateSubKey(Key);
