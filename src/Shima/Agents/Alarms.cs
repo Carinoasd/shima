@@ -284,10 +284,11 @@ public sealed class Alarms : IDisposable
         if (minutes is double m && !(m <= 0 && !string.IsNullOrWhiteSpace(at)))
         {
             if (!double.IsFinite(m) || m <= 0 || m > Farthest.TotalMinutes) return null;
-            return now.AddSeconds(Math.Round(m * 60));
+            // 0.001 分鐘四捨五入成 0 秒：不是未來的時間，InRange 會擋掉
+            return InRange(now.AddSeconds(Math.Round(m * 60)), now);
         }
         if (string.IsNullOrWhiteSpace(at)) return null;
-        var text = at.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+        var text = Shima.Lyrics.Titles.Wellformed(at).Normalize(System.Text.NormalizationForm.FormKC).Trim();   // 孤立的代理字元會讓 Normalize 丟例外
 
         DateTime? result = null;
         // M、d、H 都收一到兩位：「2026-11-8 07:30」跟補零的寫法一樣
@@ -315,7 +316,7 @@ public sealed class Alarms : IDisposable
         string half = "";   // 上午、下午或中午
         foreach (var (word, kind) in new[] { ("下午", "pm"), ("晚上", "pm"), ("傍晚", "pm"), ("pm", "pm"), ("中午", "noon"), ("上午", "am"), ("早上", "am"), ("凌晨", "am"), ("清晨", "am"), ("am", "am") })
             if (t.Contains(word, StringComparison.Ordinal)) { half = kind; t = t.Replace(word, ""); }
-        var match = Regex.Match(t, @"^(\d{1,2})(?::(\d{2})(?::\d{2})?|[點点時时](?:(半)|(\d{1,2})分?)?)?$");
+        var match = Regex.Match(t, @"^([0-9]{1,2})(?::([0-9]{2})(?::[0-9]{2})?|[點点時时](?:(半)|([0-9]{1,2})分?)?)?$");
         if (!match.Success) return null;
         // 只寫一個數字（「7」）沒有冒號、沒有「點」、也沒說上午下午：太模糊
         if (!match.Groups[2].Success && !t.Any(c => c is '點' or '点' or '時' or '时') && half.Length == 0) return null;
@@ -331,12 +332,12 @@ public sealed class Alarms : IDisposable
     }
 
     // 只寫日期：「2026-11-28 交報告」。月曆點一天會填成這個開頭
-    private static readonly Regex DateOnly = new(@"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)", RegexOptions.CultureInvariant);
+    private static readonly Regex DateOnly = new(@"^([0-9]{4})[-/]([0-9]{1,2})[-/]([0-9]{1,2})(?![0-9])", RegexOptions.CultureInvariant);
     /// <summary>日期後面沒寫時間就當早上九點。</summary>
     public static readonly TimeSpan DefaultTime = TimeSpan.FromHours(9);
-    private static readonly Regex Duration = new(@"^(\d+(?:\.\d+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Regex FullDate = new(@"^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{2}(?::\d{2})?", RegexOptions.CultureInvariant);
-    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?\d{1,2}(?::\d{2}|[點点時时](?:半|\d{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex Duration = new(@"^([0-9]+(?:\.[0-9]+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex FullDate = new(@"^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}[ T][0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?", RegexOptions.CultureInvariant);
+    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?[0-9]{1,2}(?::[0-9]{2}|[點点時时](?:半|[0-9]{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。
@@ -345,7 +346,7 @@ public sealed class Alarms : IDisposable
     public static (DateTime At, string Text, string? Repeat)? ParseLine(string? line, DateTime now)
     {
         if (string.IsNullOrWhiteSpace(line)) return null;
-        var text = line.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+        var text = Shima.Lyrics.Titles.Wellformed(line).Normalize(System.Text.NormalizationForm.FormKC).Trim();
 
         // 重複的：「每天 8:00 吃藥」「平日 9:30 站會」「每週五 18:00 倒垃圾」。只收幾點，不收日期；At 是下一次
         if (RepeatPrefix.Match(text) is { Success: true } rep && RepeatOf(rep) is { } repeat)
