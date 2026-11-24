@@ -270,6 +270,97 @@ public sealed class BackupTests : IDisposable
     }
 
     [Fact]
+    public void 連線目標不匯出_還原時用這台的()
+    {
+        Write("settings.json", """{ "RoonHost": "192.168.1.5", "RoonPort": 9100, "RoonExtensionId": "mine", "AiCustomUrl": "http://localhost:11434/v1", "Language": "ja" }""");
+        Assert.Equal(BackupStatus.Ok, Backup.Export(Data, Zip).Status);
+        using (var z = ZipFile.OpenRead(Zip))
+        {
+            using var r = new StreamReader(z.GetEntry("settings.json")!.Open());
+            var text = r.ReadToEnd();
+            foreach (var field in Backup.LocalFields) Assert.DoesNotContain(field, text);
+            Assert.Contains("\"ja\"", text);
+        }
+        File.Delete(Zip);
+        Make(("settings.json", """{ "RoonHost": "evil.example", "RoonPort": 1, "RoonExtensionId": "x", "AiCustomUrl": "https://evil.example/v1", "Language": "en" }"""));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.Equal("192.168.1.5", (string?)s["RoonHost"]);
+        Assert.Equal(9100, (int)s["RoonPort"]!);
+        Assert.Equal("mine", (string?)s["RoonExtensionId"]);
+        Assert.Equal("http://localhost:11434/v1", (string?)s["AiCustomUrl"]);   // 這台自己填的 http 位址（本機的模型）照舊
+        Assert.Equal("en", (string?)s["Language"]);
+    }
+
+    [Fact]
+    public void 這台沒設定過連線目標時_備份裡的也不採用()
+    {
+        Make(("settings.json", """{ "RoonHost": "evil.example", "AiCustomUrl": "https://evil.example/v1", "AiService": "custom" }"""));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.Equal("127.0.0.1", (string?)s["RoonHost"]);
+        Assert.Equal("", (string?)s["AiCustomUrl"]);
+    }
+
+    [Fact]
+    public void 備份裡的網路路徑不採用_這台原本就有的照舊()
+    {
+        Write("settings.json", """{ "LyricsFolders": ["\\\\nas\\music\\lyrics"] }""");
+        Make(("settings.json", """
+            { "CharacterImage": "\\\\evil.example\\share\\a.png",
+              "LyricsFolders": ["\\\\nas\\music\\lyrics", "\\\\evil.example\\share", "D:\\lyrics", "//evil.example/x", "\\\\?\\UNC\\evil.example\\x", "relative\\path"],
+              "Shelf": ["\\\\evil.example\\share\\b.txt", "D:\\docs\\a.pdf"] }
+            """));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.Equal("", (string?)s["CharacterImage"]);
+        Assert.Equal(["\\\\nas\\music\\lyrics", "D:\\lyrics"], s["LyricsFolders"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.Equal(["D:\\docs\\a.pdf"], s["Shelf"]!.AsArray().Select(n => (string)n!).ToArray());
+    }
+
+    [Theory]
+    [InlineData("C:\\a\\b.png", true)]
+    [InlineData("d:/a", true)]
+    [InlineData("\\\\server\\share\\a", false)]
+    [InlineData("//server/share", false)]
+    [InlineData("\\\\?\\C:\\a", false)]
+    [InlineData("\\\\.\\pipe\\x", false)]
+    [InlineData("C:", false)]
+    [InlineData("C:relative", false)]
+    [InlineData("a\\b", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void 本機磁碟上的路徑(string? path, bool expected) => Assert.Equal(expected, Backup.OnThisComputer(path));
+
+    [Fact]
+    public void 剛好放在叫shelf的資料夾裡的別的檔案不改路徑()
+    {
+        Make(("settings.json", """{ "Shelf": ["D:\\work\\shelf\\plan.txt", "D:\\old\\Shima\\shelf\\shelf-9.txt"] }"""), ("shelf/shelf-9.txt", "x"));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var shelf = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!["Shelf"]!.AsArray().Select(n => (string)n!).ToArray();
+        Assert.Equal(["D:\\work\\shelf\\plan.txt", Path.Combine(Data, "shelf", "shelf-9.txt")], shelf);
+    }
+
+    [Fact]
+    public void 舊資料移不開時_原本的一個都不能少()
+    {
+        Fill();
+        Snapshot(out var before);
+        Make(("settings.json", "{ \"Language\": \"en\" }"), ("history.jsonl", "{\"a\":9}\n"), ("lyrics/new.lrc", "[00:01.00]new"));
+        // 別的程式正開著歌詞資料夾裡的檔案：設定與紀錄已經換上去了，輪到歌詞資料夾時移不走
+        using (new FileStream(Path.Combine(Data, "lyrics", "one.lrc"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            var result = Backup.Restore(Zip, Data, new DateTime(2026, 5, 6, 7, 8, 9));
+            Assert.Equal(BackupStatus.Failed, result.Status);
+            Assert.Null(result.Saved);   // 全部換回來了，不用留那份複本
+        }
+        Snapshot(out var after);
+        Assert.Equal(before, after);
+        Assert.Empty(Directory.GetDirectories(_temp, "Shima-before-restore-*"));
+        Assert.Empty(Directory.GetDirectories(_temp, ".Shima-restore-*"));
+    }
+
+    [Fact]
     public void 路徑檢查()
     {
         Assert.True(Backup.SafeName("lyrics/一首歌 (live).lrc", out var rel));

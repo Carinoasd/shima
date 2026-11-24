@@ -56,7 +56,9 @@ public partial class IslandWindow
             if (result.Status != BackupStatus.Ok)
             {
                 AppSettings.Frozen = false;
-                Toast(BackupMessage(result.Status, L.T("還原失敗，資料沒有變動")), 6, false);
+                // 換到一半失敗又沒能全部換回來（很少見）：原本的資料在還原前複製的那一份裡，要說在哪
+                if (result.Saved is { } kept) Toast(L.F("還原失敗，原本的資料留在 {0}", kept), 20, false);
+                else Toast(BackupMessage(result.Status, L.T("還原失敗，資料沒有變動")), 6, false);
                 return;
             }
             Toast(L.T("已還原，重新啟動中"), 10, false);

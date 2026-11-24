@@ -40,6 +40,12 @@ public static class Backup
     /// </summary>
     public static readonly string[] SecretFields = ["AiKeys", "AnthropicKey", "LastFmSecret", "LastFmSession", "RoonTokens", "ListenBrainzToken"];
 
+    /// <summary>
+    /// 「連到哪裡」的設定：Roon 主機、自訂的 AI 位址。跟上面的機密一樣不匯出、還原時一律用這台原本的。
+    /// 備份檔能改這些的話，等於能把這台存著的 Roon token、對 AI 說的話（連同工具讀到的剪貼簿）導到別人的伺服器。
+    /// </summary>
+    public static readonly string[] LocalFields = ["RoonHost", "RoonPort", "RoonExtensionId", "AiCustomUrl"];
+
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 
     // ---------------------------------------------------------------- 匯出
@@ -75,9 +81,10 @@ public static class Backup
                 {
                     var top = Path.Combine(root, dir);
                     if (!Directory.Exists(top)) continue;
-                    foreach (var file in Directory.EnumerateFiles(top, "*", SearchOption.AllDirectories))
+                    // 捷徑資料夾（junction、symlink）不跟進去：裡面是別的地方的檔案，不是 Shima 的資料
+                    foreach (var file in Directory.EnumerateFiles(top, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
                     {
-                        if (Skipped(file) || (File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0) continue;
+                        if (Skipped(file)) continue;
                         if (++count > MaxFiles) return new BackupResult(BackupStatus.TooBig);
                         total += AddFile(zip, file, Path.GetRelativePath(root, file).Replace('\\', '/'));
                         if (total > MaxBytes) return new BackupResult(BackupStatus.TooBig);
@@ -118,7 +125,7 @@ public static class Backup
         try
         {
             if (JsonNode.Parse(json) is not JsonObject obj) return null;
-            foreach (var field in SecretFields) obj.Remove(field);
+            foreach (var field in SecretFields.Concat(LocalFields)) obj.Remove(field);
             return obj.ToJsonString(Indented);
         }
         catch (JsonException) { return null; }
@@ -214,11 +221,12 @@ public static class Backup
                 }
             }
 
-            // 3. 設定檔要能讀得懂才採用；機密欄位一律用這台原本的
+            // 3. 設定檔要能讀得懂才採用；機密欄位與連線目標一律用這台原本的
             var stagedSettings = Path.Combine(stage, "settings.json");
             if (File.Exists(stagedSettings))
             {
-                if (MergeSettings(File.ReadAllText(stagedSettings), Path.Combine(root, "settings.json"), root) is not { } merged)
+                var copies = picks.Select(p => p.Name.Split('/')).Where(p => p.Length == 2 && p[0] == "shelf").Select(p => p[1]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (MergeSettings(File.ReadAllText(stagedSettings), Path.Combine(root, "settings.json"), root, copies) is not { } merged)
                     return new BackupResult(BackupStatus.BadSettings);
                 File.WriteAllText(stagedSettings, merged, new UTF8Encoding(false));
             }
@@ -233,44 +241,62 @@ public static class Backup
                 catch { TryDeleteFolder(Path.Combine(parent, saved)); throw; }
             }
 
-            // 5. 換上去：每一項先把舊的移到暫存區，任何一步失敗就全部移回來
-            Apply(stage, root, picks.Select(p => p.Name.Split('/')[0]).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
-            return new BackupResult(BackupStatus.Ok, picks.Count, saved);
+            // 5. 換上去
+            var undone = Apply(stage, root, picks.Select(p => p.Name.Split('/')[0]).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+            if (undone == null) return new BackupResult(BackupStatus.Ok, picks.Count, saved);
+            // 換到一半失敗。全部換回來了：資料沒變，那份複本不用留。有東西沒能換回來：舊資料只剩那份複本，留著並回報在哪裡
+            if (undone == true && saved != null) { TryDeleteFolder(Path.Combine(parent, saved)); saved = null; }
+            return new BackupResult(BackupStatus.Failed, 0, saved);
         }
         catch (Exception e) { Log.Write("backup restore: " + e.Message); return new BackupResult(BackupStatus.Failed); }
         finally { if (stage != null) TryDeleteFolder(stage); }
     }
 
-    private static void Apply(string stage, string root, List<string> items)
+    /// <summary>換一項的進度：舊的移開了沒、新的放進來了沒。復原要照實際走到哪一步來做。</summary>
+    private sealed class Swap(string target, string old)
+    {
+        public string Target { get; } = target;
+        public string Old { get; } = old;
+        public bool OldMoved, NewIn;
+    }
+
+    /// <summary>
+    /// 把暫存區的每一項換上去：舊的先移到暫存區，再把新的移進來。成功回傳 null。
+    /// 中途失敗（例如檔案正被別的程式開著）就照每一項實際走到的步驟換回來，回傳有沒有全部換回來。
+    /// 不可以憑「這一項開始處理了」就動手復原：舊的還沒移開時，位置上的就是使用者原本的資料，刪不得。
+    /// </summary>
+    private static bool? Apply(string stage, string root, List<string> items)
     {
         var trash = Path.Combine(stage, ".old");
         Directory.CreateDirectory(trash);
         Directory.CreateDirectory(root);
-        var done = new List<(string Target, string Old, bool HadOld)>();
+        var swaps = new List<Swap>();
         try
         {
             foreach (var item in items)
             {
-                var target = Path.Combine(root, item);
-                var old = Path.Combine(trash, item);
-                bool had = File.Exists(target) || Directory.Exists(target);
-                done.Add((target, old, had));
-                if (had) Move(target, old);
-                Move(Path.Combine(stage, item), target);
+                var swap = new Swap(Path.Combine(root, item), Path.Combine(trash, item));
+                swaps.Add(swap);
+                if (File.Exists(swap.Target) || Directory.Exists(swap.Target)) { Move(swap.Target, swap.Old); swap.OldMoved = true; }
+                Move(Path.Combine(stage, item), swap.Target);
+                swap.NewIn = true;
             }
+            return null;
         }
-        catch
+        catch (Exception e)
         {
-            foreach (var (target, old, had) in Enumerable.Reverse(done))
+            Log.Write("backup apply: " + e.Message);
+            bool clean = true;
+            foreach (var swap in Enumerable.Reverse(swaps))
             {
                 try
                 {
-                    if (File.Exists(target)) File.Delete(target); else if (Directory.Exists(target)) Directory.Delete(target, true);
-                    if (had) Move(old, target);
+                    if (swap.NewIn) { if (File.Exists(swap.Target)) File.Delete(swap.Target); else if (Directory.Exists(swap.Target)) Directory.Delete(swap.Target, true); }
+                    if (swap.OldMoved) Move(swap.Old, swap.Target);
                 }
-                catch (Exception e) { Log.Write("backup rollback: " + e.Message); }
+                catch (Exception again) { Log.Write("backup rollback: " + again.Message); clean = false; }
             }
-            throw;
+            return clean;
         }
     }
 
@@ -280,50 +306,77 @@ public static class Backup
     }
 
     /// <summary>
-    /// 把 zip 裡的設定檔和這台的設定合起來：機密欄位用這台的（沒有就空著）、可疑的值改回安全的範圍。
+    /// 把 zip 裡的設定檔和這台的設定合起來：機密欄位與連線目標用這台的（沒有就是預設值）、可疑的值改回安全的範圍。
     /// 讀不懂（不是物件、型別不對、欄位是 null）就是 null。
     /// </summary>
-    public static string? MergeSettings(string incoming, string localPath, string folder)
+    /// <param name="shelfCopies">備份的 shelf 資料夾裡有哪些檔名；null：不知道（只在測試裡）。</param>
+    public static string? MergeSettings(string incoming, string localPath, string folder, IReadOnlySet<string>? shelfCopies = null)
     {
         try
         {
             if (JsonNode.Parse(incoming) is not JsonObject obj) return null;
             JsonObject? local = null;
             try { if (File.Exists(localPath)) local = JsonNode.Parse(ReadText(localPath)) as JsonObject; } catch (JsonException) { }
-            foreach (var field in SecretFields) { obj.Remove(field); if (local?[field] is { } mine) obj[field] = mine.DeepClone(); }
-            // 自訂的 API 位址會收到這台的金鑰：這台已經存了「自訂」的金鑰就不讓別人換掉位址
-            if (local?["AiCustomUrl"] is { } url && local["AiKeys"] is JsonObject { } keys && keys.ContainsKey(Agents.AiService.Custom)) obj["AiCustomUrl"] = url.DeepClone();
+            // zip 裡的一律不用（照理說匯出時就拿掉了，有的話是別人塞的）；這台有就用這台的
+            foreach (var field in SecretFields.Concat(LocalFields)) { obj.Remove(field); if (local?[field] is { } mine) obj[field] = mine.DeepClone(); }
 
             var s = obj.Deserialize<AppSettings>();
             if (s == null) return null;
             foreach (var property in typeof(AppSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 if (property.CanWrite && !property.PropertyType.IsValueType && property.GetValue(s) == null) return null;
-            Sanitize(s, folder);
+            Sanitize(s, folder, Paths(local), shelfCopies);
             return JsonSerializer.Serialize(s, Indented);
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException or NotSupportedException or ArgumentException) { return null; }
     }
 
-    private static void Sanitize(AppSettings s, string folder)
+    /// <summary>這台原本就設定過的路徑（角色圖片、歌詞資料夾、暫存架）：使用者自己加的，還原時照舊信任。</summary>
+    private static HashSet<string> Paths(JsonObject? local)
+    {
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(JsonNode? node) { if (node is JsonValue value && value.TryGetValue(out string? path) && path != null) known.Add(path); }
+        Add(local?["CharacterImage"]);
+        foreach (var list in new[] { "LyricsFolders", "Shelf" })
+            if (local?[list] is JsonArray array) foreach (var item in array) Add(item);
+        return known;
+    }
+
+    /// <summary>
+    /// 本機磁碟上的路徑（X:\…）。網路路徑（\\server\share）與裝置路徑（\\?\、\\.\）不算：
+    /// Shima 一去讀，Windows 就會拿這個帳號向那台伺服器登入，來路不明的備份不該能讓這件事發生。
+    /// </summary>
+    public static bool OnThisComputer(string? path) =>
+        path is { Length: >= 3 } && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/';
+
+    private static void Sanitize(AppSettings s, string folder, HashSet<string> trusted, IReadOnlySet<string>? shelfCopies)
     {
         s.Opacity = s.Opacity is >= 0.55 and <= 1 ? s.Opacity : 1;
         s.WaterMinutes = Math.Clamp(s.WaterMinutes, 1, 24 * 60);
         s.FocusMinutes = Math.Clamp(s.FocusMinutes, 1, 180);
         s.BreakMinutes = Math.Clamp(s.BreakMinutes, 1, 120);
         s.LyricsLines = s.LyricsLines <= 3 ? 3 : s.LyricsLines >= 7 ? 7 : 5;
-        if (s.AiCustomUrl.Length > 0 && !(Uri.TryCreate(s.AiCustomUrl, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)) s.AiCustomUrl = "";
         s.LyricsProviders = s.LyricsProviders.Where(LyricsFinder.Known.ContainsKey).Distinct().ToList();
         s.Todos.RemoveAll(t => t == null);
-        s.LyricsFolders.RemoveAll(string.IsNullOrWhiteSpace);
         s.NotificationApps.RemoveAll(string.IsNullOrWhiteSpace);
-        // 暫存架自己的複本記的是原本那台的路徑：改指到還原後的 shelf 資料夾
-        s.Shelf = s.Shelf.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => Rebase(p, folder)).ToList();
+        s.HistoryExcluded.RemoveAll(string.IsNullOrWhiteSpace);
+
+        // 路徑：這台原本就有的照舊，其他的只收本機磁碟上的（或 Shima 自己的資料夾裡的）
+        var inside = Path.TrimEndingDirectorySeparator(folder) + Path.DirectorySeparatorChar;
+        bool Ok(string path) => trusted.Contains(path) || OnThisComputer(path) || path.StartsWith(inside, StringComparison.OrdinalIgnoreCase);
+        if (!Ok(s.CharacterImage)) s.CharacterImage = "";
+        s.LyricsFolders.RemoveAll(p => string.IsNullOrWhiteSpace(p) || !Ok(p));
+        s.Shelf = s.Shelf.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => Rebase(p, folder, shelfCopies)).Where(Ok).ToList();
     }
 
-    private static string Rebase(string path, string folder)
+    /// <summary>
+    /// 暫存架自己的複本記的是原本那台的完整路徑：備份裡有這個檔的，改指到還原後的 shelf 資料夾。
+    /// 只是剛好放在某個叫 shelf 的資料夾裡的別的檔案不動。
+    /// </summary>
+    private static string Rebase(string path, string folder, IReadOnlySet<string>? shelfCopies)
     {
         var parts = path.Split('\\', '/');
-        return parts.Length >= 2 && parts[^2].Equals("shelf", StringComparison.OrdinalIgnoreCase) && parts[^1].Length > 0
+        return parts.Length >= 2 && parts[^2].Equals("shelf", StringComparison.OrdinalIgnoreCase) && parts[^1].Length > 0 && parts[^1] is not ("." or "..")
+               && (shelfCopies == null || shelfCopies.Contains(parts[^1]))
             ? Path.Combine(folder, "shelf", parts[^1]) : path;
     }
 
@@ -336,7 +389,12 @@ public static class Backup
             using var target = new FileStream(Path.Combine(to, Path.GetFileName(file)), FileMode.CreateNew, FileAccess.Write);
             source.CopyTo(target);
         }
-        foreach (var dir in Directory.EnumerateDirectories(from)) CopyFolder(dir, Path.Combine(to, Path.GetFileName(dir)));
+        foreach (var dir in Directory.EnumerateDirectories(from))
+        {
+            // 捷徑資料夾不跟進去（裡面不是 Shima 的資料，還可能繞回自己）
+            if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
+            CopyFolder(dir, Path.Combine(to, Path.GetFileName(dir)));
+        }
     }
 
     private static void TryDelete(string path) { try { File.Delete(path); } catch { } }
