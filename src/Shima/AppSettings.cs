@@ -17,7 +17,11 @@ public sealed class AppSettings
     // 排在後面的話那時它還是 null，整個類別初始化失敗，全新安裝的人一啟動就當掉（0.6.1 到 0.7.0）。
     private static readonly object Saving = new();
 
-    public static AppSettings Current { get; } = Load();
+    /// <summary>還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。</summary>
+    /// <remarks>排在 Current 前面：Load() 存檔時會看它。</remarks>
+    public static volatile bool Frozen;
+
+    public static AppSettings Current { get; } = LoadFrom(FilePath, DateTime.Now);
 
     /// <summary>Roon Core 的位址；留空就不連 Roon。</summary>
     public string RoonHost { get; set; } = "127.0.0.1";
@@ -245,53 +249,98 @@ public sealed class AppSettings
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Shima");
     private static string FilePath => Path.Combine(Folder, "settings.json");
 
-    private static AppSettings Load()
+    /// <summary>
+    /// 讀設定檔。這是 <see cref="Current"/> 的初始值，在型別初始化時執行：這裡丟出去的例外會讓整個程式起不來，
+    /// 也不可以用到宣告在 Current 後面的 static 欄位（那時還沒初始化）。
+    /// 檔案不存在才是全新安裝；存在卻讀不懂就先改名留下來（settings.json.broken-時間）再寫新的，
+    /// 留不下來就不寫。升級時的轉換步驟各自出錯只略過那一步、下次再試，不會讓整份設定作廢。
+    /// </summary>
+    /// <param name="upgrades">轉換步驟（回傳 true：有改、要存檔）；null 是平常那幾步。測試用來換成會出錯的。</param>
+    public static AppSettings LoadFrom(string path, DateTime now, IEnumerable<Func<AppSettings, bool>>? upgrades = null)
+    {
+        AppSettings? loaded = null;
+        bool exists = false;
+        try
+        {
+            exists = File.Exists(path);
+            if (exists) loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path));
+        }
+        catch (Exception e) { Log.Write("settings: " + e.Message); }
+
+        if (loaded == null)
+        {
+            var fresh = new AppSettings { Version = 2 };
+            if (exists && !KeepBroken(path, now)) fresh._keepFile = true;
+            fresh.SaveTo(path);
+            return fresh;
+        }
+
+        bool changed = false;
+        foreach (var upgrade in upgrades ?? Upgrades())
+        {
+            try { changed |= upgrade(loaded); }
+            catch (Exception e) { Log.Write("settings upgrade: " + e.Message); }
+        }
+        if (changed) loaded.SaveTo(path);
+        return loaded;
+    }
+
+    /// <summary>升級舊設定檔的步驟。寫成方法而不是 static 欄位：Load 時排在 Current 後面的欄位還沒初始化。</summary>
+    private static Func<AppSettings, bool>[] Upgrades() =>
+    [
+        // 舊版的 Claude 金鑰搬到新的位置（已經是加密過的，直接搬）
+        s =>
+        {
+            if (s.AnthropicKey.Length == 0) return false;
+            s.AiKeys.TryAdd("claude", s.AnthropicKey);
+            s.AnthropicKey = "";
+            return true;
+        },
+        // 舊版的 ListenBrainz token 是明文：轉成加密的（DPAPI 失敗就維持明文，下次再試）
+        s => s.EncryptListenBrainzToken(),
+        // 版本 2 新增 QQ 音樂與酷狗：舊設定檔沒有它們，排到最後面
+        s =>
+        {
+            if (s.Version >= 2) return false;
+            foreach (var name in (string[])["qq", "kugou"]) if (!s.LyricsProviders.Contains(name)) s.LyricsProviders.Add(name);
+            s.Version = 2;
+            return true;
+        },
+    ];
+
+    /// <summary>讀不懂的設定檔改名留下來；同名就加序號。留下來了（或檔案已經不在）回 true，不丟例外。</summary>
+    private static bool KeepBroken(string path, DateTime now)
     {
         try
         {
-            if (File.Exists(FilePath))
-            {
-                var loaded = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
-                if (loaded.AnthropicKey.Length > 0)
-                {
-                    // 舊版的 Claude 金鑰搬到新的位置（已經是加密過的，直接搬）
-                    loaded.AiKeys.TryAdd("claude", loaded.AnthropicKey);
-                    loaded.AnthropicKey = "";
-                    loaded.Save();
-                }
-                // 舊版的 ListenBrainz token 是明文：轉成加密的存回去
-                if (loaded.EncryptListenBrainzToken()) loaded.Save();
-                if (loaded.Version < 2)
-                {
-                    // 版本 2 新增 QQ 音樂與酷狗：舊設定檔沒有它們，排到最後面
-                    foreach (var name in (string[])["qq", "kugou"]) if (!loaded.LyricsProviders.Contains(name)) loaded.LyricsProviders.Add(name);
-                    loaded.Version = 2;
-                    loaded.Save();
-                }
-                return loaded;
-            }
+            if (!File.Exists(path)) return true;
+            var stamp = now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            var target = $"{path}.broken-{stamp}";
+            for (int i = 2; File.Exists(target); i++) target = $"{path}.broken-{stamp}-{i}";
+            File.Move(path, target);
+            Log.Write("settings: 讀不懂的設定檔已改名為 " + Path.GetFileName(target));
+            return true;
         }
-        catch (Exception e) { Log.Write("settings: " + e.Message); }
-        var fresh = new AppSettings { Version = 2 };
-        fresh.Save();
-        return fresh;
+        catch (Exception e) { Log.Write("settings keep: " + e.Message); return false; }
     }
 
-    /// <summary>還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。</summary>
-    public static volatile bool Frozen;
+    /// <summary>讀不懂的設定檔沒能改名留下來：這一份不寫回去，免得把使用者原本的設定蓋掉（下次啟動再讀一次）。</summary>
+    private bool _keepFile;
 
-    public void Save()
+    public void Save() => SaveTo(FilePath);
+
+    private void SaveTo(string path)
     {
-        if (Frozen) return;
+        if (Frozen || _keepFile) return;
         // 一次只讓一個存檔在跑：兩邊同時寫同一個暫存檔會撞在一起
         lock (Saving)
         {
             try
             {
-                Directory.CreateDirectory(Folder);
-                var tmp = FilePath + ".tmp";
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var tmp = path + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-                File.Move(tmp, FilePath, overwrite: true);
+                File.Move(tmp, path, overwrite: true);
             }
             catch (Exception e) { Log.Write("settings save: " + e.Message); }
         }
