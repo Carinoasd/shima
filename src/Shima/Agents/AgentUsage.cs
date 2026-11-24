@@ -28,6 +28,15 @@ public sealed record SessionUsage(string SessionId, string Project, TokenCount T
 /// <summary>今天的用量：各模型、各工作階段（今天有用到的，最近的在前面）。</summary>
 public sealed record UsageSummary(DateOnly Day, IReadOnlyList<ModelUsage> Models, IReadOnlyList<SessionUsage> Sessions, TokenCount Tokens, decimal Cost, bool CostKnown);
 
+/// <summary>某一天（本地時間）的用量；CostKnown 是 false 表示當天有價目表裡沒有的模型，Cost 只算了認得的部分。</summary>
+public sealed record DayUsage(DateOnly Day, TokenCount Tokens, decimal Cost, bool CostKnown);
+
+/// <summary>最近幾天的趨勢：Days 由舊到新、每天一筆（沒用的日子補 0），Models 是這段期間各模型的合計（token 多的在前面）。</summary>
+public sealed record UsageTrend(IReadOnlyList<DayUsage> Days, IReadOnlyList<ModelUsage> Models, TokenCount Tokens, decimal Cost, bool CostKnown)
+{
+    public static readonly UsageTrend Empty = new([], [], default, 0, true);
+}
+
 /// <summary>每百萬 token 的美元價格。Long：提示超過 LongAbove 個 token 的請求改用的價格（Haiku 5.5）。</summary>
 public sealed record TokenPrice(decimal Input, decimal Write5m, decimal Write1h, decimal Read, decimal Output, long LongAbove = 0, TokenPrice? Long = null);
 
@@ -110,17 +119,21 @@ public sealed class UsageLedger
     private sealed class Entry
     {
         public string Session = "", Project = "", Model = "";
+        private static readonly List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> NoExtra = [];
         public string? Speed, Geo;
         /// <summary>UTC。紀錄裡沒有 timestamp（或看不懂）時維持 default，見 Summarize 的說明。</summary>
         public DateTime Time;
         public long Input, Output, Write5m, Write1h, Read;
         /// <summary>模型備援時，先失敗的那個模型另外算的部分（usage.iterations 裡別的模型）。</summary>
-        public List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> Extra = [];
+        public List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> Extra = NoExtra;   // 共用的空清單：絕不就地修改，只整個換掉
     }
 
     private readonly Dictionary<string, Entry> _entries = [];
 
     public int Count => _entries.Count;
+
+    /// <summary>早於這個時間（UTC）的紀錄不收：趨勢只看最近幾天，更早的留著只是佔記憶體。沒有時間的紀錄照收。</summary>
+    public DateTime? Oldest { get; set; }
 
     /// <summary>快速判斷這一行值不值得解析：一定要有 "assistant" 和 "usage"。</summary>
     public static bool Worth(ReadOnlySpan<byte> line) =>
@@ -143,12 +156,16 @@ public sealed class UsageLedger
 
             var id = Str(message, "id") ?? Str(root, "requestId") ?? Str(root, "uuid");
             if (id == null) return false;
-            if (!_entries.TryGetValue(id, out var e)) _entries[id] = e = new Entry();
-            e.Session = Str(root, "sessionId") is { Length: > 0 } s ? s : e.Session.Length > 0 ? e.Session : fallbackSession;
-            if (Str(root, "cwd") is { Length: > 0 } cwd) e.Project = AgentSessions.ProjectOf(cwd);
-            e.Model = model;
+            DateTime? stamp = null;
             if (root.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.String && ts.TryGetDateTime(out var time))
-                e.Time = time.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(time, DateTimeKind.Utc) : time.ToUniversalTime();
+                stamp = time.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(time, DateTimeKind.Utc) : time.ToUniversalTime();
+            if (stamp < Oldest) return false;
+            if (!_entries.TryGetValue(id, out var e)) _entries[id] = e = new Entry();
+            // 字串共用：同一個模型、工作階段、專案的幾千則不用各配一份
+            e.Session = string.Intern(Str(root, "sessionId") is { Length: > 0 } s ? s : e.Session.Length > 0 ? e.Session : fallbackSession);
+            if (Str(root, "cwd") is { Length: > 0 } cwd) e.Project = string.Intern(AgentSessions.ProjectOf(cwd));
+            e.Model = string.Intern(model);
+            if (stamp != null) e.Time = stamp.Value;
             e.Speed = Str(usage, "speed") ?? e.Speed;
             e.Geo = Str(usage, "inference_geo") ?? e.Geo;
 
@@ -203,6 +220,14 @@ public sealed class UsageLedger
         foreach (var key in _entries.Where(p => last[p.Value.Session] < before).Select(p => p.Key).ToList()) _entries.Remove(key);
     }
 
+    public void Clear() => _entries.Clear();
+
+    /// <summary>拿掉有時間、而且早於 before 的紀錄（已經收進來、後來超出範圍的）。</summary>
+    public void Trim(DateTime before)
+    {
+        foreach (var key in _entries.Where(p => p.Value.Time != default && p.Value.Time < before).Select(p => p.Key).ToList()) _entries.Remove(key);
+    }
+
     /// <summary>
     /// UTC 時間換成 zone 的日期。沒有時間（default）或貼著 DateTime 上下限的值一律當成「不知道是哪一天」。
     /// .NET 10 的 ConvertTimeFromUtc 遇到超出範圍會夾在 MinValue／MaxValue 而不丟例外（實測過），
@@ -213,6 +238,39 @@ public sealed class UsageLedger
         if (utc <= DateTime.MinValue.AddDays(2) || utc >= DateTime.MaxValue.AddDays(-2)) return null;
         try { return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone)); }
         catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>
+    /// 到 last 為止的 days 天（本地時間）各自的用量，以及這段期間各模型的合計。
+    /// 去重、備援模型、價目表都與 Summarize 一樣；沒有時間的紀錄說不出是哪一天，不算；價目表裡沒有的模型花費是「不知道」，不當成 0。
+    /// </summary>
+    public UsageTrend Trend(DateOnly last, int days, TimeZoneInfo? zone = null)
+    {
+        zone ??= TimeZoneInfo.Local;
+        var first = last.AddDays(1 - days);
+        var perDay = new (TokenCount Tokens, decimal Cost, bool Known)[days];
+        for (int i = 0; i < days; i++) perDay[i] = (default, 0m, true);
+        var models = new Dictionary<string, (TokenCount Tokens, decimal Cost, bool Known)>();
+        foreach (var e in _entries.Values)
+        {
+            if (DayOf(e.Time, zone) is not { } day || day < first || day > last) continue;
+            int index = day.DayNumber - first.DayNumber;
+            var parts = new List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> { (e.Model, e.Input, e.Output, e.Write5m, e.Write1h, e.Read) };
+            parts.AddRange(e.Extra);
+            foreach (var p in parts)
+            {
+                var tokens = new TokenCount(p.Input, p.Output, p.Write5m + p.Write1h, p.Read);
+                var cost = AgentPrices.Cost(p.Model, p.Input, p.Output, p.Write5m, p.Write1h, p.Read, e.Speed, e.Geo);
+                var d = perDay[index];
+                perDay[index] = (d.Tokens + tokens, d.Cost + (cost ?? 0), d.Known && cost != null);
+                var name = AgentPrices.Of(p.Model) != null ? AgentPrices.Canonical(p.Model) : p.Model;
+                var m = models.GetValueOrDefault(name, (default, 0m, true));
+                models[name] = (m.Tokens + tokens, m.Cost + (cost ?? 0), m.Known && cost != null);
+            }
+        }
+        var dayList = perDay.Select((d, i) => new DayUsage(first.AddDays(i), d.Tokens, d.Cost, d.Known)).ToList();
+        var modelList = models.OrderByDescending(m => m.Value.Tokens.Total).Select(m => new ModelUsage(m.Key, m.Value.Tokens, m.Value.Known ? m.Value.Cost : null)).ToList();
+        return new UsageTrend(dayList, modelList, dayList.Aggregate(default(TokenCount), (sum, d) => sum + d.Tokens), dayList.Sum(d => d.Cost), dayList.All(d => d.CostKnown));
     }
 
     /// <summary>
@@ -274,6 +332,20 @@ public sealed class AgentUsage
     private IReadOnlyList<string>? _resolved;
     private DateOnly _forgotOn;
 
+    // 趨勢另外用一本帳：「今天」那本只留兩天、更新頻繁，不能讓它跟著變大或變慢
+    private readonly SemaphoreSlim _trendGate = new(1, 1);
+    private readonly UsageLedger _trendLedger = new();
+    private readonly Dictionary<string, long> _trendRead = new(StringComparer.OrdinalIgnoreCase);
+    private DateOnly _trendForgotOn;
+    private UsageTrend? _trend;
+    private DateTime _trendAt;
+
+    // 兩本帳在同一次刷新裡各列舉一次的話很浪費（WSL 那邊走網路）：幾秒內共用同一份清單
+    private readonly object _listLock = new();
+    private List<(string Path, DateTime Written)>? _listing;
+    private DateTime _listingSince;
+    private long _listingTick;
+
     /// <param name="claudeFolders">Claude Code 的設定資料夾（裡面有 projects）；null 就用 AgentHooks.ClaudeFolders()（會問一次 WSL）。</param>
     /// <param name="clock">本地時間，測試用。</param>
     public AgentUsage(Func<IReadOnlyList<string>>? claudeFolders = null, Func<DateTime>? clock = null)
@@ -294,6 +366,20 @@ public sealed class AgentUsage
         lock (_watched) _watched.Add(transcriptPath);
     }
 
+    /// <summary>圖表收起一陣子之後釋放趨勢帳（再展開時重讀）。</summary>
+    public async Task ReleaseTrendAsync()
+    {
+        await _trendGate.WaitAsync();
+        try
+        {
+            _trendLedger.Clear();
+            _trendRead.Clear();
+            _trend = null;
+            _trendForgotOn = default;
+        }
+        finally { _trendGate.Release(); }
+    }
+
     public async Task<UsageSummary> TodayAsync(CancellationToken cancel = default)
     {
         await _gate.WaitAsync(cancel);
@@ -304,10 +390,10 @@ public sealed class AgentUsage
                 var now = _clock();
                 var today = DateOnly.FromDateTime(now);
                 if (_forgotOn != today) { _ledger.Forget(now.ToUniversalTime().AddDays(-2)); _forgotOn = today; }
-                foreach (var file in Files(now.Date))
+                foreach (var file in Files(now.Date, now))
                 {
                     cancel.ThrowIfCancellationRequested();
-                    ReadNew(file, cancel);
+                    ReadNew(file, _ledger, _read, cancel);
                 }
                 return _ledger.Summarize(today);
             }, cancel);
@@ -315,47 +401,101 @@ public sealed class AgentUsage
         finally { _gate.Release(); }
     }
 
+    /// <summary>
+    /// 最近 days 天的趨勢。只讀這段期間內有改過的檔案、每個檔案只讀新增的部分；一分鐘內再問直接給上次的結果。
+    /// 第一次可能要讀很久（紀錄有幾百 MB），全部在背景執行緒。
+    /// </summary>
+    public async Task<UsageTrend> TrendAsync(int days = 14, CancellationToken cancel = default)
+    {
+        await _trendGate.WaitAsync(cancel);
+        try
+        {
+            var now = _clock();
+            if (_trend != null && _trend.Days.Count == days && now >= _trendAt && now - _trendAt < TimeSpan.FromSeconds(60)
+                && _trend.Days[^1].Day == DateOnly.FromDateTime(now)) return _trend;   // 剛過午夜時快取的最後一根其實是昨天
+            return _trend = await Task.Run(() =>
+            {
+                var today = DateOnly.FromDateTime(now);
+                var oldest = now.Date.AddDays(1 - days).ToUniversalTime().AddDays(-1);   // 多留一天給時區
+                _trendLedger.Oldest = oldest;
+                if (_trendForgotOn != today) { _trendLedger.Trim(oldest); _trendForgotOn = today; }
+                foreach (var file in Files(now.Date.AddDays(1 - days), now, onlyRecent: true))
+                {
+                    cancel.ThrowIfCancellationRequested();
+                    ReadNew(file, _trendLedger, _trendRead, cancel);
+                }
+                _trendAt = now;
+                return _trendLedger.Trend(today, days);
+            }, cancel);
+        }
+        finally { _trendGate.Release(); }
+    }
+
     /// <summary>某個工作階段的小計（只算今天有用到的工作階段；沒有就是 null）。</summary>
     public async Task<SessionUsage?> SessionAsync(string sessionId, CancellationToken cancel = default) =>
         (await TodayAsync(cancel)).Sessions.FirstOrDefault(s => s.SessionId == sessionId);
 
     /// <summary>今天（since 之後）改過的紀錄檔，以及 hook 告訴我們的那幾個。子代理的紀錄在 &lt;工作階段&gt;/subagents/ 底下，一起算。</summary>
-    private List<string> Files(DateTime since)
+    private List<string> Files(DateTime since, DateTime now, bool onlyRecent = false)
     {
         var files = new List<string>();
-        foreach (var folder in Folders())
-        {
-            var projects = Path.Combine(folder, "projects");
-            try
-            {
-                if (!Directory.Exists(projects)) continue;
-                var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
-                foreach (var file in new DirectoryInfo(projects).EnumerateFiles("*.jsonl", options))
-                    if (file.LastWriteTime >= since) files.Add(file.FullName);
-            }
-            catch (Exception e) { Log.Write("usage: " + e.Message); }
-        }
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, written) in Listing(since))
+            if (written >= since && seen.Add(path)) files.Add(path);
         List<string> watched;
         lock (_watched) watched = [.. _watched];
+        var stale = now.AddDays(-16);   // 超過趨勢範圍還沒動過的不必再盯著
         foreach (var w in watched)
-            if (Local(w, Folders()) is { } local && !files.Contains(local, StringComparer.OrdinalIgnoreCase) && File.Exists(local)) files.Add(local);
+        {
+            if (Local(w, Folders()) is not { } local) continue;
+            DateTime written;
+            try { written = File.Exists(local) ? File.GetLastWriteTime(local) : DateTime.MinValue; }
+            catch (Exception) { continue; }
+            if (written < stale) { lock (_watched) _watched.Remove(w); continue; }
+            if (!seen.Add(local) || (onlyRecent && written < since)) continue;
+            files.Add(local);
+        }
         return files;
     }
 
+    /// <summary>列舉 projects 底下的紀錄檔（路徑與修改時間）。幾秒內、範圍夠大的上一份清單直接沿用。</summary>
+    private List<(string Path, DateTime Written)> Listing(DateTime since)
+    {
+        lock (_listLock)
+        {
+            if (_listing != null && since >= _listingSince && Environment.TickCount64 - _listingTick < 5000) return _listing;
+            var list = new List<(string, DateTime)>();
+            foreach (var folder in Folders())
+            {
+                var projects = Path.Combine(folder, "projects");
+                try
+                {
+                    if (!Directory.Exists(projects)) continue;
+                    var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint };
+                    foreach (var file in new DirectoryInfo(projects).EnumerateFiles("*.jsonl", options))
+                        if (file.LastWriteTime >= since) list.Add((file.FullName, file.LastWriteTime));
+                }
+                catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }   // 訊息裡有含專案名稱的完整路徑，不寫進紀錄檔
+            }
+            _listing = list; _listingSince = since; _listingTick = Environment.TickCount64;
+            return list;
+        }
+    }
+
     /// <summary>從上次讀到的地方讀到最後一個換行為止（最後一行可能還在寫）。檔案變小了就從頭讀。</summary>
-    private void ReadNew(string path, CancellationToken cancel)
+    private static void ReadNew(string path, UsageLedger ledger, Dictionary<string, long> read, CancellationToken cancel)
     {
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16);
-            long start = _read.GetValueOrDefault(path);
+            long start = read.GetValueOrDefault(path);
             if (stream.Length < start) start = 0;
             if (stream.Length == start) return;
             stream.Position = start;
             var session = Path.GetFileNameWithoutExtension(path);
-            _read[path] = start + Lines(stream, line => _ledger.Feed(line, session), cancel);
+            read[path] = start + Lines(stream, line => ledger.Feed(line, session), cancel);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write("usage: " + e.Message); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Log.Write("usage: " + e.GetType().Name); }   // 訊息有完整路徑（含專案名稱）
     }
 
     public delegate void LineHandler(ReadOnlySpan<byte> line);
@@ -363,7 +503,13 @@ public sealed class AgentUsage
     /// <summary>一行一行交給 handle（不含換行）；回傳用掉的位元組數（到最後一個換行為止，沒寫完的最後一行留到下次）。</summary>
     public static long Lines(Stream stream, LineHandler handle, CancellationToken cancel = default)
     {
-        var buffer = new byte[1 << 20];
+        var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(1 << 20);   // 1 MB 會進 LOH，每個檔案配一塊太浪費
+        try { return LinesIn(stream, buffer, handle, cancel); }
+        finally { System.Buffers.ArrayPool<byte>.Shared.Return(buffer); }
+    }
+
+    private static long LinesIn(Stream stream, byte[] buffer, LineHandler handle, CancellationToken cancel)
+    {
         var carry = new MemoryStream();   // 跨越兩次讀取的那一行
         long used = 0;
         int n;

@@ -186,4 +186,35 @@ public static class Demo
             }
         }
     }
+
+    /// <summary>編出來的最近 14 天 Claude Code 用量（示範模式用，絕不讀真正的對話紀錄）：固定的亂數種子，花費照價目表算。</summary>
+    public static UsageTrend Usage(DateTime now)
+    {
+        (string Model, int Share)[] models = [("claude-opus-5-5", 5), ("claude-sonnet-5-5", 4), ("claude-haiku-5-5", 2)];
+        var random = new Random(20261124);
+        var days = new List<DayUsage>();
+        var perModel = new Dictionary<string, (TokenCount Tokens, decimal Cost)>();
+        for (int back = 13; back >= 0; back--)
+        {
+            var day = DateOnly.FromDateTime(now.AddDays(-back));
+            // 週末用得少
+            double scale = (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? 0.3 : 1.0) * (back == 0 ? 0.9 : 0.5 + random.NextDouble());
+            TokenCount tokens = default;
+            decimal cost = 0;
+            foreach (var (model, share) in models)
+            {
+                long output = (long)(share * scale * (20_000 + random.Next(14_000)));
+                long input = output / 8, write = output * 6, read = output * 90;
+                var t = new TokenCount(input, output, write, read);
+                decimal c = AgentPrices.Cost(model, input, output, write, 0, read) ?? 0;
+                tokens += t;
+                cost += c;
+                var m = perModel.GetValueOrDefault(model);
+                perModel[model] = (m.Tokens + t, m.Cost + c);
+            }
+            days.Add(new DayUsage(day, tokens, cost, true));
+        }
+        var list = perModel.OrderByDescending(m => m.Value.Tokens.Total).Select(m => new ModelUsage(m.Key, m.Value.Tokens, m.Value.Cost)).ToList();
+        return new UsageTrend(days, list, days.Aggregate(default(TokenCount), (sum, d) => sum + d.Tokens), days.Sum(d => d.Cost), true);
+    }
 }

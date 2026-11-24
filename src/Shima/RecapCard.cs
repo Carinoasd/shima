@@ -34,6 +34,7 @@ public static class RecapCard
 
         string title = period switch
         {
+            StatsPeriod.Week when summary.From.Year != summary.From.AddDays(6).Year => Stats.Label(period, summary.From, culture),   // 跨年的那一週兩端都寫年份
             StatsPeriod.Week => $"{summary.From.Year} · {summary.From.ToString(format.MonthDayPattern, culture)} – {summary.From.AddDays(6).ToString(format.MonthDayPattern, culture)}",
             StatsPeriod.Month => summary.From.ToString(format.YearMonthPattern, culture),
             StatsPeriod.Year => summary.From.Year.ToString(CultureInfo.InvariantCulture),
@@ -44,7 +45,7 @@ public static class RecapCard
         string total = minutes >= 60 ? F("{0} 小時 {1} 分", minutes / 60, minutes % 60) : F("{0} 分", minutes);
 
         string Short(TimeSpan time) => time.TotalMinutes >= 60
-            ? F("{0} 小時", Math.Round(time.TotalHours, 1).ToString("0.#", CultureInfo.InvariantCulture))
+            ? F("{0} 小時", Math.Round(time.TotalHours, 1).ToString("0.#", culture))
             : F("{0} 分", (long)Math.Max(1, Math.Round(time.TotalMinutes)));
 
         return new RecapContent(
@@ -147,7 +148,7 @@ public static class RecapCard
             {
                 double slot = LeftW / (period == StatsPeriod.Week ? Math.Max(7, bars.Count) : bars.Count), bar = Math.Clamp(slot * 0.62, 2, 26);
                 double max = Math.Max(1, bars.Max(b => b.Time.TotalSeconds));
-                int current = bars.FindLastIndex(b => b.Start <= now.Date);
+                int current = summary.To > now.Date ? bars.FindLastIndex(b => b.Start <= now.Date) : -1;   // 過去的期間沒有「今天」
                 for (int i = 0; i < bars.Count; i++)
                 {
                     double cx = Pad + i * slot + slot / 2;

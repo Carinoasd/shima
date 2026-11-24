@@ -234,6 +234,9 @@ public partial class IslandWindow
     private SessionsView? _sessions;
     private TextBlock? _usageLine;
     private DateTime _usageAt;
+    private UsageView? _usageView;
+    private bool _usageOpen;
+    private CancellationTokenSource? _trendCts;
 
     private void InitSessions()
     {
@@ -242,6 +245,14 @@ public partial class IslandWindow
         _usageLine = new TextBlock { FontSize = 12, Foreground = new SolidColorBrush(Color.FromArgb(0x90, 255, 255, 255)), Margin = new Thickness(2, 2, 0, 8), Visibility = Visibility.Collapsed };
         SessionsHost.Children.Add(_sessions);
         SessionsHost.Children.Add(_usageLine);
+        _usageView = new UsageView { Visibility = Visibility.Collapsed, Margin = new Thickness(2, 0, 0, 6), HorizontalAlignment = HorizontalAlignment.Left };
+        SessionsHost.Children.Add(_usageView);
+        // 那一行可以點：移上去變亮、游標變手形，點一下展開最近 14 天的圖
+        var dim = _usageLine.Foreground;
+        _usageLine.Cursor = System.Windows.Input.Cursors.Hand;
+        _usageLine.MouseEnter += (_, _) => _usageLine.Foreground = Brushes.White;
+        _usageLine.MouseLeave += (_, _) => _usageLine.Foreground = dim;
+        _usageLine.MouseLeftButtonUp += (_, _) => ToggleUsage(!_usageOpen);
         _bridge.SessionsChanged += () => Dispatcher.BeginInvoke(() =>
         {
             var sessions = _bridge.Sessions;
@@ -250,26 +261,84 @@ public partial class IslandWindow
             foreach (var session in sessions) if (session.Agent == AgentKind.Claude && session.TranscriptPath.Length > 0) _usage.Watch(session.TranscriptPath);
             if (_tab == Tab.Ai && _expanded) { RefreshUsage(); Morph(); }
         });
+        Closed += (_, _) => _trendCts?.Cancel();
         _bridge.AutoAllowed += (ask, rule) => Dispatcher.BeginInvoke(() => Toast(L.F("已自動允許 {0}", rule.Label), 3, false));
     }
 
     /// <summary>今天用了多少：打開 AI 分頁時算一次，之後最多一分鐘算一次（要掃很多檔案）。</summary>
     private async void RefreshUsage()
     {
-        if (Demo.On || _usageLine == null || DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;   // 示範模式不讀自己的用量
+        if (_usageLine == null) return;
+        if (Demo.On)   // 示範模式用編出來的數字，不讀自己的用量
+        {
+            var demo = Demo.Usage(DateTime.Now);
+            ShowUsageLine(demo.Days[^1].Tokens.Total, demo.Days[^1].Cost, true);
+            _usageView!.Trend = demo;
+            return;
+        }
+        if (DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;
         _usageAt = DateTime.Now;
         try
         {
             var today = await _usage.TodayAsync();
-            long tokens = today.Tokens.Total;
-            if (tokens <= 0) { _usageLine.Visibility = Visibility.Collapsed; return; }
-            string amount = tokens >= 1_000_000 ? (tokens / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M" : (tokens / 1000.0).ToString("0", CultureInfo.InvariantCulture) + "K";
-            string cost = today.Cost > 0 ? "$" + today.Cost.ToString("0.00", CultureInfo.InvariantCulture) + (today.CostKnown ? "" : "+") + " · " : "";
-            _usageLine.Text = L.F("今天 {0}", cost + amount + " tokens");
-            _usageLine.Visibility = Visibility.Visible;
-            if (_tab == Tab.Ai && _expanded) Morph();
+            ShowUsageLine(today.Tokens.Total, today.Cost, today.CostKnown);
+            if (_usageOpen) LoadTrend();
         }
         catch (Exception e) { Log.Write("usage: " + e.Message); }
+    }
+
+    private void ShowUsageLine(long tokens, decimal cost, bool known)
+    {
+        if (!ShowsUsageLine(tokens, _usageOpen, _bridge.Sessions.Any(x => x.Agent == AgentKind.Claude))) { _usageLine!.Visibility = Visibility.Collapsed; _usageView!.Visibility = Visibility.Collapsed; return; }
+        string money = cost > 0 ? UsageView.Money(cost, known) + " · " : "";
+        _usageLine!.Text = L.F("今天 {0}", money + UsageView.Amount(tokens) + " tokens");
+        _usageLine.Visibility = Visibility.Visible;
+        _usageView!.Visibility = _usageOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (_tab == Tab.Ai && _expanded) Morph();
+    }
+
+    /// <summary>
+    /// 那一行要不要顯示：今天有用量、或圖已經展開、或正有 Claude Code 的工作階段連著。
+    /// 今天還沒用（早上、剛過午夜）時圖只能從這一行打開，不能把它收掉。
+    /// </summary>
+    public static bool ShowsUsageLine(long todayTokens, bool chartOpen, bool claudeConnected) => todayTokens > 0 || chartOpen || claudeConnected;
+
+    private void ToggleUsage(bool open)
+    {
+        _usageOpen = open;
+        if (!open)
+        {
+            _trendCts?.Cancel();   // 還在讀的就別讀了
+            _ = ReleaseTrendLater();
+        }
+        _usageView!.Visibility = open && _usageLine!.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+        if (open && !Demo.On) LoadTrend();
+        Morph();
+    }
+
+    /// <summary>最近 14 天的趨勢：在背景讀（第一次可能要一陣子，先顯示讀取中），讀完換上去。</summary>
+    private async void LoadTrend()
+    {
+        _trendCts?.Cancel();
+        var cts = _trendCts = new CancellationTokenSource();
+        try
+        {
+            var trend = await _usage.TrendAsync(cancel: cts.Token);
+            if (_usageOpen && !cts.IsCancellationRequested) { _usageView!.Trend = trend; Morph(); }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
+    }
+
+    /// <summary>圖表收起超過五分鐘還沒再打開，就把趨勢帳釋放掉（幾百則紀錄的記憶體）。</summary>
+    private async Task ReleaseTrendLater()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMinutes(5));
+            if (!_usageOpen) await _usage.ReleaseTrendAsync();
+        }
+        catch (Exception e) { Log.Write("usage: " + e.GetType().Name); }
     }
 
     private void AskAlways_Click(object sender, RoutedEventArgs e) => Decide(PermissionRequest.Always);

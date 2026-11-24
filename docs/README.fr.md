@@ -21,6 +21,14 @@ Une petite île en haut de l'écran Windows : elle affiche la musique en cours e
 - **Demander à Claude** : au clavier ou à la voix ; il peut aussi changer de titre
 - **Claude Code** : autorisez ou refusez ses demandes depuis l'île ; progression affichée et notification à la fin
 - **Chat** : les versions web de Claude, Gemini et ChatGPT dans l'île
+- **Minuteur de veille** : pause après 15, 30, 45 ou 60 minutes, ou à la fin du titre ; on peut aussi le demander à l'assistant vocal
+- **Périphérique de lecture** : changez le périphérique par défaut de Windows depuis l'onglet musique ou le menu contextuel
+- **Récap d'écoute** : temps, titres et artistes les plus écoutés par semaine, mois ou année, sur une carte à partager ; l'année est une carte de chaleur avec une case par jour
+- **Rappels** : tapez `15:30 réunion`, `20m eau` ou `daily 8:00 médicament` et l'île vous prévient à l'heure ; répétition quotidienne, en semaine ou hebdomadaire
+- **Apparence** : couleur d'accent (pastilles ou code couleur libre) et ligne de progression sur la capsule
+- **Paroles enregistrées et traduites** : enregistrez les paroles calées en `.lrc` ; sans traduction, l'IA traduit ligne par ligne
+- **Codex CLI et Gemini CLI** : comme pour Claude Code, l'île affiche l'état et signale la fin ; les demandes d'autorisation de Codex se règlent sur l'île
+- **Last.fm** : envoie vos écoutes à Last.fm (en même temps que ListenBrainz si vous voulez)
 - Déplaçable où vous voulez ; masquée devant les applications en plein écran ; 11 langues
 
 ## Installation

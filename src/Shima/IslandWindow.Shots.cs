@@ -41,6 +41,20 @@ public partial class IslandWindow
                 await Save(folder, name);
             }
 
+            // 用量圖：AI 分頁點開那一行，拍完收起來
+            if (Demo.On)
+            {
+                _expanded = true;
+                TabAi.IsChecked = true;
+                _tab = Tab.Ai;
+                RefreshAi();
+                ToggleUsage(true);
+                Snap();
+                UpdateTexts();
+                await Save(folder, "c-usage");
+                ToggleUsage(false);
+            }
+
             // 長的回答：一次到齊時要停在開頭、底部淡出
             if (Demo.On)
             {
@@ -135,6 +149,19 @@ public partial class IslandWindow
                 _stats.ShowHours = true;
                 Snap(); UpdateTexts(); await Save(folder, "c-stats-hours");
                 _stats.ShowHours = false;
+                _stats.Period = Listening.StatsPeriod.Week;
+            }
+
+            // 聆聽統計：翻看過去的期間
+            if (_stats != null)
+            {
+                _stats.Period = Listening.StatsPeriod.Month;
+                _stats.Back = 1;
+                Snap(); UpdateTexts(); await Save(folder, "c-stats-prev-month");
+                _stats.Period = Listening.StatsPeriod.Week;
+                _stats.Back = 2;
+                Snap(); UpdateTexts(); await Save(folder, "c-stats-prev-week");
+                _stats.Period = Listening.StatsPeriod.Month;
                 _stats.Period = Listening.StatsPeriod.Week;
             }
 

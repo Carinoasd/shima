@@ -177,6 +177,26 @@ public sealed class SmtcSource : IMediaSource
     public async void PlayPause() { try { if (_session is { } s) await s.TryTogglePlayPauseAsync(); } catch { } }
     public async void Play() { try { if (_session is { } s) await s.TryPlayAsync(); } catch { } }
     public async void Pause() { try { if (_session is { } s) await s.TryPauseAsync(); } catch { } }
+    /// <summary>
+    /// 要暫停哪些：所有正在播、而且不被 Skip 排除的工作階段（回傳在 sessions 裡的位置）。
+    /// 不看有沒有標題，剛開始播、還沒讀到標題的也要暫停。
+    /// </summary>
+    public static List<int> PausePicks(IReadOnlyList<(string AppId, bool Playing)> sessions, Func<string, bool>? skip) =>
+        Enumerable.Range(0, sessions.Count).Where(i => sessions[i].Playing && skip?.Invoke(sessions[i].AppId) != true).ToList();
+
+    /// <summary>所有正在播的都暫停（睡眠定時用），不只是島上跟著的那一個。</summary>
+    public async void PauseAll()
+    {
+        try
+        {
+            if (_manager?.GetSessions() is not { } all) return;
+            var list = all.ToList();
+            var picks = PausePicks([.. list.Select(s => (s.SourceAppUserModelId ?? "", s.GetPlaybackInfo()?.PlaybackStatus == Status.Playing))], Skip);
+            foreach (int i in picks) { try { await list[i].TryPauseAsync(); } catch { } }
+        }
+        catch { /* 播放器剛關掉 */ }
+    }
+
     public async void Next() { try { if (_session is { } s) await s.TrySkipNextAsync(); } catch { } }
     public async void Previous() { try { if (_session is { } s) await s.TrySkipPreviousAsync(); } catch { } }
     public async void Seek(TimeSpan position) { try { if (_session is { } s) await s.TryChangePlaybackPositionAsync(position.Ticks); } catch { } }
