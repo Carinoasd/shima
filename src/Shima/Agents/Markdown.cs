@@ -248,7 +248,12 @@ public static partial class Markdown
     /// 找收尾要掃過的字數上限（整個區塊共用）。沒收尾的 [ 或 * 每一個都掃到區塊結尾，兩萬字全是這種標記要花上好幾秒；
     /// 正常的回答連這個數字的百分之一都用不到。用完之後剩下的標記都當普通文字。
     /// </summary>
-    private sealed class Work { public long Left = 1_000_000; }
+    private sealed class Work
+    {
+        public long Left = 1_000_000;
+        /// <summary>到目前為止加進去的字數（片段會合併，所以不能用片段的個數判斷某個連結加了什麼）。</summary>
+        public int Chars;
+    }
 
     private static void Walk(string s, int from, int to, MdStyle style, Dictionary<int, (int End, string Content)> code, List<MdSpan> spans, int depth, Work work)
     {
@@ -256,6 +261,7 @@ public static partial class Markdown
         void Add(string text, MdStyle st)
         {
             if (text.Length == 0) return;
+            work.Chars += text.Length;
             if (spans.Count > 0 && spans[^1].Style == st) spans[^1] = new MdSpan(spans[^1].Text + text, st);
             else spans.Add(new MdSpan(text, st));
         }
@@ -277,11 +283,11 @@ public static partial class Markdown
             if (depth < MaxDepth && c == '[' && !(i > 0 && s[i - 1] == '!') && Link(s, i, to, code, work) is { } link)
             {
                 Flush();
-                int before = spans.Count;
+                int before = work.Chars;
                 Walk(s, i + 1, link.TextEnd, style | MdStyle.Link, code, spans, depth + 1, work);
                 // 網址留在後面：只顯示文字的話，「參考某頁」看不出連到哪裡，也沒辦法從畫面上選取複製
                 string url = s[(link.TextEnd + 2)..(link.End - 1)];
-                string shown = string.Concat(spans.Skip(before).Select(x => x.Text));
+                string shown = Tail(spans, work.Chars - before);
                 if ((url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) && !shown.Contains(url, StringComparison.OrdinalIgnoreCase))
                     spans.Add(new MdSpan($" ({url})", style));
                 i = link.End;
@@ -308,6 +314,17 @@ public static partial class Markdown
         Flush();
     }
 
+    /// <summary>片段串起來之後的最後 length 個字（相鄰的連結文字會併成同一個片段，所以不能按片段的個數取）。</summary>
+    private static string Tail(List<MdSpan> spans, int length)
+    {
+        var parts = new List<string>();
+        int have = 0;
+        for (int k = spans.Count - 1; k >= 0 && have < length; k--) { parts.Add(spans[k].Text); have += spans[k].Text.Length; }
+        parts.Reverse();
+        var all = string.Concat(parts);
+        return all[Math.Max(0, all.Length - length)..];
+    }
+
     private static bool AsciiWord(char c) => c < 128 && char.IsLetterOrDigit(c);
 
     /// <summary>
@@ -331,6 +348,8 @@ public static partial class Markdown
             if ((work.Left -= 1) < 0) return null;
             if (code.TryGetValue(j, out var span) && span.End <= to) { j = span.End; continue; }
             if (s[j] == '\\' && j + 1 < to && Escapable.Contains(s[j + 1])) { j += 2; continue; }
+            // 連結的網址裡常有 * 與 _：整段跳過，不然粗體會在網址中間收尾、把連結拆壞
+            if (s[j] == '[' && !(j > 0 && s[j - 1] == '!') && Link(s, j, to, code, work) is { } link) { j = link.End; continue; }
             if (s[j] != c) { j++; continue; }
             int m = Run(s, j, to);
             if (m == n && !char.IsWhiteSpace(s[j - 1]))
@@ -358,10 +377,13 @@ public static partial class Markdown
             {
                 if (depth-- > 0) continue;
                 if (j == i + 1 || j + 1 >= to || s[j + 1] != '(') return null;
+                // 網址裡成對的括號要一起算（wiki/C_(programming_language)），不然在第一個 ) 就截斷
+                int paren = 0;
                 for (int k = j + 2; k < to; k++)
                 {
                     if ((work.Left -= 1) < 0 || char.IsWhiteSpace(s[k])) return null;
-                    if (s[k] == ')') return k == j + 2 ? null : (j, k + 1);
+                    if (s[k] == '(') paren++;
+                    else if (s[k] == ')' && paren-- == 0) return k == j + 2 ? null : (j, k + 1);
                 }
                 return null;
             }
