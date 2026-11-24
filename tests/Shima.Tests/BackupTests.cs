@@ -5,6 +5,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -85,7 +86,7 @@ public sealed class BackupTests : IDisposable
             Assert.Equal(File.ReadAllText(Path.Combine(Data, rel)), File.ReadAllText(Path.Combine(other, rel)));
         var restored = JsonNode.Parse(File.ReadAllText(Path.Combine(other, "settings.json")))!;
         Assert.Equal("ja", (string?)restored["Language"]);
-        Assert.Equal("me", (string?)restored["LastFmUser"]);
+        Assert.Equal("", (string?)restored["LastFmUser"]);   // 只用本機：要跟那台的 session 配成一對，換一台就要重新連接
     }
 
     [Fact]
@@ -292,6 +293,96 @@ public sealed class BackupTests : IDisposable
         Assert.Equal("en", (string?)s["Language"]);
     }
 
+    private const string Hostile = """
+        { "Language": "en", "DeckAllow": true, "CheckUpdates": false, "HotkeyAsk": "Ctrl+V", "HotkeyToggle": "Ctrl+C",
+          "WakeWord": true, "VoiceContinuous": true, "SpeechEngine": "windows", "WhisperModel": "medium",
+          "Notifications": true, "NotificationApps": ["a"], "AiService": "openai", "AiModels": { "openai": "most-expensive" },
+          "LastFmApiKey": "EVIL-KEY", "LastFmUser": "evil", "LastRunVersion": "0.1.0", "Version": 999,
+          "DiscordClientId": "123456789012345678", "RoonSearch": true, "DoNotDisturbUntil": "2099-01-01T00:00:00",
+          "History": true, "HistoryExcluded": [], "DiscordCover": true, "LyricsProviders": ["netease", "lrclib", "qq"] }
+        """;
+
+    [Fact]
+    public void 權限與帳號類的設定不匯出_還原時用這台原本的()
+    {
+        Write("settings.json", """
+            { "Language": "ja", "DeckAllow": false, "CheckUpdates": true, "HotkeyAsk": "Ctrl+Alt+A", "HotkeyToggle": "",
+              "WakeWord": false, "VoiceContinuous": false, "SpeechEngine": "whisper", "WhisperModel": "base",
+              "Notifications": false, "NotificationApps": ["LINE"], "AiService": "claude", "AiModels": { "claude": "mine" },
+              "LastFmApiKey": "MY-KEY", "LastFmUser": "me", "LastRunVersion": "0.9.0", "Version": 2,
+              "DiscordClientId": "", "RoonSearch": false, "DoNotDisturbUntil": null,
+              "History": false, "HistoryExcluded": ["Chrome"], "DiscordCover": false, "LyricsProviders": ["lrclib", "local"] }
+            """);
+        Assert.Equal(BackupStatus.Ok, Backup.Export(Data, Zip).Status);
+        using (var z = ZipFile.OpenRead(Zip))
+        {
+            using var r = new StreamReader(z.GetEntry("settings.json")!.Open());
+            var exported = JsonNode.Parse(r.ReadToEnd())!.AsObject();
+            foreach (var field in Backup.LocalFields) Assert.False(exported.ContainsKey(field), field);
+            foreach (var field in Backup.StricterFields) Assert.True(exported.ContainsKey(field), field);
+            Assert.DoesNotContain("MY-KEY", exported.ToJsonString());
+        }
+        File.Delete(Zip);
+
+        Make(("settings.json", Hostile));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.Equal("en", (string?)s["Language"]);   // 外觀、語言照備份
+        Assert.False((bool)s["DeckAllow"]!);
+        Assert.True((bool)s["CheckUpdates"]!);
+        Assert.Equal("Ctrl+Alt+A", (string?)s["HotkeyAsk"]);
+        Assert.Equal("", (string?)s["HotkeyToggle"]);
+        Assert.False((bool)s["WakeWord"]!);
+        Assert.False((bool)s["VoiceContinuous"]!);
+        Assert.Equal("whisper", (string?)s["SpeechEngine"]);
+        Assert.Equal("base", (string?)s["WhisperModel"]);
+        Assert.False((bool)s["Notifications"]!);
+        Assert.Equal(["LINE"], s["NotificationApps"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.Equal("claude", (string?)s["AiService"]);
+        Assert.Equal("mine", (string?)s["AiModels"]!["claude"]);
+        Assert.Null(s["AiModels"]!["openai"]);
+        Assert.Equal("MY-KEY", (string?)s["LastFmApiKey"]);
+        Assert.Equal("me", (string?)s["LastFmUser"]);
+        Assert.Equal("0.9.0", (string?)s["LastRunVersion"]);
+        Assert.Equal(2, (int)s["Version"]!);
+        Assert.Equal("", (string?)s["DiscordClientId"]);
+        Assert.False((bool)s["RoonSearch"]!);
+        Assert.Null(s["DoNotDisturbUntil"]);
+        // 只能變嚴
+        Assert.False((bool)s["History"]!);
+        Assert.Equal(["Chrome"], s["HistoryExcluded"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.False((bool)s["DiscordCover"]!);
+        Assert.Equal(["lrclib"], s["LyricsProviders"]!.AsArray().Select(n => (string)n!).ToArray());
+    }
+
+    [Fact]
+    public void 這台沒有設定檔時_權限與帳號類的設定是預設值()
+    {
+        Make(("settings.json", Hostile));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var restored = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        var defaults = new AppSettings();
+        foreach (var field in Backup.LocalFields)
+        {
+            var property = typeof(AppSettings).GetProperty(field)!;
+            Assert.Equal(JsonSerializer.Serialize(property.GetValue(defaults)), JsonSerializer.Serialize(property.GetValue(restored)));
+        }
+        Assert.Equal("en", restored.Language);
+    }
+
+    [Fact]
+    public void 聆聽紀錄只能被備份關掉_排除的來源取聯集()
+    {
+        Write("settings.json", """{ "History": true, "HistoryExcluded": ["Chrome"], "DiscordCover": true }""");
+        Make(("settings.json", """{ "History": false, "HistoryExcluded": ["chrome", "Edge", " "], "DiscordCover": false, "LyricsProviders": ["qq", "lrclib"] }"""));
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        var s = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!;
+        Assert.False((bool)s["History"]!);
+        Assert.Equal(["Chrome", "Edge"], s["HistoryExcluded"]!.AsArray().Select(n => (string)n!).ToArray());
+        Assert.False((bool)s["DiscordCover"]!);
+        Assert.Equal(["qq", "lrclib"], s["LyricsProviders"]!.AsArray().Select(n => (string)n!).ToArray());   // 這台是預設（全開）：照備份的順序
+    }
+
     [Fact]
     public void 這台沒設定過連線目標時_備份裡的也不採用()
     {
@@ -361,6 +452,116 @@ public sealed class BackupTests : IDisposable
     }
 
     [Fact]
+    public void 確定要換的回呼_在複本與換檔之前呼叫一次()
+    {
+        Fill();
+        Make(("settings.json", "{ \"Language\": \"en\" }"), ("history.jsonl", "{\"a\":9}\n"));
+        int calls = 0;
+        var result = Backup.Restore(Zip, Data, new DateTime(2026, 5, 6, 7, 8, 9), () =>
+        {
+            calls++;
+            // 還沒換：資料夾裡還是原本的，也還沒有還原前的複本
+            Assert.Equal("{\"a\":1}\n{\"a\":2}\n", File.ReadAllText(Path.Combine(Data, "history.jsonl")));
+            Assert.Contains("\"ja\"", File.ReadAllText(Path.Combine(Data, "settings.json")));
+            Assert.Empty(Directory.GetDirectories(_temp, "Shima-before-restore-*"));
+            // 呼叫端在這時寫的（正在聽的這首）要進到還原前的複本裡
+            File.AppendAllText(Path.Combine(Data, "history.jsonl"), "{\"a\":3}\n");
+        });
+        Assert.Equal(BackupStatus.Ok, result.Status);
+        Assert.Equal(1, calls);
+        Assert.Equal("{\"a\":9}\n", File.ReadAllText(Path.Combine(Data, "history.jsonl")));
+        Assert.EndsWith("{\"a\":3}\n", File.ReadAllText(Path.Combine(_temp, result.Saved!, "history.jsonl")));
+    }
+
+    public static TheoryData<string, BackupStatus> Rejected => new()
+    {
+        { "unreadable", BackupStatus.Unreadable },
+        { "unsafe", BackupStatus.Unsafe },
+        { "empty", BackupStatus.Empty },
+        { "bad-settings", BackupStatus.BadSettings },
+        { "too-many", BackupStatus.TooBig },
+        { "too-big", BackupStatus.TooBig },
+    };
+
+    [Theory]
+    [MemberData(nameof(Rejected))]
+    public void 被拒絕的zip不會呼叫確定要換的回呼(string kind, BackupStatus expected)
+    {
+        Fill();
+        switch (kind)
+        {
+            case "unreadable": File.WriteAllText(Zip, "not a zip"); break;
+            case "unsafe": Make(("settings.json", "{}"), ("../evil.json", "x")); break;
+            case "empty": Make(("random.txt", "?")); break;
+            case "bad-settings": Make(("settings.json", "{ not json"), ("lyrics/a.lrc", "x")); break;
+            case "too-many":
+                using (var z = ZipFile.Open(Zip, ZipArchiveMode.Create))
+                    for (int i = 0; i <= Backup.MaxFiles; i++) z.CreateEntry($"lyrics/{i}.lrc");
+                break;
+            case "too-big":
+                using (var z = ZipFile.Open(Zip, ZipArchiveMode.Create))
+                {
+                    var buffer = new byte[1024 * 1024];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        using var w = z.CreateEntry($"lyrics/big{i}.lrc").Open();
+                        for (int n = 0; n < 200; n++) w.Write(buffer);
+                    }
+                }
+                break;
+        }
+        int calls = 0;
+        Assert.Equal(expected, Backup.Restore(Zip, Data, DateTime.Now, () => calls++).Status);
+        Assert.Equal(0, calls);
+    }
+
+    [Theory]
+    [InlineData("shelf/報告\u202Efdp.exe")]
+    [InlineData("lyrics/a\u200Db.lrc")]
+    [InlineData("lyrics\u2066/a.lrc")]
+    [InlineData("\uFEFFsettings.json")]
+    public void 檔名含格式字元整個zip被拒絕(string name)
+    {
+        Fill();
+        Snapshot(out var before);
+        Assert.False(Backup.SafeName(name, out _));
+        Make(("settings.json", "{}"), (name, "x"));
+        Assert.Equal(BackupStatus.Unsafe, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        Snapshot(out var after);
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
+    public void 暫存架只還原文字與圖片_指向被略過的檔案的項目拿掉()
+    {
+        Make(("settings.json", """
+            { "Shelf": ["D:\\old\\Shima\\shelf\\a.txt", "D:\\old\\Shima\\shelf\\evil.exe", "D:\\old\\Shima\\shelf\\run.LNK", "D:\\old\\Shima\\shelf\\b.PNG", "D:\\docs\\a.pdf"] }
+            """), ("shelf/a.txt", "t"), ("shelf/b.PNG", "p"), ("shelf/evil.exe", "MZ"), ("shelf/run.LNK", "l"), ("shelf/x.bat", "b"));
+        var result = Backup.Restore(Zip, Data, DateTime.Now);
+        Assert.Equal(BackupStatus.Ok, result.Status);
+        Assert.Equal(3, result.Files);   // 設定檔、a.txt、b.PNG
+        Assert.Equal(["a.txt", "b.PNG"], Directory.GetFiles(Path.Combine(Data, "shelf")).Select(f => Path.GetFileName(f)).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        var shelf = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!["Shelf"]!.AsArray().Select(n => (string)n!).ToArray();
+        Assert.Equal([Path.Combine(Data, "shelf", "a.txt"), Path.Combine(Data, "shelf", "b.PNG"), "D:\\docs\\a.pdf"], shelf);
+    }
+
+    [Fact]
+    public void 匯出時暫存架只帶文字與圖片_還原不了的名稱不匯出()
+    {
+        Write("settings.json", "{}");
+        Write("shelf/a.txt", "t");
+        Write("shelf/b.png", "p");
+        Write("shelf/evil.exe", "MZ");
+        Write("lyrics/ok.lrc", "[00:01.00]ok");
+        Write("lyrics/emoji\u200D.lrc", "[00:01.00]zwj");
+        Assert.Equal(BackupStatus.Ok, Backup.Export(Data, Zip).Status);
+        Assert.Equal(["lyrics/ok.lrc", "settings.json", "shelf/a.txt", "shelf/b.png"], Names(Zip));
+        // 自己匯出的一定還原得回來
+        var other = Path.Combine(_temp, "other");
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, other, DateTime.Now).Status);
+    }
+
+    [Fact]
     public void 路徑檢查()
     {
         Assert.True(Backup.SafeName("lyrics/一首歌 (live).lrc", out var rel));
@@ -373,5 +574,56 @@ public sealed class BackupTests : IDisposable
         Assert.Null(Backup.Known("agent-rules.json"));
         Assert.Null(Backup.Known("lyrics"));
         Assert.Equal("settings.json", Backup.Known("Settings.JSON"));
+    }
+}
+
+/// <summary>
+/// AppSettings.Frozen 是整個程式共用的：開著的時候別的測試存的設定、提醒、收藏都會被略過。
+/// 所以會動到它的測試放在不平行的集合裡，跟其他測試錯開跑。
+/// </summary>
+[CollectionDefinition("Frozen", DisableParallelization = true)]
+public sealed class FrozenCollection;
+
+[Collection("Frozen")]
+public sealed class BackupFrozenTests : IDisposable
+{
+    private readonly string _temp = Path.Combine(Path.GetTempPath(), "Shima-frozen-test-" + Guid.NewGuid().ToString("N"));
+
+    public BackupFrozenTests() { Directory.CreateDirectory(_temp); }
+    public void Dispose() { AppSettings.Frozen = false; try { Directory.Delete(_temp, true); } catch { } }
+
+    [Fact]
+    public void 還原換上去之後_提醒與收藏的存檔不會蓋掉還原的檔案()
+    {
+        var alarmsPath = Path.Combine(_temp, "alarms.json");
+        var favoritesPath = Path.Combine(_temp, "favorites.json");
+        var alarms = new Shima.Agents.Alarms(alarmsPath);
+        var favorites = new Shima.Listening.LyricFavorites(favoritesPath, _ => { });
+        alarms.Add(new DateTime(2030, 1, 1, 8, 0, 0), "還原前");
+        favorites.Add("還原前", "", "歌", "人", "", TimeSpan.Zero, DateTimeOffset.Now);
+
+        // 備份換上去了
+        File.WriteAllText(alarmsPath, "[\"restored\"]");
+        File.WriteAllText(favoritesPath, "[\"restored\"]");
+        AppSettings.Frozen = true;
+        try
+        {
+            alarms.Add(new DateTime(2030, 1, 2, 8, 0, 0), "還原後");
+            alarms.Cancel("還原前");
+            alarms.Check(new DateTime(2031, 1, 1));
+            var added = favorites.Add("又一句", "", "歌", "人", "", TimeSpan.Zero, DateTimeOffset.Now);
+            favorites.Remove(added!.Id);
+        }
+        finally { AppSettings.Frozen = false; }
+        Assert.Equal("[\"restored\"]", File.ReadAllText(alarmsPath));
+        Assert.Equal("[\"restored\"]", File.ReadAllText(favoritesPath));
+        Assert.False(File.Exists(alarmsPath + ".part"));
+        Assert.False(File.Exists(favoritesPath + ".tmp"));
+
+        // 沒有凍結時照常存
+        alarms.Add(new DateTime(2030, 1, 3, 8, 0, 0), "平常");
+        favorites.Add("平常", "", "歌", "人", "", TimeSpan.Zero, DateTimeOffset.Now);
+        Assert.Contains("平常", File.ReadAllText(alarmsPath));
+        Assert.Contains("平常", File.ReadAllText(favoritesPath));
     }
 }

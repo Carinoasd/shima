@@ -193,6 +193,8 @@ public sealed class Alarms : IDisposable
 
     private void Save()
     {
+        // 還原備份換掉資料夾之後到重新啟動之前：記憶體裡是還原前的提醒，寫出去會蓋掉剛換上去的 alarms.json
+        if (AppSettings.Frozen) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
@@ -336,8 +338,10 @@ public sealed class Alarms : IDisposable
     /// <summary>日期後面沒寫時間就當早上九點。</summary>
     public static readonly TimeSpan DefaultTime = TimeSpan.FromHours(9);
     private static readonly Regex Duration = new(@"^([0-9]+(?:\.[0-9]+)?)\s*(分鐘|分钟|分|min(?:ute)?s?|m|小時|小时|h(?:ou)?rs?|h)(?![a-z])\s*(?:[後后](?!天))?\s*(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Regex FullDate = new(@"^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}[ T][0-9]{1,2}:[0-9]{2}(?>:[0-9]{2})?(?!\s*(?:am|pm)(?![a-z]))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?[0-9]{1,2}(?::[0-9]{2}|[點点時时](?:半|[0-9]{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    // 秒數一旦有就一定吃掉（atomic group 包住整個可有可無的部分）：不然「10:00:30 pm」可以退回只配到 10:00，
+    // 後面的 am／pm 檢查看到的是「:30」而放行，結果排成上午、內容變成「:30 pm …」
+    private static readonly Regex FullDate = new(@"^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}[ T][0-9]{1,2}:[0-9]{2}(?>(?::[0-9]{2})?)(?!\s*(?:am|pm)(?![a-z]))", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex ClockPrefix = new(@"^(?:(?:後天|明天|今天|tomorrow|today)\s*)?(?:(?:上午|下午|早上|晚上|中午|凌晨|清晨|傍晚)\s*)?[0-9]{1,2}(?::[0-9]{2}(?::[0-9]{2})?|[點点時时](?:半|[0-9]{1,2}分?)?)?(?:\s*(?:am|pm)(?![a-z]))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>
     /// 一行字拆成「什麼時候」與「說什麼」：「15:30 開會」「明天 8點 交報告」「20 分鐘 喝水」「20m 喝水」「1h 休息」。
