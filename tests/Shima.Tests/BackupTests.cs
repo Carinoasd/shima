@@ -361,6 +361,70 @@ public sealed class BackupTests : IDisposable
     }
 
     [Fact]
+    public void 確定要換的回呼_在複本與換檔之前呼叫一次()
+    {
+        Fill();
+        Make(("settings.json", "{ \"Language\": \"en\" }"), ("history.jsonl", "{\"a\":9}\n"));
+        int calls = 0;
+        var result = Backup.Restore(Zip, Data, new DateTime(2026, 5, 6, 7, 8, 9), () =>
+        {
+            calls++;
+            // 還沒換：資料夾裡還是原本的，也還沒有還原前的複本
+            Assert.Equal("{\"a\":1}\n{\"a\":2}\n", File.ReadAllText(Path.Combine(Data, "history.jsonl")));
+            Assert.Contains("\"ja\"", File.ReadAllText(Path.Combine(Data, "settings.json")));
+            Assert.Empty(Directory.GetDirectories(_temp, "Shima-before-restore-*"));
+            // 呼叫端在這時寫的（正在聽的這首）要進到還原前的複本裡
+            File.AppendAllText(Path.Combine(Data, "history.jsonl"), "{\"a\":3}\n");
+        });
+        Assert.Equal(BackupStatus.Ok, result.Status);
+        Assert.Equal(1, calls);
+        Assert.Equal("{\"a\":9}\n", File.ReadAllText(Path.Combine(Data, "history.jsonl")));
+        Assert.EndsWith("{\"a\":3}\n", File.ReadAllText(Path.Combine(_temp, result.Saved!, "history.jsonl")));
+    }
+
+    public static TheoryData<string, BackupStatus> Rejected => new()
+    {
+        { "unreadable", BackupStatus.Unreadable },
+        { "unsafe", BackupStatus.Unsafe },
+        { "empty", BackupStatus.Empty },
+        { "bad-settings", BackupStatus.BadSettings },
+        { "too-many", BackupStatus.TooBig },
+        { "too-big", BackupStatus.TooBig },
+    };
+
+    [Theory]
+    [MemberData(nameof(Rejected))]
+    public void 被拒絕的zip不會呼叫確定要換的回呼(string kind, BackupStatus expected)
+    {
+        Fill();
+        switch (kind)
+        {
+            case "unreadable": File.WriteAllText(Zip, "not a zip"); break;
+            case "unsafe": Make(("settings.json", "{}"), ("../evil.json", "x")); break;
+            case "empty": Make(("random.txt", "?")); break;
+            case "bad-settings": Make(("settings.json", "{ not json"), ("lyrics/a.lrc", "x")); break;
+            case "too-many":
+                using (var z = ZipFile.Open(Zip, ZipArchiveMode.Create))
+                    for (int i = 0; i <= Backup.MaxFiles; i++) z.CreateEntry($"lyrics/{i}.lrc");
+                break;
+            case "too-big":
+                using (var z = ZipFile.Open(Zip, ZipArchiveMode.Create))
+                {
+                    var buffer = new byte[1024 * 1024];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        using var w = z.CreateEntry($"lyrics/big{i}.lrc").Open();
+                        for (int n = 0; n < 200; n++) w.Write(buffer);
+                    }
+                }
+                break;
+        }
+        int calls = 0;
+        Assert.Equal(expected, Backup.Restore(Zip, Data, DateTime.Now, () => calls++).Status);
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
     public void 路徑檢查()
     {
         Assert.True(Backup.SafeName("lyrics/一首歌 (live).lrc", out var rel));

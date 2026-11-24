@@ -49,10 +49,11 @@ public partial class IslandWindow
         _backupBusy = true;
         try
         {
-            _listening.Flush();   // 目前這首的紀錄先寫掉：關閉時才寫的話會接在還原好的紀錄後面
-            AppSettings.Frozen = true;
             var folder = AppSettings.Folder;
-            var result = await Task.Run(() => Backup.Restore(dialog.FileName, folder, DateTime.Now));
+            // 驗證都通過、確定要換上去的那一刻才結算目前這首（被拒絕的 zip 不能讓這次播放提早記一筆），
+            // 關閉時才寫的話會接在還原好的紀錄後面。之後到重新啟動前不再存設定、提醒、收藏。
+            void Committing() => Dispatcher.Invoke(() => { _listening.Flush(); AppSettings.Frozen = true; });
+            var result = await Task.Run(() => Backup.Restore(dialog.FileName, folder, DateTime.Now, Committing));
             if (result.Status != BackupStatus.Ok)
             {
                 AppSettings.Frozen = false;

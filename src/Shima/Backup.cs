@@ -171,7 +171,11 @@ public static class Backup
 
     // ---------------------------------------------------------------- 還原
 
-    public static BackupResult Restore(string zipPath, string folder, DateTime now)
+    /// <param name="committing">
+    /// 驗證全部通過、確定要換上去的那一刻呼叫（在還原前的複本與換檔之前）；被拒絕的 zip 不會走到。
+    /// Restore 在背景執行緒跑，要碰畫面的話回呼自己切回畫面的執行緒（同步地做完再回來）。
+    /// </param>
+    public static BackupResult Restore(string zipPath, string folder, DateTime now, Action? committing = null)
     {
         string? stage = null;
         try
@@ -231,7 +235,10 @@ public static class Backup
                 File.WriteAllText(stagedSettings, merged, new UTF8Encoding(false));
             }
 
-            // 4. 還原錯了要救得回來：先把目前的整份複製一份
+            // 4. 確定要換了：讓呼叫端先把手上的東西結算掉（例如正在聽的這一首），這樣它也會在下面那份複本裡
+            committing?.Invoke();
+
+            // 還原錯了要救得回來：先把目前的整份複製一份
             string? saved = null;
             if (Directory.Exists(root))
             {
