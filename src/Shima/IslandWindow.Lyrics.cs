@@ -96,17 +96,19 @@ public partial class IslandWindow
         string key = _trackKey, id = LyricsFinder.IdOf(track), lang = Loc.Lang;
         var (system, text) = AiTranslation.Request(sheet, track.Title, track.Artist, AiTranslation.LanguageName(lang));
         var waiting = L.T("翻譯中…");
-        _translating.Add(key);
-        Toast(waiting, 15, false);
-        var waitingUntil = _toastUntil;   // 換歌後另一首也在翻的話，那邊的「翻譯中…」不是這一次的
+        var waitingUntil = default(DateTime);   // 換歌後另一首也在翻的話，那邊的「翻譯中…」不是這一次的
         // 沒翻成：還在這首才說；已經換歌的話不能蓋掉現在那首的提示（看起來像是它失敗了），只收掉自己的「翻譯中…」
         void Failed(string message)
         {
             if (key == _trackKey) Toast(message, 4, false);
             else if (_toast == waiting && _toastUntil == waitingUntil) { _toast = ""; UpdateTexts(); }
         }
+        // 記下這首在翻之後，下面每一步都要在 try 裡：中途丟例外而沒有拿掉的話，這首到程式結束都不能再翻
+        _translating.Add(key);
         try
         {
+            Toast(waiting, 15, false);
+            waitingUntil = _toastUntil;
             // 最多等三分鐘：網路卡住時不要讓這一項永遠按不了
             using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(3));
             var reply = await Task.Run(() => brain.CompleteAsync(system, text, limit.Token));
@@ -118,10 +120,15 @@ public partial class IslandWindow
             }
             // 換歌了也先存著（只看歌詞的句子），下次播到就用得上；但不能套到現在這首上
             AiTranslation.Save(AiTranslation.Folder, id, sheet, lang, lines);
-            if (key != _trackKey || !ReferenceEquals(_sheet, shown))
+            void Quiet() { if (_toast == waiting && _toastUntil == waitingUntil) { _toast = ""; UpdateTexts(); } }
+            if (key != _trackKey) { Quiet(); return; }
+            if (!ReferenceEquals(_sheet, shown))
             {
-                if (_toast == waiting && _toastUntil == waitingUntil) { _toast = ""; UpdateTexts(); }
-                return;
+                // 換到別首又切回來：歌詞是重新載入的另一個物件。句子沒變的話剛存的那一份就對得上，照樣套上；
+                // 不然翻好了卻看不到，再按一次又要重送一次
+                if (_sheet is not { Synced: true, Translation: null } current || AiTranslation.Load(AiTranslation.Folder, id, current, lang) is not { } again) { Quiet(); return; }
+                sheet = current;
+                lines = again;
             }
             _sheet = sheet with { Translation = lines };
             _aiTranslated = true;

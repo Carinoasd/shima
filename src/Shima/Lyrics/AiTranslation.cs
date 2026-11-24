@@ -90,20 +90,25 @@ public static partial class AiTranslation
         reply = Think().Replace(reply.Replace("\r", ""), "");
         var lines = reply.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("```", StringComparison.Ordinal)).ToList();
 
-        var numbered = new string?[count];
-        bool any = false;
-        foreach (var line in lines)
+        // 有任何一行照嚴格的規則認得出編號，才當成有編號的回答
+        var found = lines.Select(l => (Strict: Numbering(l, strict: true), Loose: Numbering(l, strict: false))).ToList();
+        if (found.Any(f => f.Strict != null))
         {
-            var m = Numbered().Match(line);
-            var digits = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value;
-            if (!m.Success || !int.TryParse(digits, out int n) || n < 1) continue;
-            // 編號超過句數：AI 把某一句拆成兩行了，後面的全部錯開一句，不能用
-            if (n > count) return null;
-            if (numbered[n - 1] != null) return null;   // 同一個編號兩次：分不出哪一個才是翻譯
-            numbered[n - 1] = Unquote(m.Groups[3].Value);
-            any = true;
+            var numbered = new string?[count];
+            int expected = 1;
+            foreach (var (strict, loose) in found)
+            {
+                // 嚴格的規則認不得、但寬鬆的認得而且編號正好是下一個：「5.2人で歩こう」這種編號後面沒空格、翻譯又以數字開頭的行
+                var hit = strict ?? (loose is { } l && l.Number == expected ? loose : null);
+                if (hit is not { } h) continue;
+                // 編號超過句數：AI 把某一句拆成兩行了，後面的全部錯開一句，不能用
+                if (h.Number > count) return null;
+                if (numbered[h.Number - 1] != null) return null;   // 同一個編號兩次：分不出哪一個才是翻譯
+                numbered[h.Number - 1] = Unquote(h.Text);
+                expected = h.Number + 1;
+            }
+            return numbered.All(t => t != null) ? numbered.Select(t => t!).ToList() : null;
         }
-        if (any) return numbered.All(t => t != null) ? numbered.Select(t => t!).ToList() : null;
 
         // 沒有編號：開頭的「以下是翻譯：」拿掉，剩下的要剛好一句對一句。只有一句的歌分不出翻譯跟拒絕回答，不用
         while (lines.Count > count && (lines[0].EndsWith(':') || lines[0].EndsWith('：'))) lines.RemoveAt(0);
@@ -161,9 +166,30 @@ public static partial class AiTranslation
     private static partial Regex Think();
 
     /// <summary>
-    /// 「1. 」「1) 」「1、」「1：」「(1) 」「[1] 」：編號後面一定要有標點或括號，免得「1999年」被當成編號；
-    /// 標點後面緊接著數字的是時間、小數（10:30、1.5、1、2、3），括號要成對，「#1 你是唯一」這種句子也不算。
+    /// 一行開頭的編號與後面的翻譯；沒有編號是 null。
+    /// 「1. 」「1) 」「1、」「1：」「(1) 」「[1] 」，數字可以是全形的（１．），整個編號或整行可以包在粗體裡（**1.** 、**1. …**）。
+    /// 編號後面一定要有標點或括號，免得「1999年」被當成編號；括號要成對，「#1 你是唯一」這種句子也不算。
+    /// <paramref name="strict"/>：標點後面緊接著數字的不算（那是時間、小數、數數：10:30、1.5、1、2、3）。
+    /// 寬鬆的規則沒有這一條，只在呼叫的人另外知道「這一行該是第幾號」時才用。
     /// </summary>
-    [GeneratedRegex(@"^(?:[\(\[（【]\s*(\d{1,4})\s*[\)\]）】]|(\d{1,4})\s*[.．、:：\)）](?!\d))\s*(.*)$")]
-    private static partial Regex Numbered();
+    public static (int Number, string Text)? Numbering(string line, bool strict)
+    {
+        var m = (strict ? NumberedStrict() : NumberedLoose()).Match(line);
+        if (!m.Success) return null;
+        int n = 0;
+        foreach (char c in m.Groups["a"].Success ? m.Groups["a"].Value : m.Groups["b"].Value) n = n * 10 + (c >= '０' ? c - '０' : c - '0');
+        if (n < 1) return null;
+        string text = m.Groups["text"].Value;
+        // 整行包在粗體裡：開頭的標記在編號前面已經吃掉了，結尾那一個也拿掉
+        if (m.Groups["lead"].Success && !m.Groups["close"].Success && text.EndsWith(m.Groups["lead"].Value, StringComparison.Ordinal))
+            text = text[..^m.Groups["lead"].Length].TrimEnd();
+        return (n, text);
+    }
+
+    // 數字只收半形與全形的 0–9（\d 會連別的文字的數字都收，轉成整數時又不認得）
+    [GeneratedRegex(@"^(?<lead>\*\*|__)?\s*(?:[\(\[（【]\s*(?<a>[0-9０-９]{1,4})\s*[\)\]）】]|(?<b>[0-9０-９]{1,4})\s*[.．、:：\)）](?![0-9０-９]))\s*(?<close>\*\*|__)?\s*(?<text>.*)$")]
+    private static partial Regex NumberedStrict();
+
+    [GeneratedRegex(@"^(?<lead>\*\*|__)?\s*(?:[\(\[（【]\s*(?<a>[0-9０-９]{1,4})\s*[\)\]）】]|(?<b>[0-9０-９]{1,4})\s*[.．、:：\)）])\s*(?<close>\*\*|__)?\s*(?<text>.*)$")]
+    private static partial Regex NumberedLoose();
 }

@@ -43,4 +43,43 @@ public class AiTranslationParseTests
     [InlineData("1. 甲\n2. 乙\n2. 丙")]        // 同一個編號兩次
     [InlineData("1. 甲\n2. 乙\n3. 丙\n4. 丁")] // 編號超過句數
     public void 編號對不上照樣整份不用(string reply) => Assert.Null(AiTranslation.Parse(reply, 3));
+
+    // ---------------------------------------------------------------- 複審找到的幾種編號寫法
+
+    [Fact]
+    public void 編號後面沒空格而翻譯以數字開頭_照編號的順序認()
+    {
+        Assert.Equal(["一起走吧", "2人で歩こう", "100年後も"], AiTranslation.Parse("1. 一起走吧\n2.2人で歩こう\n3、100年後も", 3)!);
+        // 只有順序對得上的才收：不是下一個編號的「10:30」仍然是翻譯的一部分，不是第 10 句
+        Assert.Equal(["a", "b"], AiTranslation.Parse("1. a\n10:30\n2. b", 2)!);
+    }
+
+    [Fact]
+    public void 全形的編號與粗體的編號都認得_不會留在翻譯裡()
+    {
+        Assert.Equal(["你好", "世界"], AiTranslation.Parse("１．你好\n２．世界", 2)!);
+        Assert.Equal(["你好", "世界"], AiTranslation.Parse("**1.** 你好\n**2.** 世界", 2)!);
+        Assert.Equal(["你好", "世界"], AiTranslation.Parse("**1. 你好**\n**2. 世界**", 2)!);
+        Assert.Equal(["你好", "世界"], AiTranslation.Parse("（１）你好\n（２）世界", 2)!);
+    }
+
+    [Theory]
+    [InlineData("1. 你好", true, 1, "你好")]
+    [InlineData("12) 你好", true, 12, "你好")]
+    [InlineData("3、你好", true, 3, "你好")]
+    [InlineData("[4] 你好", true, 4, "你好")]
+    [InlineData("5.2人で", false, 5, "2人で")]
+    public void 一行的編號(string line, bool strict, int number, string text) =>
+        Assert.Equal((number, text), AiTranslation.Numbering(line, strict));
+
+    [Theory]
+    [InlineData("5.2人で")]        // 標點後面緊接數字：可能是小數
+    [InlineData("10:30 的末班車")]
+    [InlineData("1999年")]
+    [InlineData("#1 你是唯一")]
+    [InlineData("__init__")]
+    [InlineData("0. 零")]
+    [InlineData("٣. 阿拉伯數字")]
+    [InlineData("(1 少一邊")]
+    public void 不算編號的(string line) => Assert.Null(AiTranslation.Numbering(line, strict: true));
 }
