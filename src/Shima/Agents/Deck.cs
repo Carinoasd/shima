@@ -58,8 +58,8 @@ public sealed record DeckState(Track? Track, LyricSheet? Sheet, IReadOnlyList<st
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<BitmapSource, byte[]> Encoded = [];
 }
 
-/// <summary>島上音樂以外的事，Stream Dock 的長條跟著插播。Kind：ask（Claude Code 要權限）、voice（語音助手）、toast（一句提示），或空字串。</summary>
-public sealed record DeckNotice(string Kind, string Title, string Text, string Timer, string Plan, bool Listening)
+/// <summary>島上音樂以外的事，Stream Dock 的長條跟著插播。Kind：ask（Claude Code 要權限）、voice（語音助手）、toast（一句提示），或空字串。Id：ask 時是那一則權限請求的識別碼。</summary>
+public sealed record DeckNotice(string Kind, string Title, string Text, string Timer, string Plan, bool Listening, string Id = "")
 {
     public static readonly DeckNotice None = new("", "", "", "", "", false);
 }
@@ -96,6 +96,7 @@ public static class StreamDock
                 from.CopyTo(to);
             }
             File.WriteAllText(Path.Combine(folder, "bridge.js"), $"window.SHIMA = {{ port: {AgentBridge.Port}, token: \"{AgentBridge.DeckToken()}\" }};\n");
+            AgentBridge.DeckDoor.Forget();   // 剛裝好就要認得這把，不用等
             return true;
         }
         catch (Exception e) { Log.Write("stream dock: " + e.Message); return false; }
@@ -105,5 +106,6 @@ public static class StreamDock
     {
         try { Directory.Delete(Path.Combine(PluginsFolder, PluginFolder), true); }
         catch (Exception e) { Log.Write("stream dock: " + e.Message); }
+        AgentBridge.DropDeckToken();   // 不用 Stream Dock 了：/deck/ 也跟著關上
     }
 }

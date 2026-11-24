@@ -69,6 +69,8 @@ public sealed class AppSettings
     public int WaterMinutes { get; set; } = 60;
     /// <summary>音量、亮度、電量、網路、播放裝置有變化時在島上顯示。</summary>
     public bool SystemStatus { get; set; } = true;
+    /// <summary>Stream Dock 的「允許」按鍵算數。關掉之後只剩「拒絕」有用（拒絕不會造成傷害）。</summary>
+    public bool DeckAllow { get; set; } = true;
     /// <summary>啟動後與每天一次，到 GitHub 看有沒有新版。</summary>
     public bool CheckUpdates { get; set; } = true;
     /// <summary>全域快捷鍵（如 "Ctrl+Alt+Space"）；空字串：用預設（展開有備援順序）。</summary>

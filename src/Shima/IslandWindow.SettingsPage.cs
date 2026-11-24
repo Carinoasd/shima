@@ -23,7 +23,7 @@ public partial class IslandWindow
     // 設定頁裡要被其他方法讀寫的控制項（CommitSettingsText、Notify_Click、Deck_Click、Language_Click 會用到）。
     // 每次 RefreshSettings 都會重建，所以只在設定頁開著的時候有意義。
     private Button LanguageButton = null!;
-    private CheckBox NotifySwitch = null!, DeckSwitch = null!;
+    private CheckBox NotifySwitch = null!, DeckSwitch = null!, DeckAllowSwitch = null!;
     private TextBox WaterBox = null!, DiscordBox = null!, FocusBox = null!, BreakBox = null!;
 
     /// <summary>打開設定頁、或列的內容變了（歌詞來源、資料夾、語言）時重建四個子分頁，顯示目前那一頁。</summary>
@@ -129,6 +129,10 @@ public partial class IslandWindow
         rows.Add(NotifySwitch = SettingsSwitch("顯示訊息通知", s.Notifications, Notify_Click));
         DeckSwitch = SettingsSwitch("Stream Dock", Agents.StreamDock.Installed, Deck_Click);
         if (Agents.StreamDock.Available) rows.Add(DeckSwitch);
+        // 只在 Stream Dock 開著時出現：開關跟著 Deck_Click 一起顯示、收起
+        DeckAllowSwitch = Toggle("Stream Dock 可以按允許", s.DeckAllow, v => s.DeckAllow = v);
+        DeckAllowSwitch.Visibility = DeckSwitch.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (Agents.StreamDock.Available) rows.Add(DeckAllowSwitch);
 
         rows.Add(Gap());
         foreach (var row in HotkeySettingsRows()) rows.Add(row);

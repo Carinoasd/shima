@@ -16,6 +16,10 @@ public partial class IslandWindow
     private PermissionRequest? _asking;
     private Tab _beforeAsk = Tab.Music;
     private bool _expandedBeforeAsk;
+    /// <summary>目前這一則權限請求出現在島上的時刻（Environment.TickCount64）。</summary>
+    private long _askShownAt;
+    /// <summary>舊版外掛按允許的提醒，一次執行期間只說一次。</summary>
+    private bool _deckOldTold;
     private VoiceAssistant? _voice;
     private string _planLine = "";
 
@@ -36,14 +40,13 @@ public partial class IslandWindow
         {
             if (e.NewValue is true && _aiStale) Dispatcher.BeginInvoke(() => { if (_aiStale && _tab == Tab.Ai && _expanded) RefreshAi(); });
         };
-        _bridge.DeckPressed += action => Dispatcher.BeginInvoke(() =>
+        _bridge.DeckPressed += (action, id) => Dispatcher.BeginInvoke(() =>
         {
             switch (action)
             {
                 case "next": _media.Next(); break;
                 case "previous": _media.Previous(); break;
-                case "allow": Decide("allow"); break;
-                case "deny": Decide("deny"); break;
+                case "allow" or "deny": DeckDecide(action, id); break;
                 case "ask": AskOnce(); break;
                 case "zone": SwitchZone(); break;
                 case "mute":
@@ -76,7 +79,7 @@ public partial class IslandWindow
         {
             // 示範模式的金鑰是暫存資料夾裡新產生的：寫進真正的 Stream Dock 外掛的話，平常那一份就不認它了
             if (Demo.On) return;
-            _bridge.Start();
+            if (!_bridge.Start()) Toast(L.F("連接埠 {0} 被別的程式佔用，Claude Code 的請求不會送到 Shima", AgentBridge.Port), 12);
             // 資料夾被換掉（SHIMA_DATA）時金鑰也不是平常那一把，同樣不更新外掛
             if (StreamDock.Installed && !AppSettings.Redirected) StreamDock.Install();   // 跟著 Shima 一起更新
         };
@@ -109,6 +112,7 @@ public partial class IslandWindow
 
         if (_asking == null) { _beforeAsk = _tab == Tab.Ask ? Tab.Music : _tab; _expandedBeforeAsk = _expanded; }
         var ask = _asking = _asks.Dequeue();
+        _askShownAt = Environment.TickCount64;
         var name = AgentKinds.Name(ask.Agent);
         AskTitle.Text = ask.Project.Length > 0 ? $"{name} · {ask.Project}" : name;
         AskTool.Text = ask.Tool;
@@ -126,6 +130,27 @@ public partial class IslandWindow
     private void Decide(string? behavior)
     {
         _asking?.Decision.TrySetResult(behavior);
+    }
+
+    /// <summary>
+    /// Stream Dock 按了允許／拒絕：在 UI 執行緒拿此刻正在問的那一則來比對（判斷在 DeckAnswer.Judge）。
+    /// 由 Stream Dock 允許的記進最近的通知，事後查得到是哪個工具、什麼指令。
+    /// </summary>
+    private void DeckDecide(string action, string? id)
+    {
+        var ask = _asking is { Decision.Task.IsCompleted: false } open ? open : null;
+        switch (DeckAnswer.Judge(action, id, ask?.Id, Environment.TickCount64 - _askShownAt, AppSettings.Current.DeckAllow))
+        {
+            case DeckVerdict.Apply:
+                if (ask!.Decision.TrySetResult(action) && action == "allow")
+                    Remember(RecentKind.Agent, AgentKinds.Name(ask.Agent), L.F("Stream Dock 允許了 {0}", ask.Tool), ask.Details);
+                break;
+            case DeckVerdict.OldPlugin when !_deckOldTold:
+                // 外掛更新了，但 Stream Dock 還跑著舊的那份：它送來的允許沒有識別碼，不會生效
+                _deckOldTold = true;
+                Toast(L.T("重新啟動 Stream Dock，才能用它按允許"), 8);
+                break;
+        }
     }
 
     private void AskAllow_Click(object sender, RoutedEventArgs e) => Decide("allow");

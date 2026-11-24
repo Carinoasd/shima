@@ -19,6 +19,9 @@ public sealed class PermissionRequest
 {
     public const string Always = "always";
 
+    /// <summary>隨機的識別碼：Stream Dock 按允許時要指名是哪一則。</summary>
+    public string Id { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
+
     public required string Project { get; init; }
     /// <summary>哪一個 agent 在問。</summary>
     public AgentKind Agent { get; init; } = AgentKind.Claude;
@@ -43,8 +46,15 @@ public sealed class AgentBridge
 {
     public const int Port = 47813;
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(570);
+    /// <summary>每個 agent 同時等人回答的權限請求最多幾則；再來的回終端機照常問。</summary>
+    public const int MaxWaiting = 8;
+    /// <summary>整個伺服器同時處理中的連線最多幾條（每個 agent 等回答的那幾條、外掛輪詢、通知，綽綽有餘）。</summary>
+    public const int MaxOpen = 64;
 
     private HttpListener? _listener;
+    private readonly Slots _open = new(MaxOpen);
+    private readonly DeckLog _deckLog = new();
+    private readonly Dictionary<AgentKind, Slots> _waiting = Enum.GetValues<AgentKind>().ToDictionary(a => a, _ => new Slots(MaxWaiting));
 
     public event Action<PermissionRequest>? Asked;
     /// <summary>Claude Code 做完了：專案名稱、最後一句話。</summary>
@@ -93,8 +103,8 @@ public sealed class AgentBridge
     public bool DeckWatching => Environment.TickCount64 - Interlocked.Read(ref _deckSeen) < 5000;
     /// <summary>此刻的頻譜（低音到高音，每段 0–1）。</summary>
     public Func<int, float[]>? Bands;
-    /// <summary>Stream Dock 外掛按了按鍵：playpause、next、previous、allow、deny、ask、zone、mute。</summary>
-    public event Action<string>? DeckPressed;
+    /// <summary>Stream Dock 外掛按了按鍵：playpause、next、previous、allow、deny、ask、zone、mute；allow、deny 還帶著外掛畫出來的那一則權限請求的識別碼（舊版外掛不帶）。</summary>
+    public event Action<string, string?>? DeckPressed;
     /// <summary>Stream Dock 的旋鈕轉了幾格：volume、seek、shift、zone。</summary>
     public event Action<string, int>? DeckTurned;
 
@@ -108,6 +118,21 @@ public sealed class AgentBridge
 
     public static string Token() => TokenIn(TokenFile);
     public static string DeckToken() => TokenIn(DeckTokenFile);
+
+    /// <summary>
+    /// /deck/ 認的金鑰：這台電腦有 Stream Dock、外掛也裝著（設定裡的 Stream Dock 開關開著）才有，否則空字串（一律拒絕）。
+    /// 這裡只讀不產生：金鑰由 StreamDock.Install() 寫外掛時才產生。
+    /// </summary>
+    public static readonly DeckDoor DeckDoor = new(() => StreamDock.Available && StreamDock.Installed, () => PeekToken(DeckTokenFile));
+
+    /// <summary>沒在用 Stream Dock：把 deck 金鑰整個收回（檔案刪掉、記住的那份也忘掉），之後再裝外掛會產生新的一把。</summary>
+    public static void DropDeckToken()
+    {
+        Known.TryRemove(DeckTokenFile, out _);
+        try { File.Delete(DeckTokenFile); }
+        catch (Exception e) { Log.Write("deck token: " + e.Message); }
+        DeckDoor.Forget();
+    }
 
     /// <summary>
     /// 每個 agent 的 hook 各用一把金鑰（Claude Code 沿用 bridge.token）。Codex、Gemini 的那把只進得了自己的網址，
@@ -133,6 +158,15 @@ public sealed class AgentBridge
             return Known.GetOrAdd(file, fresh);
         }
         catch (Exception e) { Log.Write("bridge token: " + e.Message); return ""; }
+    }
+
+    /// <summary>讀已經有的金鑰，沒有就是空字串（不產生）。</summary>
+    private static string PeekToken(string file)
+    {
+        if (Known.TryGetValue(file, out var known)) return known;
+        try { if (File.Exists(file) && File.ReadAllText(file).Trim() is { Length: >= 32 } existing) return Known.GetOrAdd(file, existing); }
+        catch (Exception e) { Log.Write("bridge token: " + e.Message); }
+        return "";
     }
 
     public enum Door { Refuse, Hook, Deck }
@@ -166,6 +200,20 @@ public sealed class AgentBridge
         }
         if (method != "POST" || hasOrigin || Route(path) is not { } route) return new(Door.Refuse);
         return Same(header, tokens(route.Agent)) ? new(Door.Hook, route.Agent, route.Permission) : new(Door.Refuse);
+    }
+
+    /// <summary>
+    /// 請求是不是從這台電腦送來、而且是衝著 localhost 來的。HttpListener 只聽 localhost，但不看對方是誰；
+    /// Host 也要檢查：瀏覽器裡的網頁可以把自己的網域在解析後換成 127.0.0.1（DNS rebinding），這時 Host 是那個網域，不是 localhost。
+    /// hook（curl.exe）與 Stream Dock 外掛連的都是 http://localhost:47813。
+    /// </summary>
+    public static bool Local(IPAddress? remote, string? host)
+    {
+        if (remote == null) return false;
+        if (remote.IsIPv4MappedToIPv6) remote = remote.MapToIPv4();   // IsLoopback 不認 ::ffff:127.0.0.1
+        if (!IPAddress.IsLoopback(remote)) return false;
+        return host is { } h && (h.Equals("localhost", StringComparison.OrdinalIgnoreCase) || h.Equals($"localhost:{Port}", StringComparison.OrdinalIgnoreCase)
+            || h == "127.0.0.1" || h == $"127.0.0.1:{Port}");
     }
 
     /// <summary>網址是哪個 agent 的哪一種 hook；null 表示沒有這扇門（例如 Gemini 的權限請求）。</summary>
@@ -202,11 +250,16 @@ public sealed class AgentBridge
         return Encoding.UTF8.GetString(kept.GetBuffer(), 0, (int)kept.Length);
     }
 
-    public void Start()
+    /// <summary>
+    /// 開始收請求。回傳 false 表示沒開成（金鑰讀寫不了、或 47813 被別的程式佔住）：這時 hook 的請求會送到佔住那個埠的程式，
+    /// 不會到 Shima，要讓使用者知道。
+    /// </summary>
+    public bool Start()
     {
-        if (_listener != null) return;
-        string token = Token(), deckToken = DeckToken();
-        if (token.Length == 0) return;
+        if (_listener != null) return true;
+        string token = Token();
+        if (token.Length == 0) return false;
+        if (!(StreamDock.Available && StreamDock.Installed)) DropDeckToken();   // 沒在用 Stream Dock：之前留下的 deck 金鑰不要再認
         // 每一把都先讀好（沒有就產生），之後連接才裝的 hook 用的也是這幾把
         var tokens = Enum.GetValues<AgentKind>().ToDictionary(a => a, Token);
         try
@@ -214,10 +267,11 @@ public sealed class AgentBridge
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{Port}/");
             _listener.Start();
-            _ = Task.Run(() => LoopAsync(_listener, tokens, deckToken));
+            _ = Task.Run(() => LoopAsync(_listener, tokens));
             _pruner = new Timer(_ => Prune(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+            return true;
         }
-        catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; }
+        catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; return false; }
     }
 
     /// <summary>程式結束時關掉：不再收請求，也停掉清理用的計時器。</summary>
@@ -230,25 +284,36 @@ public sealed class AgentBridge
         _pruner = null;
     }
 
-    private async Task LoopAsync(HttpListener listener, IReadOnlyDictionary<AgentKind, string> tokens, string deckToken)
+    private async Task LoopAsync(HttpListener listener, IReadOnlyDictionary<AgentKind, string> tokens)
     {
         while (listener.IsListening)
         {
             HttpListenerContext context;
             try { context = await listener.GetContextAsync(); }
             catch { return; }
-            _ = Task.Run(() => HandleAsync(context, tokens, deckToken));
+            if (!_open.TryTake())
+            {
+                // 太多了：不讀內容、馬上回。hook 拿到空的回應，Claude Code 照常在終端機問
+                try { context.Response.StatusCode = 503; context.Response.Close(); } catch { }
+                continue;
+            }
+            _ = Task.Run(async () =>
+            {
+                try { await HandleAsync(context, tokens); }
+                finally { _open.Give(); }
+            });
         }
     }
 
-    private async Task HandleAsync(HttpListenerContext context, IReadOnlyDictionary<AgentKind, string> tokens, string deckToken)
+    private async Task HandleAsync(HttpListenerContext context, IReadOnlyDictionary<AgentKind, string> tokens)
     {
         var response = context.Response;
         try
         {
             var request = context.Request;
+            if (!Local(request.RemoteEndPoint?.Address, request.Headers["Host"])) { response.StatusCode = 403; return; }
             var (door, agent, permission) = Admit(request.HttpMethod, request.Url?.AbsolutePath ?? "", request.Headers["X-Shima-Token"], request.QueryString["t"],
-                request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), deckToken);
+                request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), DeckDoor.Key);
             if (door == Door.Refuse) { response.StatusCode = 403; return; }
             if (request.ContentLength64 > MaxBody) { response.StatusCode = 413; return; }
             if (door == Door.Deck) { await DeckAsync(request, response); return; }
@@ -298,7 +363,7 @@ public sealed class AgentBridge
                 Interlocked.Exchange(ref _deckSeen, Environment.TickCount64);
                 var now = deck.ToJson(query["have"] ?? "\0");
                 var notice = Notice;
-                now["notice"] = new JsonObject { ["kind"] = notice.Kind, ["title"] = notice.Title, ["text"] = notice.Text, ["listening"] = notice.Listening };
+                now["notice"] = new JsonObject { ["kind"] = notice.Kind, ["title"] = notice.Title, ["text"] = notice.Text, ["listening"] = notice.Listening, ["id"] = notice.Id };
                 now["timer"] = notice.Timer;
                 now["plan"] = notice.Plan;
                 now["level"] = Level?.Invoke() ?? -1;
@@ -319,7 +384,7 @@ public sealed class AgentBridge
                 else response.StatusCode = 404;
                 break;
             case "/deck/press" when query["do"] is "playpause" or "next" or "previous" or "allow" or "deny" or "ask" or "zone" or "mute":
-                DeckPressed?.Invoke(query["do"]!);
+                DeckPressed?.Invoke(query["do"]!, query["id"]);
                 response.StatusCode = 204;
                 break;
             case "/deck/turn" when query["what"] is "volume" or "seek" or "shift" or "zone" && int.TryParse(query["ticks"], out int ticks) && ticks != 0:
@@ -327,7 +392,7 @@ public sealed class AgentBridge
                 response.StatusCode = 204;
                 break;
             case "/deck/log":
-                Log.Write("stream dock: " + (query["m"] ?? "")[..Math.Min(600, (query["m"] ?? "").Length)]);
+                if (_deckLog.Admit(query["m"]) is { } line) Log.Write("stream dock: " + line);
                 response.StatusCode = 204;
                 break;
             default:
@@ -371,21 +436,31 @@ public sealed class AgentBridge
 
         Touch(json, agent);
         if (Asked == null) return null;
-        Asked.Invoke(ask);
-        // 人按了之後就把計時器取消，不然每問一次就留一個活九分多鐘的計時器
-        using var giveUp = new CancellationTokenSource();
-        var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience, giveUp.Token));
-        giveUp.Cancel();
-        var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
-        ask.Decision.TrySetResult(null);
-        if (behavior == PermissionRequest.Always)
+        // 同一個 agent 已經有好幾則在等：不再排上島，照「Shima 不處理」回終端機問
+        var waiting = _waiting[agent];
+        if (!waiting.TryTake()) return null;
+        try
         {
-            if (claude && ask.Remember is { } remember) Rules.Add(remember);
-            behavior = "allow";
+            Asked.Invoke(ask);
+            // 人按了之後就把計時器取消，不然每問一次就留一個活九分多鐘的計時器
+            using var giveUp = new CancellationTokenSource();
+            var done = await Task.WhenAny(ask.Decision.Task, Task.Delay(Patience, giveUp.Token));
+            giveUp.Cancel();
+            var behavior = done == ask.Decision.Task ? ask.Decision.Task.Result : null;
+            ask.Decision.TrySetResult(null);
+            if (behavior == PermissionRequest.Always)
+            {
+                if (claude && ask.Remember is { } remember) Rules.Add(remember);
+                behavior = "allow";
+            }
+            if (behavior is "allow" or "deny") Change(s => s.Resumed(key));
+            return behavior;
         }
-        if (behavior is "allow" or "deny") Change(s => s.Resumed(key));
-        return behavior;
+        finally { waiting.Give(); }
     }
+
+    /// <summary>這個 agent 此刻有幾則權限請求在等人回答。</summary>
+    public int Waiting(AgentKind agent) => _waiting[agent].Taken;
 
     /// <summary>不用等回答的 hook：Stop、PostToolUse、Notification、SessionStart、SessionEnd…</summary>
     public void Notify(JsonObject json, AgentKind agent = AgentKind.Claude)
