@@ -27,6 +27,36 @@ public class DemoListensTests
         Assert.True(month.Plays > 0);
     }
 
+    [Theory]
+    [InlineData(2026, 12, 1, 0, 30)]
+    [InlineData(2026, 12, 1, 1, 30)]
+    [InlineData(2026, 12, 1, 2, 59)]
+    [InlineData(2026, 12, 1, 3, 0)]
+    [InlineData(2026, 11, 24, 0, 30)]
+    [InlineData(2026, 11, 24, 1, 30)]
+    [InlineData(2026, 11, 24, 2, 59)]
+    [InlineData(2026, 11, 2, 0, 5)]
+    [InlineData(2027, 1, 1, 0, 30)]
+    public void 排除瀏覽器影片之後今天與這個月仍至少有一筆(int y, int mo, int d, int h, int mi)
+    {
+        var now = new DateTime(y, mo, d, h, mi, 0);
+        var music = Shima.Demo.Listens(now).Where(l => l.Source != "Chrome").ToList();
+        Assert.Contains(music, l => l.Start.DateTime.Date == now.Date);
+        var month = Stats.Compute(music.Where(Stats.Plausible), StatsPeriod.Month, now, DayOfWeek.Monday);
+        Assert.True(month.Plays > 0);
+    }
+
+    [Fact]
+    public void 一整年每天的凌晨排除影片之後今天都有紀錄()
+    {
+        for (var day = new DateTime(2026, 1, 1); day.Year == 2026; day = day.AddDays(1))
+            foreach (var (h, mi) in new[] { (0, 30), (1, 30), (2, 59) })
+            {
+                var now = day.AddHours(h).AddMinutes(mi);
+                Assert.Contains(Shima.Demo.Listens(now), l => l.Source != "Chrome" && l.Start.DateTime.Date == now.Date);
+            }
+    }
+
     [Fact]
     public void 每次產生的都一樣()
     {
