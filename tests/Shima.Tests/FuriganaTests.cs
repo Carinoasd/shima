@@ -116,6 +116,7 @@ public class FuriganaTests
         if (!Furigana.Available) return;   // 沒裝日文輸入法的電腦上這項功能不出現
         var sheet = new LyricSheet([new LyricLine(TimeSpan.Zero, "走り続ける"), new LyricLine(TimeSpan.FromSeconds(1), "ひかり"), new LyricLine(TimeSpan.FromSeconds(2), "")], true);
         var ruby = await Furigana.ForAsync(sheet).WaitAsync(TimeSpan.FromSeconds(20));
+        if (!Furigana.Available) return;   // 登錄裡有、但元件建立不起來（語言套件沒裝完整）：一樣當成沒有
         Assert.NotNull(ruby);
         Assert.Equal("走(はし)／り／続(つづ)／ける", Show(ruby!.Lines[0]));
         Assert.Null(ruby.Lines[1]);   // 沒有漢字的行不送去查

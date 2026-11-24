@@ -225,12 +225,22 @@ public static class Furigana
             at += p * 3;   // pchInputPos、pchOutputIdxWDD、pchReadIdxWDD
             IntPtr monoPtr = Marshal.ReadIntPtr(block, at);
             if (output == IntPtr.Zero || monoPtr == IntPtr.Zero || readLength != text.Length) return null;
+            // 兩個陣列都要整個落在這塊記憶體裡（dwSize 是整塊的大小）才讀：
+            // 讀到外面去是存取違規，那種錯誤攔不住，整個程式會直接消失
+            long size = (uint)Marshal.ReadInt32(block, 0);
+            if (!Inside(block, size, output, 2L * outputLength) || !Inside(block, size, monoPtr, 2L * (text.Length + 1))) return null;
             var mono = new ushort[text.Length + 1];
             for (int k = 0; k < mono.Length; k++) mono[k] = (ushort)Marshal.ReadInt16(monoPtr, k * 2);
             return Split(text, Marshal.PtrToStringUni(output, outputLength), mono);
         }
         catch (Exception e) { Log.Write("讀音: " + e.Message); return null; }
         finally { if (block != IntPtr.Zero) Marshal.FreeCoTaskMem(block); }
+    }
+
+    private static bool Inside(IntPtr block, long size, IntPtr pointer, long bytes)
+    {
+        long offset = pointer.ToInt64() - block.ToInt64();
+        return offset >= 0 && bytes >= 0 && offset + bytes <= size;
     }
 
     /// <summary>msime.h 的 IFELanguage；只宣告用得到的前三個方法（後面的 vtable 位置不受影響）。</summary>
