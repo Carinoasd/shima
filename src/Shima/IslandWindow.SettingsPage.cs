@@ -133,6 +133,9 @@ public partial class IslandWindow
         rows.Add(Gap());
         foreach (var row in HotkeySettingsRows()) rows.Add(row);
 
+        rows.Add(Gap());
+        rows.Add(BackupRow());
+
         // —— 其他功能的設定列接在這裡（一般）——
     }
 

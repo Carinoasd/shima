@@ -35,6 +35,26 @@ public static class Updater
         return new Version(version.Major, version.Minor, Math.Max(0, version.Build)) > now ? version : null;
     }
 
+    public enum VersionChange { First, Same, Upgraded, Downgraded }
+
+    /// <summary>
+    /// 現在的版本跟上次記下的比：沒記過（或認不得）是 First，一樣是 Same。
+    /// 記下的可以帶 v 或「0.7.1+commit」「0.8.0-beta」這種後綴；比的方式跟 <see cref="Newer"/> 一樣只看前三段。
+    /// </summary>
+    public static VersionChange Compare(string? last, Version current)
+    {
+        var text = (last ?? "").Trim().TrimStart('v', 'V');
+        int cut = text.IndexOfAny(['+', '-', ' ']);
+        if (cut >= 0) text = text[..cut];
+        if (!Version.TryParse(text, out var before)) return VersionChange.First;
+        var then = new Version(before.Major, before.Minor, Math.Max(0, before.Build));
+        var now = new Version(current.Major, current.Minor, Math.Max(0, current.Build));
+        return now > then ? VersionChange.Upgraded : now < then ? VersionChange.Downgraded : VersionChange.Same;
+    }
+
+    /// <summary>這一版的更新說明頁。</summary>
+    public static string NotesUrl(Version version) => $"https://github.com/Carinoasd/shima/releases/tag/v{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
+
     /// <summary>一個可以裝的新版：下載網址，以及 GitHub 記錄的檔案大小與 SHA-256。</summary>
     public sealed record Release(Version Version, string Url, long Size, string Sha256);
 

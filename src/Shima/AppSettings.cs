@@ -76,6 +76,8 @@ public sealed class AppSettings
     public string HotkeyAsk { get; set; } = "";
     /// <summary>勿擾模式的結束時間；null 或已過就是沒開。</summary>
     public DateTime? DoNotDisturbUntil { get; set; }
+    /// <summary>上一次執行的版本（如 "0.7.1"）；空字串：還沒記過。啟動時跟現在的版本比，有更新才提示。</summary>
+    public string LastRunVersion { get; set; } = "";
 
     /// <summary>歌詞下面多一行：translation（中文翻譯）、romaji（羅馬拼音）或 none。</summary>
     public string LyricsSecondLine { get; set; } = "translation";
@@ -242,8 +244,12 @@ public sealed class AppSettings
         return fresh;
     }
 
+    /// <summary>還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。</summary>
+    public static volatile bool Frozen;
+
     public void Save()
     {
+        if (Frozen) return;
         // 一次只讓一個存檔在跑：兩邊同時寫同一個暫存檔會撞在一起
         lock (Saving)
         {
