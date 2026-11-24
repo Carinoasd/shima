@@ -19,11 +19,12 @@ internal static class Fuzz
 
     /// <summary>
     /// 跑 iterations 次：make 產生輸入、check 檢查（丟例外或斷言失敗都算失敗）。
-    /// 失敗訊息含種子、第幾次與輸入。perCallMs &gt; 0：單次超過就算失敗（防病態輸入拖垮畫面）。
-    /// 整個目標超過 limitSeconds 還沒結束（無窮迴圈）也失敗，並指出卡在哪個輸入。
+    /// 失敗訊息含種子、第幾次與輸入。perCallMs &gt; 0：單次用掉的 CPU 時間超過就算失敗（防病態輸入拖垮畫面）。
+    /// 算的是這條執行緒自己用掉的 CPU，不是碼表：機器忙（CI、同時在跑別的建置）的時候排隊等的時間不能算在這個輸入頭上，
+    /// 不然測試會時好時壞。整個目標超過 limitSeconds 還沒結束（無窮迴圈）也失敗，並指出卡在哪個輸入；這個只能看碼表，所以放得很寬。
     /// </summary>
     public static void Run<T>(string name, int seed, int iterations, Func<Random, T> make, Action<T> check,
-        Func<T, string>? show = null, int perCallMs = 0, int limitSeconds = 8)
+        Func<T, string>? show = null, int perCallMs = 0, int limitSeconds = 60)
     {
         show ??= v => Show(v);
         var random = new Random(seed);
@@ -41,10 +42,12 @@ internal static class Fuzz
                 {
                     current = make(random);
                     var one = Stopwatch.StartNew();
+                    double before = CpuMs();
                     check(current);
+                    double cpu = CpuMs() - before;
                     slowest = Math.Max(slowest, one.Elapsed.TotalMilliseconds);
-                    if (perCallMs > 0 && one.ElapsedMilliseconds > perCallMs)
-                        throw new XunitException($"單次花了 {one.ElapsedMilliseconds} 毫秒（上限 {perCallMs}）");
+                    if (perCallMs > 0 && cpu > perCallMs)
+                        throw new XunitException($"單次用了 {cpu:0} 毫秒的 CPU（上限 {perCallMs}）");
                 }
             }
             catch (Exception e) { failure = e; }
@@ -59,6 +62,15 @@ internal static class Fuzz
         lock (Gate)
             try { File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "fuzz-report.txt"), line + "\n"); } catch (IOException) { }
     }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentThread();
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool GetThreadTimes(IntPtr thread, out long created, out long exited, out long kernel, out long user);
+
+    /// <summary>目前這條執行緒到現在用掉的 CPU 時間（毫秒）；單位是 100 奈秒，解析度大約一個時鐘刻度（十幾毫秒）。</summary>
+    private static double CpuMs() => GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000.0 : 0;
 
     private static string Safe<T>(Func<T, string> show, T? value)
     {
