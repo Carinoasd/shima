@@ -25,10 +25,11 @@ public interface IBrain
     /// </param>
     Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null);
     /// <summary>
-    /// 單純問一段文字、拿回一段文字（例如翻譯歌詞）：不帶工具、不串流，也不記進這段對話。
+    /// 單純問一段文字、拿回一段文字（翻譯歌詞、解釋一句歌詞）：不帶工具，也不記進這段對話。
+    /// 給了 progress 就串流，跟 ThinkAsync 一樣收到「目前為止的全文」；不給就是一般的請求。
     /// 拒絕回答時回空字串。
     /// </summary>
-    Task<string> CompleteAsync(string system, string text, CancellationToken stop);
+    Task<string> CompleteAsync(string system, string text, CancellationToken stop, Action<string>? progress = null);
     /// <summary>出錯時給人看的一句話。</summary>
     string Explain(Exception e);
     /// <summary>這把金鑰能用的模型。</summary>
@@ -355,16 +356,17 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         }
     }
 
-    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop, Action<string>? progress = null)
     {
-        var response = await Client.Messages.Create(new MessageCreateParams
+        // 沒有 Tools：模型想用也沒得用。串流與「不給串流就改一般請求」都跟 ThinkAsync 走同一條
+        var response = await Send(new MessageCreateParams
         {
             Model = model.Length > 0 ? model : DefaultModel,
             MaxTokens = 16000,
             System = system,
             OutputConfig = new OutputConfig { Effort = Effort.Low },
             Messages = [new UserMessageParam { Content = text }],
-        }, stop);
+        }, stop, progress);
         if (response.StopReason == "refusal") return "";
         return string.Concat(response.Content.Select(b => b.TryPickText(out TextBlock? t) ? t.Text : ""));
     }
@@ -521,12 +523,30 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         return L.T("我有點卡住了，再說一次好嗎？");
     }
 
-    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop, Action<string>? progress = null)
     {
         var body = Body(model, system, [new JsonObject { ["role"] = "user", ["content"] = text }], tools: false);
-        using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), stop);
+        bool streaming = progress != null && !_noStream;
+        if (streaming) body["stream"] = true;
+        using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), streaming ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead, stop);
+        if (streaming && response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType != "application/json")
+        {
+            var chat = await Read(response, progress!, stop);
+            if (chat.Error is { } failure)
+            {
+                var status = failure["code"] is JsonValue code && code.TryGetValue(out int number) && number is >= 400 and < 600 ? (HttpStatusCode)number : HttpStatusCode.InternalServerError;
+                if (!chat.Started && StreamRefused(status, failure.ToJsonString())) return await CompleteAsync(system, text, stop, progress);
+                throw new ApiError(status, failure.ToJsonString());
+            }
+            if (!chat.Finished) throw new HttpRequestException("串流沒有結束就斷了");
+            return chat.Text;
+        }
         var raw = await response.Content.ReadAsStringAsync(stop);
-        if (!response.IsSuccessStatusCode) throw new ApiError(response.StatusCode, raw);
+        if (!response.IsSuccessStatusCode)
+        {
+            if (streaming && StreamRefused(response.StatusCode, raw)) return await CompleteAsync(system, text, stop, progress);
+            throw new ApiError(response.StatusCode, raw);
+        }
         var plain = JsonNode.Parse(raw);
         // 出錯照樣回 200、錯誤放在內文裡的代理：跟 ThinkAsync 一樣當成錯誤
         if ((plain as JsonObject)?["error"] is { } refused)
@@ -535,6 +555,16 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             throw new ApiError(kind, refused.ToJsonString());
         }
         return plain?["choices"]?[0]?["message"]?["content"]?.ToString() ?? "";
+    }
+
+    /// <summary>不帶工具的串流請求被拒：大概是不給串流，之後這個物件都改用一般的請求（只試一次，不會一直重來）。</summary>
+    private bool StreamRefused(HttpStatusCode status, string error)
+    {
+        if (_noStream || error.Contains("key", StringComparison.OrdinalIgnoreCase)) return false;
+        if (status is not (HttpStatusCode.BadRequest or HttpStatusCode.UnsupportedMediaType or HttpStatusCode.UnprocessableEntity or HttpStatusCode.NotImplemented)) return false;
+        _noStream = true;
+        Log.Write($"ai: {baseUrl} 回 {(int)status}，改用不串流的請求");
+        return true;
     }
 
     /// <summary>

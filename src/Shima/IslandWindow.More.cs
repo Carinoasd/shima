@@ -94,9 +94,39 @@ public partial class IslandWindow
         {
             TabAi.IsChecked = true;
             SetExpanded(true);
-            await AskAsync(L.F("解釋這句歌詞的讀音、單字與文法：「{0}」（{1} — {2}）", line, track.Title, track.Artist));
+            await ExplainAsync(line, track.Title, track.Artist);
         }
         catch (Exception x) { Log.Write("解釋歌詞: " + x.Message); }
+    }
+
+    /// <summary>
+    /// 歌詞、歌名、藝人是外來的文字，不交給帶工具、有記憶的助手：跟 AI 翻譯一樣只問一次（LyricExplain），
+    /// 回答照樣邊產生邊顯示在 AI 分頁。之後在輸入框接著問的話，助手不會記得這一段。
+    /// </summary>
+    private async Task ExplainAsync(string line, string title, string artist)
+    {
+        if (!AskBox.IsEnabled) return;   // 上一個問題還在回答
+        var brain = Agents.Brain.Create((_, _) => "", Loc.Speech, out var problem);
+        if (brain == null) { Say(problem); return; }
+        var (system, text) = Agents.LyricExplain.Request(line, title, artist, AiTranslation.LanguageName(Loc.Lang));
+        AskBox.IsEnabled = false;
+        AskBox.Text = L.F("解釋這句歌詞的讀音、單字與文法：「{0}」（{1} — {2}）", line, title, artist);
+        Say("…");
+        var trickle = Streamed();
+        try
+        {
+            using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            var reply = await Task.Run(() => brain.CompleteAsync(system, text, limit.Token, trickle.Put));
+            trickle.Close();   // 晚到的片段不能蓋掉整段答案
+            Say(reply.Trim() is { Length: > 0 } answer ? answer : L.T("這個我沒辦法幫忙。"));
+        }
+        catch (Exception x) { Log.Write("解釋歌詞: " + x.Message); Say(brain.Explain(x)); }
+        finally
+        {
+            trickle.Close();
+            AskBox.Text = "";
+            AskBox.IsEnabled = true;
+        }
     }
 
     // ---------------------------------------------------------------- 設定頁的列（各子分頁在 IslandWindow.SettingsPage.cs 組起來）
