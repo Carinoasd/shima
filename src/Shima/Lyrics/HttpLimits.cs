@@ -25,25 +25,47 @@ public static class HttpLimits
     }
 
     /// <summary>
-    /// 取回文字。回應超過上限（不管有沒有宣告長度）回 null，呼叫端當成沒找到；
-    /// 網路錯誤與非 2xx 照舊丟例外，由 LyricsFinder 記下。
+    /// 只給了回應、沒給期限的 <see cref="ReadAsync(HttpResponseMessage, TimeSpan?)"/> 讀內容最多等這麼久（歌詞來源的 HttpClient.Timeout 也是十秒上下）。
+    /// 用 ResponseHeadersRead 時 HttpClient.Timeout 只管到收到標頭為止，來源送完標頭就停住的話，後面的讀取會永遠等下去。
+    /// </summary>
+    public static readonly TimeSpan ReadLimit = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// 取回文字。整個請求（等標頭加上讀內容）共用 HttpClient.Timeout 這一個期限，超過丟 TimeoutException。
+    /// 回應超過上限（不管有沒有宣告長度）回 null，呼叫端當成沒找到；網路錯誤與非 2xx 照舊丟例外，由 LyricsFinder 記下。
     /// </summary>
     public static async Task<string?> GetStringAsync(HttpClient http, string url)
     {
-        using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-        response.EnsureSuccessStatusCode();
-        return await ReadAsync(response);
+        using var deadline = new CancellationTokenSource(http.Timeout);
+        try
+        {
+            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            response.EnsureSuccessStatusCode();
+            return await ReadAsync(response, deadline.Token);
+        }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested) { throw new TimeoutException($"{http.Timeout.TotalSeconds:0.#} 秒內沒有收完"); }
     }
 
-    /// <summary>讀出回應內容，超過 <see cref="MaxBody"/> 位元組回 null。</summary>
-    public static async Task<string?> ReadAsync(HttpResponseMessage response)
+    /// <summary>讀出回應內容，超過 <see cref="MaxBody"/> 位元組回 null；超過 limit（預設 <see cref="ReadLimit"/>）還沒讀完丟 TimeoutException。</summary>
+    public static async Task<string?> ReadAsync(HttpResponseMessage response, TimeSpan? limit = null)
+    {
+        var span = limit ?? ReadLimit;
+        using var deadline = new CancellationTokenSource(span);
+        try { return await ReadAsync(response, deadline.Token); }
+        catch (OperationCanceledException) when (deadline.IsCancellationRequested) { throw new TimeoutException($"{span.TotalSeconds:0.#} 秒內沒有收完"); }
+    }
+
+    /// <summary>
+    /// 讀出回應內容，token 取消就放棄。每一次讀取都另外用 WaitAsync 等：底下的串流不理會 token 的話，也不會卡住。
+    /// </summary>
+    public static async Task<string?> ReadAsync(HttpResponseMessage response, CancellationToken stop)
     {
         if (response.Content.Headers.ContentLength > MaxBody) return null;
-        using var stream = await response.Content.ReadAsStreamAsync();
+        using var stream = await response.Content.ReadAsStreamAsync(stop).WaitAsync(stop);
         using var buffer = new MemoryStream();
         var chunk = new byte[16 * 1024];
         int n;
-        while ((n = await stream.ReadAsync(chunk)) > 0)
+        while ((n = await stream.ReadAsync(chunk, stop).AsTask().WaitAsync(stop)) > 0)
         {
             if (buffer.Length + n > MaxBody) return null;
             buffer.Write(chunk, 0, n);
