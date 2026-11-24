@@ -89,7 +89,7 @@ public sealed class LyricsFinder
             if (await AskAsync(chosen, q) is { } hit) return Remember(pickKey, hit, save: false);
         }
 
-        var key = $"3|{AppSettings.Current.LyricsSecondLine != "none"}|{Titles.Norm(artist)}|{Titles.Norm(title)}|{Titles.VersionTag(title)}|{Math.Round(q.Duration / 2)}";
+        var key = $"3|{WantsSecondLine}|{Titles.Norm(artist)}|{Titles.Norm(title)}|{Titles.VersionTag(title)}|{Math.Round(q.Duration / 2)}";
         lock (_memory) if (_memory.TryGetValue(key, out var known)) return known;
 
         // 自己放的歌詞檔隨時可能新增，每次都先看
@@ -112,13 +112,16 @@ public sealed class LyricsFinder
         return Remember(key, approximate, save: approximate != null || !failed);
     }
 
+    /// <summary>第二行要翻譯或羅馬拼音（讀音是自己算的，不用另外找有翻譯的版本）。</summary>
+    private static bool WantsSecondLine => AppSettings.Current.LyricsSecondLine is not ("none" or "furigana");
+
     /// <summary>
     /// 找到的歌詞沒有翻譯／羅馬拼音時，問問有這些資料的來源（網易雲）有沒有同一版本；
     /// 有就整份改用它的，時間軸才對得上。
     /// </summary>
     private async Task<LyricsHit> WithSecondLineAsync(LyricsHit hit, SongQuery q)
     {
-        if (AppSettings.Current.LyricsSecondLine == "none" || hit.Sheet.Translation != null || hit.Sheet.Romaji != null) return hit;
+        if (!WantsSecondLine || hit.Sheet.Translation != null || hit.Sheet.Romaji != null) return hit;
         if (_providers.OfType<NetEaseProvider>().FirstOrDefault() is not { } netEase || hit.Provider == netEase.Name) return hit;
         return await AskAsync(netEase, q) is { Exact: true } richer && (richer.Sheet.Translation != null || richer.Sheet.Romaji != null) ? richer : hit;
     }

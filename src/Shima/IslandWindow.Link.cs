@@ -188,7 +188,7 @@ public partial class IslandWindow
             _ => null,
         };
         _desk.SetTrack(_track?.Title ?? "", _track?.Artist ?? "");
-        _desk.Show(shown, second);
+        _desk.Show(shown, DesktopSecond(shown, second));
         _desk.Wake();
     }
 
