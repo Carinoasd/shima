@@ -134,8 +134,15 @@ public partial class IslandWindow
             if (_stats?.Summary is not { } summary) return;
             var card = RecapCard.Render(summary, _stats.Period, _stats.Now, _track?.Cover, ThemeAccent(_track?.Cover));
             if (card == null) { Toast(L.T("這個期間還沒有聽歌"), 3, false); return; }
-            LyricCard.Save(card, LyricCard.Folder, "Shima Recap");
-            Clipboard.SetImage(card);
+            var saved = LyricCard.Save(card, LyricCard.Folder, "Shima Recap");
+            try { Clipboard.SetImage(card); }
+            catch (Exception x)
+            {
+                // 剪貼簿被別的程式佔用時會丟例外：圖已經存好了，要讓使用者知道去哪裡拿
+                Log.Write("聆聽回顧剪貼簿: " + x.Message);
+                Toast(L.F("剪貼簿被佔用，圖片已存到 {0}", Path.GetDirectoryName(saved) ?? LyricCard.Folder), 6, false);
+                return;
+            }
             Toast(L.T("聆聽回顧已複製"), 4);
         }
         catch (Exception x) { Log.Write("聆聽回顧: " + x.Message); }
