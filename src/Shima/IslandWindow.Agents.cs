@@ -79,7 +79,7 @@ public partial class IslandWindow
         {
             // 示範模式的金鑰是暫存資料夾裡新產生的：寫進真正的 Stream Dock 外掛的話，平常那一份就不認它了
             if (Demo.On) return;
-            _bridge.Start();
+            if (!_bridge.Start()) Toast(L.F("連接埠 {0} 被別的程式佔用，Claude Code 的請求不會送到 Shima", AgentBridge.Port), 12);
             // 資料夾被換掉（SHIMA_DATA）時金鑰也不是平常那一把，同樣不更新外掛
             if (StreamDock.Installed && !AppSettings.Redirected) StreamDock.Install();   // 跟著 Shima 一起更新
         };

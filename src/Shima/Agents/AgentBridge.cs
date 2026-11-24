@@ -229,11 +229,15 @@ public sealed class AgentBridge
         return Encoding.UTF8.GetString(kept.GetBuffer(), 0, (int)kept.Length);
     }
 
-    public void Start()
+    /// <summary>
+    /// 開始收請求。回傳 false 表示沒開成（金鑰讀寫不了、或 47813 被別的程式佔住）：這時 hook 的請求會送到佔住那個埠的程式，
+    /// 不會到 Shima，要讓使用者知道。
+    /// </summary>
+    public bool Start()
     {
-        if (_listener != null) return;
+        if (_listener != null) return true;
         string token = Token();
-        if (token.Length == 0) return;
+        if (token.Length == 0) return false;
         if (!(StreamDock.Available && StreamDock.Installed)) DropDeckToken();   // 沒在用 Stream Dock：之前留下的 deck 金鑰不要再認
         // 每一把都先讀好（沒有就產生），之後連接才裝的 hook 用的也是這幾把
         var tokens = Enum.GetValues<AgentKind>().ToDictionary(a => a, Token);
@@ -244,8 +248,9 @@ public sealed class AgentBridge
             _listener.Start();
             _ = Task.Run(() => LoopAsync(_listener, tokens));
             _pruner = new Timer(_ => Prune(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+            return true;
         }
-        catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; }
+        catch (Exception e) { Log.Write("bridge: " + e.Message); _listener = null; return false; }
     }
 
     /// <summary>程式結束時關掉：不再收請求，也停掉清理用的計時器。</summary>
