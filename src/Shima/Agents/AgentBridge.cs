@@ -48,11 +48,15 @@ public sealed class AgentBridge
     public static readonly TimeSpan Patience = TimeSpan.FromSeconds(570);
     /// <summary>每個 agent 同時等人回答的權限請求最多幾則；再來的回終端機照常問。</summary>
     public const int MaxWaiting = 8;
-    /// <summary>整個伺服器同時處理中的連線最多幾條（每個 agent 等回答的那幾條、外掛輪詢、通知，綽綽有餘）。</summary>
-    public const int MaxOpen = 64;
+    /// <summary>整個伺服器同時處理中的連線最多幾條；比各來源的名額加起來（4 組）大，每個來源才一定拿得到自己的份。</summary>
+    public const int MaxOpen = 128;
+    /// <summary>驗證通過之後，每個來源（每個 agent、Stream Dock）同時最多幾條（等回答的那幾條、外掛輪詢、通知，綽綽有餘）。</summary>
+    public const int MaxPerSource = 24;
+    /// <summary>整個內容要在這段時間內送完；慢慢送的連線不能一直佔著名額。</summary>
+    public static readonly TimeSpan BodyPatience = TimeSpan.FromSeconds(10);
 
     private HttpListener? _listener;
-    private readonly Slots _open = new(MaxOpen);
+    private readonly Lanes _lanes = new(MaxOpen, MaxPerSource);
     private readonly DeckLog _deckLog = new();
     private readonly Dictionary<AgentKind, Slots> _waiting = Enum.GetValues<AgentKind>().ToDictionary(a => a, _ => new Slots(MaxWaiting));
 
@@ -236,17 +240,32 @@ public sealed class AgentBridge
     /// <summary>
     /// 讀請求的內容，最多 limit 個位元組；超過就是 null。
     /// 不能只看 Content-Length：分塊傳輸（chunked）沒有這個標頭，照樣可以一直送。
+    /// 整個內容要在 within（預設 <see cref="BodyPatience"/>）內讀完，否則丟 TimeoutException：
+    /// 宣稱很大、然後每分鐘送一個位元組的連線，不能一直佔著名額。HttpListener 的串流不理會取消，所以是跟計時器賽跑。
     /// </summary>
-    public static async Task<string?> ReadLimitedAsync(Stream body, int limit)
+    public static async Task<string?> ReadLimitedAsync(Stream body, int limit, TimeSpan? within = null)
     {
         using var kept = new MemoryStream();
         var buffer = new byte[8192];
-        int read;
-        while ((read = await body.ReadAsync(buffer)) > 0)
+        using var stop = new CancellationTokenSource();
+        var deadline = Task.Delay(within ?? BodyPatience, stop.Token);
+        try
         {
-            if (kept.Length + read > limit) return null;
-            kept.Write(buffer, 0, read);
+            while (true)
+            {
+                var pending = body.ReadAsync(buffer).AsTask();
+                if (await Task.WhenAny(pending, deadline).ConfigureAwait(false) != pending)
+                {
+                    _ = pending.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);   // 放棄的那次讀，之後出錯也不用理
+                    throw new TimeoutException("request body too slow");
+                }
+                int read = await pending.ConfigureAwait(false);
+                if (read <= 0) break;
+                if (kept.Length + read > limit) return null;
+                kept.Write(buffer, 0, read);
+            }
         }
+        finally { stop.Cancel(); }
         return Encoding.UTF8.GetString(kept.GetBuffer(), 0, (int)kept.Length);
     }
 
@@ -291,7 +310,7 @@ public sealed class AgentBridge
             HttpListenerContext context;
             try { context = await listener.GetContextAsync(); }
             catch { return; }
-            if (!_open.TryTake())
+            if (!_lanes.TryOpen())
             {
                 // 太多了：不讀內容、馬上回。hook 拿到空的回應，Claude Code 照常在終端機問
                 try { context.Response.StatusCode = 503; context.Response.Close(); } catch { }
@@ -300,7 +319,7 @@ public sealed class AgentBridge
             _ = Task.Run(async () =>
             {
                 try { await HandleAsync(context, tokens); }
-                finally { _open.Give(); }
+                finally { _lanes.Close(); }
             });
         }
     }
@@ -316,6 +335,18 @@ public sealed class AgentBridge
                 request.Headers["Origin"] != null, a => tokens.GetValueOrDefault(a, ""), DeckDoor.Key);
             if (door == Door.Refuse) { response.StatusCode = 403; return; }
             if (request.ContentLength64 > MaxBody) { response.StatusCode = 413; return; }
+            // 驗證通過了：之後佔的是這個來源自己的名額，一個來源用光不影響別人
+            var lane = door == Door.Deck ? "deck" : agent.ToString();
+            if (!await _lanes.RunAsync(lane, () => ServeAsync(request, response, door, agent, permission)).ConfigureAwait(false)) response.StatusCode = 503;
+        }
+        catch (Exception e) { Log.Write("bridge request: " + e.Message); try { response.StatusCode = 500; } catch { } }
+        finally { try { response.Close(); } catch { } }
+    }
+
+    private async Task ServeAsync(HttpListenerRequest request, HttpListenerResponse response, Door door, AgentKind agent, bool permission)
+    {
+        try
+        {
             if (door == Door.Deck) { await DeckAsync(request, response); return; }
 
             if (await ReadLimitedAsync(request.InputStream, MaxBody) is not { } text) { response.StatusCode = 413; return; }
@@ -343,8 +374,8 @@ public sealed class AgentBridge
             }
             else response.StatusCode = 204;
         }
+        catch (TimeoutException e) { Log.Write("bridge request: " + e.Message); try { response.Abort(); } catch { } }   // 內容送太慢：直接斷線
         catch (Exception e) { Log.Write("bridge request: " + e.Message); try { response.StatusCode = 500; } catch { } }
-        finally { try { response.Close(); } catch { } }
     }
 
     /// <summary>

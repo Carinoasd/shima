@@ -28,6 +28,35 @@ public sealed class Slots(int max)
 }
 
 /// <summary>
+/// 連線的名額分兩層。總名額在驗證金鑰之前就佔（擋沒有金鑰的人灌連線）；驗證通過之後，每個來源（每個 agent 一組、Stream Dock 一組）
+/// 另外各有自己的名額：拿到任何一把金鑰的人把自己那組用光，不會擠掉別人。總名額要大於各組加起來，每個來源才一定拿得到自己的份。
+/// </summary>
+public sealed class Lanes(int total, int each)
+{
+    private readonly Slots _total = new(total);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Slots> _lanes = new();
+
+    public int Total => _total.Taken;
+    public int InLane(string lane) => _lanes.TryGetValue(lane, out var slots) ? slots.Taken : 0;
+
+    /// <summary>驗證之前先佔一個總名額；滿了就是 false（不用還）。</summary>
+    public bool TryOpen() => _total.TryTake();
+    public void Close() => _total.Give();
+
+    /// <summary>
+    /// 驗證通過之後：佔 lane 自己的一個名額再做 work，不管怎麼結束（含例外）都還。lane 滿了就不做、回傳 false。
+    /// </summary>
+    public async Task<bool> RunAsync(string lane, Func<Task> work)
+    {
+        var slots = _lanes.GetOrAdd(lane, _ => new Slots(each));
+        if (!slots.TryTake()) return false;
+        try { await work().ConfigureAwait(false); }
+        finally { slots.Give(); }
+        return true;
+    }
+}
+
+/// <summary>
 /// Stream Dock 外掛送來的紀錄（/deck/log）。內容是網址上的字，誰拿到 deck 金鑰都能寫：
 /// 換行會變成偽造的紀錄行、一直送會讓紀錄檔超過上限被整份刪掉。所以控制字元換成空白、限制頻率。
 /// </summary>
