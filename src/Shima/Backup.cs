@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Carinoasd
 // SPDX-License-Identifier: MIT
 
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
@@ -33,6 +34,11 @@ public static class Backup
     private static readonly string[] KnownFiles = ["settings.json", "history.jsonl", "favorites.json", "alarms.json"];
     private static readonly string[] KnownFolders = ["lyrics", "translations", "shelf"];
     private static readonly string[] SkipExtensions = [".tmp", ".bak", ".token", ".part", ".new", ".old"];
+    /// <summary>
+    /// 暫存架自己存的複本只有文字與圖片（Shelf.SaveText／SaveImage）。暫存架的項目點一下就用關聯的程式開啟，
+    /// 所以 shelf 資料夾只收這兩種：備份裡塞的 .exe、.lnk、.bat… 一律不匯出、不還原。
+    /// </summary>
+    private static readonly string[] ShelfExtensions = [".txt", ".png"];
 
     /// <summary>
     /// 只在這台電腦上有意義、或是機密的設定欄位：DPAPI 加密的（AI 金鑰、Last.fm 的 secret 與 session）、
@@ -84,9 +90,12 @@ public static class Backup
                     // 捷徑資料夾（junction、symlink）不跟進去：裡面是別的地方的檔案，不是 Shima 的資料
                     foreach (var file in Directory.EnumerateFiles(top, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint }))
                     {
+                        var entryName = Path.GetRelativePath(root, file).Replace('\\', '/');
                         if (Skipped(file)) continue;
+                        // 還原時會被拒絕或略過的名稱（含格式字元、暫存架裡不是文字或圖片的）不匯出：匯出的一定還原得回來
+                        if (!SafeName(entryName, out _) || Known(entryName) == null) { Log.Write("backup export skip: " + entryName); continue; }
                         if (++count > MaxFiles) return new BackupResult(BackupStatus.TooBig);
-                        total += AddFile(zip, file, Path.GetRelativePath(root, file).Replace('\\', '/'));
+                        total += AddFile(zip, file, entryName);
                         if (total > MaxBytes) return new BackupResult(BackupStatus.TooBig);
                     }
                 }
@@ -137,12 +146,13 @@ public static class Backup
 
     /// <summary>
     /// zip 項目的名稱是不是一個安全的相對路徑：不能是絕對路徑、磁碟代號、UNC、含 ..、含 NTFS 資料流的冒號、
-    /// 保留的裝置名稱，也不能有 Windows 不接受的字元。通過的話 <paramref name="relative"/> 是用 / 分隔的正規化路徑。
+    /// 保留的裝置名稱，也不能有 Windows 不接受的字元，也不能有看不見的格式字元（U+202E 右至左覆寫能讓
+    /// 「報告‮fdp.exe」顯示成「報告exe.pdf」）。通過的話 <paramref name="relative"/> 是用 / 分隔的正規化路徑。
     /// </summary>
     public static bool SafeName(string? name, out string relative)
     {
         relative = "";
-        if (string.IsNullOrEmpty(name) || name.Length > 260 || name.Any(c => c < 0x20)) return false;
+        if (string.IsNullOrEmpty(name) || name.Length > 260 || name.Any(c => c < 0x20 || char.GetUnicodeCategory(c) == UnicodeCategory.Format)) return false;
         var path = name.Replace('\\', '/');
         if (path.StartsWith('/') || path.Contains(':')) return false;
         var parts = path.Split('/').ToList();
@@ -164,10 +174,15 @@ public static class Backup
     {
         var parts = relative.Split('/');
         if (parts.Length == 1 && KnownFiles.FirstOrDefault(f => f.Equals(parts[0], StringComparison.OrdinalIgnoreCase)) is { } file) return file;
-        if (parts.Length >= 2 && KnownFolders.FirstOrDefault(f => f.Equals(parts[0], StringComparison.OrdinalIgnoreCase)) is { } dir && !Skipped(relative))
+        if (parts.Length >= 2 && KnownFolders.FirstOrDefault(f => f.Equals(parts[0], StringComparison.OrdinalIgnoreCase)) is { } dir && !Skipped(relative)
+            && (dir != "shelf" || ShelfExtensions.Contains(Path.GetExtension(relative), StringComparer.OrdinalIgnoreCase)))
             return dir + "/" + string.Join('/', parts.Skip(1));
         return null;
     }
+
+    /// <summary>是不是 shelf 資料夾最上層、卻因為副檔名被略過的檔案；是的話回檔名。</summary>
+    private static string? SkippedShelfCopy(string relative) =>
+        relative.Split('/') is [var dir, var name] && dir.Equals("shelf", StringComparison.OrdinalIgnoreCase) && Known(relative) == null ? name : null;
 
     // ---------------------------------------------------------------- 還原
 
@@ -192,6 +207,7 @@ public static class Backup
             if (zip.Entries.Count > MaxFiles) return new BackupResult(BackupStatus.TooBig);
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var picks = new List<(ZipArchiveEntry Entry, string Name)>();
+            var skippedShelf = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             long declared = 0;
             foreach (var entry in zip.Entries)
             {
@@ -201,6 +217,7 @@ public static class Backup
                 declared += entry.Length;
                 if (declared > MaxBytes) return new BackupResult(BackupStatus.TooBig);
                 if (Known(relative) is { } name) picks.Add((entry, name));
+                else if (SkippedShelfCopy(relative) is { } skipped) skippedShelf.Add(skipped);
             }
             if (picks.Count == 0) return new BackupResult(BackupStatus.Empty);
 
@@ -230,7 +247,7 @@ public static class Backup
             if (File.Exists(stagedSettings))
             {
                 var copies = picks.Select(p => p.Name.Split('/')).Where(p => p.Length == 2 && p[0] == "shelf").Select(p => p[1]).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                if (MergeSettings(File.ReadAllText(stagedSettings), Path.Combine(root, "settings.json"), root, copies) is not { } merged)
+                if (MergeSettings(File.ReadAllText(stagedSettings), Path.Combine(root, "settings.json"), root, copies, skippedShelf) is not { } merged)
                     return new BackupResult(BackupStatus.BadSettings);
                 File.WriteAllText(stagedSettings, merged, new UTF8Encoding(false));
             }
@@ -317,7 +334,8 @@ public static class Backup
     /// 讀不懂（不是物件、型別不對、欄位是 null）就是 null。
     /// </summary>
     /// <param name="shelfCopies">備份的 shelf 資料夾裡有哪些檔名；null：不知道（只在測試裡）。</param>
-    public static string? MergeSettings(string incoming, string localPath, string folder, IReadOnlySet<string>? shelfCopies = null)
+    /// <param name="shelfSkipped">備份的 shelf 資料夾裡因為副檔名被略過的檔名：暫存架上指向它們的項目拿掉。</param>
+    public static string? MergeSettings(string incoming, string localPath, string folder, IReadOnlySet<string>? shelfCopies = null, IReadOnlySet<string>? shelfSkipped = null)
     {
         try
         {
@@ -331,7 +349,7 @@ public static class Backup
             if (s == null) return null;
             foreach (var property in typeof(AppSettings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 if (property.CanWrite && !property.PropertyType.IsValueType && property.GetValue(s) == null) return null;
-            Sanitize(s, folder, Paths(local), shelfCopies);
+            Sanitize(s, folder, Paths(local), shelfCopies, shelfSkipped);
             return JsonSerializer.Serialize(s, Indented);
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException or NotSupportedException or ArgumentException) { return null; }
@@ -355,7 +373,7 @@ public static class Backup
     public static bool OnThisComputer(string? path) =>
         path is { Length: >= 3 } && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] is '\\' or '/';
 
-    private static void Sanitize(AppSettings s, string folder, HashSet<string> trusted, IReadOnlySet<string>? shelfCopies)
+    private static void Sanitize(AppSettings s, string folder, HashSet<string> trusted, IReadOnlySet<string>? shelfCopies, IReadOnlySet<string>? shelfSkipped)
     {
         s.Opacity = s.Opacity is >= 0.55 and <= 1 ? s.Opacity : 1;
         s.WaterMinutes = Math.Clamp(s.WaterMinutes, 1, 24 * 60);
@@ -372,7 +390,7 @@ public static class Backup
         bool Ok(string path) => trusted.Contains(path) || OnThisComputer(path) || path.StartsWith(inside, StringComparison.OrdinalIgnoreCase);
         if (!Ok(s.CharacterImage)) s.CharacterImage = "";
         s.LyricsFolders.RemoveAll(p => string.IsNullOrWhiteSpace(p) || !Ok(p));
-        s.Shelf = s.Shelf.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => Rebase(p, folder, shelfCopies)).Where(Ok).ToList();
+        s.Shelf = s.Shelf.Where(p => !string.IsNullOrWhiteSpace(p) && !SkippedCopy(p, shelfSkipped)).Select(p => Rebase(p, folder, shelfCopies)).Where(Ok).ToList();
     }
 
     /// <summary>
@@ -385,6 +403,14 @@ public static class Backup
         return parts.Length >= 2 && parts[^2].Equals("shelf", StringComparison.OrdinalIgnoreCase) && parts[^1].Length > 0 && parts[^1] is not ("." or "..")
                && (shelfCopies == null || shelfCopies.Contains(parts[^1]))
             ? Path.Combine(folder, "shelf", parts[^1]) : path;
+    }
+
+    /// <summary>暫存架的項目是不是指向備份裡被略過的那些複本（某個 shelf 資料夾裡、檔名在略過的清單上）。</summary>
+    private static bool SkippedCopy(string path, IReadOnlySet<string>? skipped)
+    {
+        if (skipped is not { Count: > 0 }) return false;
+        var parts = path.Split('\\', '/');
+        return parts.Length >= 2 && parts[^2].Equals("shelf", StringComparison.OrdinalIgnoreCase) && skipped.Contains(parts[^1]);
     }
 
     private static void CopyFolder(string from, string to)

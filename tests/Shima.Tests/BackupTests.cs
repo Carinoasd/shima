@@ -424,6 +424,52 @@ public sealed class BackupTests : IDisposable
         Assert.Equal(0, calls);
     }
 
+    [Theory]
+    [InlineData("shelf/報告\u202Efdp.exe")]
+    [InlineData("lyrics/a\u200Db.lrc")]
+    [InlineData("lyrics\u2066/a.lrc")]
+    [InlineData("\uFEFFsettings.json")]
+    public void 檔名含格式字元整個zip被拒絕(string name)
+    {
+        Fill();
+        Snapshot(out var before);
+        Assert.False(Backup.SafeName(name, out _));
+        Make(("settings.json", "{}"), (name, "x"));
+        Assert.Equal(BackupStatus.Unsafe, Backup.Restore(Zip, Data, DateTime.Now).Status);
+        Snapshot(out var after);
+        Assert.Equal(before, after);
+    }
+
+    [Fact]
+    public void 暫存架只還原文字與圖片_指向被略過的檔案的項目拿掉()
+    {
+        Make(("settings.json", """
+            { "Shelf": ["D:\\old\\Shima\\shelf\\a.txt", "D:\\old\\Shima\\shelf\\evil.exe", "D:\\old\\Shima\\shelf\\run.LNK", "D:\\old\\Shima\\shelf\\b.PNG", "D:\\docs\\a.pdf"] }
+            """), ("shelf/a.txt", "t"), ("shelf/b.PNG", "p"), ("shelf/evil.exe", "MZ"), ("shelf/run.LNK", "l"), ("shelf/x.bat", "b"));
+        var result = Backup.Restore(Zip, Data, DateTime.Now);
+        Assert.Equal(BackupStatus.Ok, result.Status);
+        Assert.Equal(3, result.Files);   // 設定檔、a.txt、b.PNG
+        Assert.Equal(["a.txt", "b.PNG"], Directory.GetFiles(Path.Combine(Data, "shelf")).Select(f => Path.GetFileName(f)).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        var shelf = JsonNode.Parse(File.ReadAllText(Path.Combine(Data, "settings.json")))!["Shelf"]!.AsArray().Select(n => (string)n!).ToArray();
+        Assert.Equal([Path.Combine(Data, "shelf", "a.txt"), Path.Combine(Data, "shelf", "b.PNG"), "D:\\docs\\a.pdf"], shelf);
+    }
+
+    [Fact]
+    public void 匯出時暫存架只帶文字與圖片_還原不了的名稱不匯出()
+    {
+        Write("settings.json", "{}");
+        Write("shelf/a.txt", "t");
+        Write("shelf/b.png", "p");
+        Write("shelf/evil.exe", "MZ");
+        Write("lyrics/ok.lrc", "[00:01.00]ok");
+        Write("lyrics/emoji\u200D.lrc", "[00:01.00]zwj");
+        Assert.Equal(BackupStatus.Ok, Backup.Export(Data, Zip).Status);
+        Assert.Equal(["lyrics/ok.lrc", "settings.json", "shelf/a.txt", "shelf/b.png"], Names(Zip));
+        // 自己匯出的一定還原得回來
+        var other = Path.Combine(_temp, "other");
+        Assert.Equal(BackupStatus.Ok, Backup.Restore(Zip, other, DateTime.Now).Status);
+    }
+
     [Fact]
     public void 路徑檢查()
     {
