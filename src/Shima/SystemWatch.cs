@@ -195,6 +195,19 @@ public sealed class SystemWatch : IDisposable
         catch (Exception e) { Log.Write("system (set volume): " + e.Message); return null; }
     }
 
+    /// <summary>系統音量直接設成某個百分比。回傳設定後的音量；沒有播放裝置就是 null。</summary>
+    public int? SetVolume(int percent)
+    {
+        try
+        {
+            if (_output == null) return null;
+            var volume = _output.AudioEndpointVolume;
+            volume.MasterVolumeLevelScalar = Math.Clamp(percent, 0, 100) / 100f;
+            return (int)Math.Round(volume.MasterVolumeLevelScalar * 100);
+        }
+        catch (Exception e) { Log.Write("system (set volume): " + e.Message); return null; }
+    }
+
     /// <summary>電腦現在的音量（0–100）與是否靜音；沒有播放裝置時音量是 -1。</summary>
     public (int Volume, bool Muted) Sound => (_volume, _muted);
 

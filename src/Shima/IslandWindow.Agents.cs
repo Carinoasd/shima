@@ -293,7 +293,7 @@ public partial class IslandWindow
     private bool _micOpen, _resumeMusic;
 
     /// <summary>可以直接點的範例：一看就知道能問什麼，點了就問。</summary>
-    private static readonly string[] Examples = ["現在播的是哪一首？", "這句歌詞是什麼意思？", "下一首", "提醒我買牛奶", "專注 25 分鐘"];
+    private static readonly string[] Examples = ["現在播的是哪一首？", "這句歌詞是什麼意思？", "下一首", "提醒我買牛奶", "專注 25 分鐘", "/sleep 30"];
 
     private void InitExamples()
     {
@@ -318,6 +318,7 @@ public partial class IslandWindow
     private async Task AskAsync(string question)
     {
         if (!AskBox.IsEnabled) return;
+        if (TryCommand(question)) return;   // /開頭的指令在本機做，不用金鑰也不花 token
         if (_asker == null)
         {
             var brain = Brain.Create((tool, arguments) => Skills.Run(tool, arguments) ?? Dispatcher.Invoke(() => Tool(tool, arguments)), Loc.Speech, out var problem);

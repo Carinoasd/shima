@@ -24,6 +24,25 @@ zh-TW	zh-CN	en	ja	ko	es	fr	de	pt	it	ru
 工具	工具	Tools	ツール	도구	Herramientas	Outils	Werkzeuge	Ferramentas	Strumenti	Инструменты
 設定	设置	Settings	設定	설정	Ajustes	Réglages	Einstellungen	Definições	Impostazioni	Настройки
 語音助手	语音助手	Voice assistant	音声アシスタント	음성 비서	Asistente de voz	Assistant vocal	Sprachassistent	Assistente de voz	Assistente vocale	Голосовой помощник
+沒有「{0}」這個指令，打 /help 看全部	没有「{0}」这个指令，输入 /help 查看全部	No command "{0}". Type /help to see them all	「{0}」というコマンドはありません。/help で一覧を表示	"{0}" 명령이 없습니다. /help로 전체 목록을 확인하세요	No existe el comando "{0}". Escribe /help para ver todos	Commande « {0} » inconnue. Tapez /help pour les voir toutes	Kein Befehl „{0}“. Mit /help siehst du alle	Não existe o comando "{0}". Digite /help para ver todos	Comando "{0}" inesistente. Digita /help per vederli tutti	Команды «{0}» нет. Введите /help, чтобы увидеть все
+用法：{0}	用法：{0}	Usage: {0}	使い方：{0}	사용법: {0}	Uso: {0}	Utilisation : {0}	Verwendung: {0}	Uso: {0}	Uso: {0}	Использование: {0}
+所有指令	所有指令	All commands	すべてのコマンド	모든 명령	Todos los comandos	Toutes les commandes	Alle Befehle	Todos os comandos	Tutti i comandi	Все команды
+暫停	暂停	Pause	一時停止	일시정지	Pausar	Pause	Pause	Pausar	Pausa	Пауза
+上一首	上一首	Previous song	前の曲	이전 곡	Canción anterior	Titre précédent	Vorheriger Titel	Música anterior	Brano precedente	Предыдущий трек
+音量	音量	Volume	音量	볼륨	Volumen	Volume	Lautstärke	Volume	Volume	Громкость
+新增提醒	新增提醒	Add a reminder	リマインダーを追加	알림 추가	Añadir un recordatorio	Ajouter un rappel	Erinnerung hinzufügen	Adicionar um lembrete	Aggiungi un promemoria	Добавить напоминание
+新增待辦	新增待办	Add a to-do	やることを追加	할 일 추가	Añadir una tarea	Ajouter une tâche	Aufgabe hinzufügen	Adicionar uma tarefa	Aggiungi un'attività	Добавить задачу
+歌詞提早 0.1 秒	歌词提早 0.1 秒	Lyrics 0.1 s earlier	歌詞を0.1秒早める	가사 0.1초 앞당기기	Letra 0,1 s antes	Paroles 0,1 s plus tôt	Text 0,1 s früher	Letra 0,1 s mais cedo	Testo 0,1 s prima	Текст на 0,1 с раньше
+歌詞延後 0.1 秒	歌词延后 0.1 秒	Lyrics 0.1 s later	歌詞を0.1秒遅らせる	가사 0.1초 늦추기	Letra 0,1 s después	Paroles 0,1 s plus tard	Text 0,1 s später	Letra 0,1 s mais tarde	Testo 0,1 s dopo	Текст на 0,1 с позже
+沒有可以調音量的裝置	没有可以调音量的设备	No device with adjustable volume	音量を調整できるデバイスがありません	볼륨을 조절할 수 있는 장치가 없습니다	No hay ningún dispositivo con volumen ajustable	Aucun appareil dont le volume est réglable	Kein Gerät mit einstellbarer Lautstärke	Nenhum dispositivo com volume ajustável	Nessun dispositivo con volume regolabile	Нет устройства с регулируемой громкостью
+睡眠定時已取消	睡眠定时已取消	Sleep timer canceled	スリープタイマーを解除しました	취침 타이머를 취소했습니다	Temporizador cancelado	Minuterie annulée	Einschlaf-Timer abgebrochen	Temporizador cancelado	Timer di spegnimento annullato	Таймер сна отменён
+已設定提醒：{0}	已设置提醒：{0}	Reminder set: {0}	リマインダーを設定：{0}	알림 설정됨: {0}	Recordatorio creado: {0}	Rappel créé : {0}	Erinnerung gesetzt: {0}	Lembrete criado: {0}	Promemoria impostato: {0}	Напоминание задано: {0}
+已加入待辦	已加入待办	To-do added	やることを追加しました	할 일을 추가했습니다	Tarea añadida	Tâche ajoutée	Aufgabe hinzugefügt	Tarefa adicionada	Attività aggiunta	Задача добавлена
+番茄鐘已暫停	番茄钟已暂停	Pomodoro paused	ポモドーロを一時停止しました	뽀모도로 일시정지됨	Pomodoro en pausa	Pomodoro en pause	Pomodoro pausiert	Pomodoro pausado	Pomodoro in pausa	Помодоро на паузе
+番茄鐘已歸零	番茄钟已归零	Pomodoro reset	ポモドーロをリセットしました	뽀모도로 초기화됨	Pomodoro reiniciado	Pomodoro réinitialisé	Pomodoro zurückgesetzt	Pomodoro reiniciado	Pomodoro azzerato	Помодоро сброшен
+勿擾已結束	勿扰已结束	Do not disturb ended	通知の停止を終了しました	방해 금지가 종료되었습니다	Modo no molestar finalizado	Mode ne pas déranger terminé	Nicht stören beendet	Não incomodar encerrado	Non disturbare terminato	Режим «не беспокоить» выключен
+桌面歌詞已開啟	桌面歌词已开启	Desktop lyrics on	デスクトップ歌詞をオンにしました	바탕화면 가사 켜짐	Letra en el escritorio activada	Paroles sur le bureau activées	Desktop-Songtext an	Letra na área de trabalho ativada	Testo sul desktop attivo	Текст на рабочем столе включён
+桌面歌詞已關閉	桌面歌词已关闭	Desktop lyrics off	デスクトップ歌詞をオフにしました	바탕화면 가사 꺼짐	Letra en el escritorio desactivada	Paroles sur le bureau désactivées	Desktop-Songtext aus	Letra na área de trabalho desativada	Testo sul desktop disattivato	Текст на рабочем столе выключен
 連接	连接	Connect	接続	연결	Conectar	Connecter	Verbinden	Ligar	Collega	Подключить
 讀取中…	读取中…	Loading…	読み込み中…	불러오는 중…	Cargando…	Chargement…	Wird geladen…	A carregar…	Caricamento…	Загрузка…
 近 {0} 天 {1}	近 {0} 天 {1}	Last {0} days {1}	直近 {0} 日 {1}	최근 {0}일 {1}	Últimos {0} días {1}	{0} derniers jours {1}	Letzte {0} Tage {1}	Últimos {0} dias {1}	Ultimi {0} giorni {1}	За {0} дн. {1}

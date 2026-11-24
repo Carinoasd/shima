@@ -410,6 +410,24 @@ public sealed class RoonSource : IMediaSource
         return (int)value;
     }
 
+    /// <summary>把音量設到上下限之間的某個百分比（對齊它的最小刻度）。回傳設定後的音量；這個輸出不能調音量就是 null。</summary>
+    public int? SetVolume(int percent)
+    {
+        string output;
+        double value;
+        lock (_lock)
+        {
+            if (!_zones.TryGetValue(_zoneId, out var zone) || (zone["outputs"] as JsonArray)?.FirstOrDefault(o => o?["volume"] is JsonObject) is not { } o) return null;
+            var volume = o["volume"]!;
+            output = o["output_id"]?.ToString() ?? "";
+            double min = Number(volume["min"]), max = Number(volume["max"]), step = Math.Max(1, Number(volume["step"]));
+            value = Math.Clamp(min + Math.Round(Math.Clamp(percent, 0, 100) / 100.0 * (max - min) / step) * step, min, max);
+            volume["value"] = value;
+        }
+        _ = RequestAsync(Transport + "/change_volume", "command", new JsonObject { ["output_id"] = output, ["how"] = "absolute", ["value"] = value });
+        return (int)value;
+    }
+
     /// <summary>目前區域的音量、上下限與是否靜音；這個區域不能調音量就是 null。</summary>
     public (double Value, double Min, double Max, bool Muted)? Sound
     {
