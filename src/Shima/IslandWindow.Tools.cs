@@ -54,7 +54,8 @@ public partial class IslandWindow
             var thumb = kind == ShelfKind.Image ? Thumbnail(path) : null;
             var chip = new Button { Style = (Style)FindResource("Pill"), Height = 28, Margin = new Thickness(0, 0, 6, 6), MaxWidth = 190 };
             if (thumb != null) chip.Content = new Image { Source = thumb, Height = 20, MaxWidth = 64, Stretch = Stretch.Uniform };
-            else chip.Content = Shelf.Label(path, kind) is { Length: > 0 } label ? label : Path.GetFileName(path);
+            // 字太長時在按鈕裡用刪節號收尾（按鈕有寬度上限，直接放字串會被硬切一半）
+            else chip.Content = new TextBlock { Text = Shelf.Label(path, kind) is { Length: > 0 } label ? label : Path.GetFileName(path), TextTrimming = TextTrimming.CharacterEllipsis };
             chip.ToolTip = kind == ShelfKind.File ? path : null;
             Point? pressed = null;
             chip.Click += (_, _) => ShelfClick(path, kind);

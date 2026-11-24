@@ -114,6 +114,13 @@ Windows 沒有允許通知存取 | Windows 没有允许通知访问 | Windows di
 休息 | 休息 | Break | 休憩 | 휴식 | Descanso | Pause | Pause | Pausa | Pausa | Отдых
 專注 | 专注 | Focus | 集中 | 집중 | Concentración | Concentration | Fokus | Foco | Concentrazione | Работа
 沒有正在播放的音樂 | 没有正在播放的音乐 | Nothing is playing | 再生中の曲はありません | 재생 중인 음악이 없습니다 | No hay nada reproduciéndose | Rien en lecture | Es läuft nichts | Nada a tocar | Niente in riproduzione | Ничего не играет
+睡眠定時 | 睡眠定时 | Sleep timer | スリープタイマー | 취침 타이머 | Temporizador de sueño | Minuterie de sommeil | Einschlaf-Timer | Temporizador de sono | Timer di spegnimento | Таймер сна
+{0} 分鐘 | {0} 分钟 | {0} min | {0}分 | {0}분 | {0} min | {0} min | {0} Min. | {0} min | {0} min | {0} мин
+這首播完 | 这首播完 | After this song | この曲の終わりまで | 이 곡이 끝나면 | Al terminar esta canción | À la fin de ce titre | Nach diesem Lied | Após esta música | Alla fine di questo brano | После этой песни
+關閉 | 关闭 | Off | オフ | 끄기 | Desactivar | Désactiver | Aus | Desligar | Disattiva | Выключить
+睡眠定時：已暫停播放 | 睡眠定时：已暂停播放 | Sleep timer: playback paused | スリープタイマー：再生を一時停止しました | 취침 타이머: 재생을 일시정지했어요 | Temporizador de sueño: reproducción en pausa | Minuterie de sommeil : lecture en pause | Einschlaf-Timer: Wiedergabe pausiert | Temporizador de sono: reprodução pausada | Timer di spegnimento: riproduzione in pausa | Таймер сна: воспроизведение приостановлено
+睡眠定時：剩 {0} | 睡眠定时：剩 {0} | Sleep timer: {0} left | スリープタイマー：残り {0} | 취침 타이머: {0} 남음 | Temporizador de sueño: quedan {0} | Minuterie de sommeil : {0} restantes | Einschlaf-Timer: noch {0} | Temporizador de sono: faltam {0} | Timer di spegnimento: mancano {0} | Таймер сна: осталось {0}
+睡眠定時：這首播完 | 睡眠定时：这首播完 | Sleep timer: after this song | スリープタイマー：この曲の終わりまで | 취침 타이머: 이 곡이 끝나면 | Temporizador de sueño: al terminar esta canción | Minuterie de sommeil : à la fin de ce titre | Einschlaf-Timer: nach diesem Lied | Temporizador de sono: após esta música | Timer di spegnimento: alla fine di questo brano | Таймер сна: после этой песни
 播放區域：{0} | 播放区域：{0} | Zone: {0} | ゾーン：{0} | 영역: {0} | Zona: {0} | Zone : {0} | Zone: {0} | Zona: {0} | Zona: {0} | Зона: {0}
 音量 {0} | 音量 {0} | Volume {0} | 音量 {0} | 음량 {0} | Volumen {0} | Volume {0} | Lautstärke {0} | Volume {0} | Volume {0} | Громкость {0}
 靜音 | 静音 | Muted | ミュート | 음소거 | Silenciado | Muet | Stumm | Sem som | Muto | Без звука
@@ -198,6 +205,9 @@ API 網址（OpenAI 相容，結尾到 /v1） | API 地址（OpenAI 兼容，以
 以後都允許 {0} | 以后都允许 {0} | Always allow {0} | {0} を常に許可 | {0} 항상 허용 | Permitir siempre {0} | Toujours autoriser {0} | {0} immer erlauben | Permitir sempre {0} | Consenti sempre {0} | Всегда разрешать {0}
 已自動允許 {0} | 已自动允许 {0} | Automatically allowed {0} | {0} を自動で許可しました | {0} 자동 허용됨 | {0} permitido automáticamente | {0} autorisé automatiquement | {0} automatisch erlaubt | {0} permitido automaticamente | {0} consentito automaticamente | {0} разрешено автоматически
 更新連接 | 更新连接 | Update connection | 接続を更新 | 연결 업데이트 | Actualizar conexión | Mettre à jour la connexion | Verbindung aktualisieren | Atualizar ligação | Aggiorna collegamento | Обновить подключение
+分享聆聽回顧 | 分享聆听回顾 | Share listening recap | 聴いた曲のまとめを共有 | 청취 요약 공유 | Compartir resumen de escucha | Partager le récap d'écoute | Hörrückblick teilen | Partilhar resumo de audição | Condividi il riepilogo d'ascolto | Поделиться итогами прослушивания
+聆聽回顧已複製 | 聆听回顾已复制 | Recap copied | まとめをコピーしました | 요약을 복사했어요 | Resumen copiado | Récap copié | Rückblick kopiert | Resumo copiado | Riepilogo copiato | Итоги скопированы
+這個期間還沒有聽歌 | 这个期间还没有听歌 | Nothing played in this period | この期間はまだ再生していません | 이 기간에는 들은 곡이 없어요 | Nada reproducido en este periodo | Rien écouté sur cette période | In diesem Zeitraum nichts gehört | Nada reproduzido neste período | Nulla riprodotto in questo periodo | За этот период ничего не слушали
 返回 | 返回 | Back | 戻る | 뒤로 | Atrás | Retour | Zurück | Voltar | Indietro | Назад
 搜尋 | 搜索 | Search | 検索 | 검색 | Buscar | Rechercher | Suchen | Pesquisar | Cerca | Поиск
 隨機播放 | 随机播放 | Shuffle | シャッフル | 셔플 | Aleatorio | Lecture aléatoire | Zufallswiedergabe | Aleatório | Riproduzione casuale | Перемешать
@@ -221,6 +231,7 @@ Discord 顯示封面 | Discord 显示封面 | Show album art on Discord | Discor
 語音 | 语音 | Voice | 音声 | 음성 | Voz | Voix | Sprachsteuerung | Voz | Voce | Голос
 辨識模型 | 识别模型 | Recognition model | 認識モデル | 인식 모델 | Modelo de reconocimiento | Modèle de reconnaissance | Erkennungsmodell | Modelo de reconhecimento | Modello di riconoscimento | Модель распознавания
 聽的時候暫停音樂 | 听的时候暂停音乐 | Pause music while listening | 聞き取り中は音楽を一時停止 | 듣는 동안 음악 일시정지 | Pausar la música mientras escucha | Mettre la musique en pause pendant l'écoute | Musik beim Zuhören pausieren | Pausar a música enquanto ouve | Metti in pausa la musica durante l'ascolto | Ставить музыку на паузу, пока слушаю
+複製 | 复制 | Copy | コピー | 복사 | Copiar | Copier | Kopieren | Copiar | Copia | Копировать
 一直對話到再按一次 | 一直对话到再按一次 | Keep talking until pressed again | もう一度押すまで会話を続ける | 다시 누를 때까지 대화 계속 | Seguir conversando hasta volver a pulsar | Continuer la conversation jusqu'au prochain appui | Gespräch fortsetzen, bis erneut gedrückt wird | Continuar a conversa até premir de novo | Continua a conversare finché non premi di nuovo | Продолжать разговор до повторного нажатия
 說「Shima」就開始聽 | 说“Shima”就开始听 | Say "Shima" to start listening | 「Shima」と言うと聞き取りを開始 | "Shima"라고 말하면 듣기 시작 | Di «Shima» para empezar a escuchar | Dites « Shima » pour lancer l'écoute | „Shima“ sagen, um das Zuhören zu starten | Diga «Shima» para começar a ouvir | Di' «Shima» per iniziare l'ascolto | Скажите «Shima», чтобы начать слушать
 番茄鐘 | 番茄钟 | Pomodoro | ポモドーロ | 뽀모도로 | Pomodoro | Pomodoro | Pomodoro | Pomodoro | Pomodoro | Помодоро

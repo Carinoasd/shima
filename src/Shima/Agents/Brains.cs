@@ -114,6 +114,9 @@ public sealed record AssistantTool(string Name, string Description, JsonObject P
             new() { ["direction"] = Choice("up：大聲；down：小聲", "up", "down"), ["steps"] = Number("調幾格，預設 2；「一點點」用 1，「很多」用 5") }, ["direction"]),
         new("lyrics_fix", "歌詞有問題時校正。歌詞內容不對、抓到別首歌或別的版本時用 other 換一份來源；歌詞比歌聲慢了用 earlier 提早；比歌聲快了用 later 延後；要回到原本用 reset。",
             new() { ["action"] = Choice("other：換另一個來源的歌詞；earlier：提早顯示；later：延後顯示；reset：還原", "other", "earlier", "later", "reset"), ["seconds"] = Number("earlier、later 時要移多少秒，預設 0.3") }, ["action"]),
+        new("sleep", "睡眠定時：過一段時間、或這首歌播完後自動暫停音樂（睡前聽歌用）。使用者說「30 分鐘後停止播放」「這首播完就停」「取消睡眠定時」「睡眠定時還剩多久」時使用。" +
+                     "跟番茄鐘和提醒不同：這個是讓音樂停下來。",
+            new() { ["action"] = Choice("start：幾分鐘後暫停；end_of_track：這首播完就暫停；cancel：取消；status：查詢還剩多久", "start", "end_of_track", "cancel", "status"), ["minutes"] = Number("start 時，幾分鐘後暫停播放") }, ["action"]),
         // 以下由 Skills 執行：天氣、開網站或程式、提醒、時間、計算、剪貼簿
         new("weather", "查某個地方現在的天氣和今明兩天的預報。使用者問天氣、氣溫、會不會下雨、要不要帶傘時使用。使用者沒說地點就先問他要查哪裡，不要自己猜。",
             new() { ["location"] = Text("地名，請一律轉成英文寫法，例如 Taipei、Kaohsiung、Osaka、New York"), ["country"] = Text("可省略。同名地點很多時用兩個字母的國家代碼縮小範圍，例如 TW、JP、US") }, ["location"]),

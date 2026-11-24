@@ -141,9 +141,18 @@
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="PasswordBox">
-            <Border Background="#1FFFFFFF" CornerRadius="10" Padding="10,0">
+            <Border x:Name="Bg" Background="#1FFFFFFF" BorderBrush="Transparent" BorderThickness="1" CornerRadius="10" Padding="10,0">
               <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center"/>
             </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="#2BFFFFFF"/>
+              </Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="Bg" Property="Background" Value="#2BFFFFFF"/>
+                <Setter TargetName="Bg" Property="BorderBrush" Value="#80FFFFFF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -170,6 +179,7 @@
           <MenuItem x:Name="DesktopLyricsItem" Header="桌面歌詞" IsCheckable="True" Click="DesktopLyrics_Click"/>
           <MenuItem x:Name="DesktopLockItem" Header="鎖定桌面歌詞" IsCheckable="True" Click="DesktopLock_Click"/>
           <MenuItem x:Name="AudioMenu" Header="播放裝置"/>
+          <MenuItem x:Name="SleepMenu" Header="睡眠定時"/>
           <MenuItem Header="開啟歌詞資料夾" Click="LyricsFolder_Click"/>
           <MenuItem Header="回到螢幕正中間" Click="ResetPlace_Click"/>
           <MenuItem Header="結束" Click="Quit_Click"/>
@@ -276,6 +286,7 @@
                 <Button x:Name="FavoriteButton" Style="{StaticResource Key}" FontSize="13" Content="&#xEB51;" ToolTip="收藏這句歌詞" Click="Favorite_Click"/>
                 <Button x:Name="QueueButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE8FD;" ToolTip="接下來播放" Click="Queue_Click"/>
                 <Button x:Name="AudioButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE767;" ToolTip="播放裝置" Visibility="Collapsed" Click="Audio_Click"/>
+                <Button x:Name="SleepButton" Style="{StaticResource Key}" FontSize="13" Content="&#xE708;" ToolTip="睡眠定時" Click="Sleep_Click"/>
               </StackPanel>
 
               <Grid x:Name="QueueHost" Grid.Row="5" Margin="0,10,0,0" Height="300" Visibility="Collapsed"/>
@@ -310,7 +321,7 @@
                 <TextBox x:Name="AskBox" Grid.Column="2" Style="{StaticResource Input}" Height="34" KeyDown="AskBox_KeyDown" ToolTip="問 AI，按 Enter"/>
               </Grid>
               <WrapPanel x:Name="ExamplesBox" Margin="0,10,0,-4"/>
-              <TextBlock x:Name="VoiceText" FontSize="13" Foreground="#D0FFFFFF" TextWrapping="Wrap" MaxHeight="150" TextTrimming="CharacterEllipsis" Margin="4,10,4,0" Visibility="Collapsed"/>
+              <s:AnswerView x:Name="VoiceText" Margin="4,10,4,0" Visibility="Collapsed"/>
               <DockPanel Height="30" Margin="0,12,0,0">
                 <Button x:Name="ServiceButton" DockPanel.Dock="Left" Style="{StaticResource Pill}" Height="28" Padding="12,0" ToolTip="AI 服務" Click="Service_Click"/>
                 <Button x:Name="ModelButton" Style="{StaticResource Pill}" Height="28" Padding="12,0" Margin="8,0,0,0" HorizontalAlignment="Left" MaxWidth="290" ToolTip="模型" Click="Model_Click"/>

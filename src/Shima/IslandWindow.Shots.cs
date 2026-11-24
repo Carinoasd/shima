@@ -20,7 +20,7 @@ public partial class IslandWindow
         try
         {
             Directory.CreateDirectory(folder);
-            await Task.Delay(7000);   // 等 Roon 連上、歌詞查到、封面載入
+            await Task.Delay(Demo.On ? 1500 : 7000);   // 等 Roon 連上、歌詞查到、封面載入（示範模式都是現成的）
             Refresh();
 
             _expanded = false;
@@ -34,7 +34,7 @@ public partial class IslandWindow
                 _expanded = true;
                 (tab switch { Tab.Tools => TabTools, Tab.Ai => TabAi, _ => TabMusic }).IsChecked = true;
                 _tab = tab;
-                if (tab == Tab.Ai) RefreshAi();
+                if (tab == Tab.Ai) { RefreshAi(); if (Demo.On) Say(Demo.Answer); }
                 if (tab == Tab.Tools) RefreshTools();
                 Snap();
                 UpdateTexts();
@@ -71,6 +71,15 @@ public partial class IslandWindow
             Snap();
             UpdateTexts();
             await Save(folder, "8-library");
+
+            // 聆聽回顧卡片：本月的
+            if (_stats != null)
+            {
+                _stats.Period = Listening.StatsPeriod.Month;
+                if (_stats.Summary is { } summary && RecapCard.Render(summary, _stats.Period, _stats.Now, _track?.Cover) is { } recap)
+                    File.Move(LyricCard.Save(recap, folder, "recap"), Path.Combine(folder, "b-recap.png"), true);
+                _stats.Period = Listening.StatsPeriod.Week;
+            }
 
             WelcomeCard(); Snap(); await Save(folder, "a-welcome");
             WelcomeHost.Children.Clear(); WelcomeHost.Visibility = Visibility.Collapsed;
@@ -135,6 +144,8 @@ public partial class IslandWindow
     private async Task Save(string folder, string name)
     {
         await Task.Delay(350);   // 讓版面和自己畫的元件都畫完
+        // 截圖模式的視窗不算看得見，頻譜的計時器不會自己走：直接推進到穩定的高度（沒在動的分頁則讓它沉到底）
+        for (int i = 0; i < (Spectrum.Active ? 12 : 80); i++) Spectrum.Step();
         UpdateLayout();
         const double pad = 28, scale = 2;
         double w = Host.ActualWidth + pad * 2, h = Host.ActualHeight + pad * 2;

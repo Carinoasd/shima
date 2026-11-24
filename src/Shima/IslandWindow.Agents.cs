@@ -66,8 +66,11 @@ public partial class IslandWindow
         InitExamples();
         Loaded += (_, _) =>
         {
+            // 示範模式的金鑰是暫存資料夾裡新產生的：寫進真正的 Stream Dock 外掛的話，平常那一份就不認它了
+            if (Demo.On) return;
             _bridge.Start();
-            if (StreamDock.Installed) StreamDock.Install();   // 跟著 Shima 一起更新
+            // 資料夾被換掉（SHIMA_DATA）時金鑰也不是平常那一把，同樣不更新外掛
+            if (StreamDock.Installed && !AppSettings.Redirected) StreamDock.Install();   // 跟著 Shima 一起更新
         };
     }
 
@@ -326,8 +329,8 @@ public partial class IslandWindow
 
     /// <summary>串流中的回答，每一個片段都要更新：只有字多到換行、高度變了才讓島重新變形，不要每個字都重排整個面板。</summary>
     /// <remarks>
-    /// 超過 MaxHeight 的部分維持截斷、顯示開頭：答案是從頭讀的，而且整段完成後畫面本來就是開頭加刪節號，
-    /// 串流途中改成跟著最新的字捲動的話，結束那一刻會整段跳回開頭。
+    /// 長過 AnswerView 的 MaxHeight 之後高度就不再變，島也不用再變形：回答在裡面捲動、跟著最新的字。
+    /// 最後整段的答案（Say）跟串流的最後一份只差頭尾空白，AnswerView 會當成同一段，不會跳回開頭。
     /// </remarks>
     private void SayPartial(string text)
     {
@@ -465,6 +468,8 @@ public partial class IslandWindow
                         default: return _pomodoro.Running ? $"{(_pomodoro.Resting ? "休息中" : "專注中")}，剩 {Left()}" : $"番茄鐘沒有在跑，目前設定剩 {Left()}";
                     }
                 }
+
+                case "sleep": return SleepTool(Arg("action"), Number("minutes", 0));
 
                 case "volume":
                 {

@@ -94,12 +94,13 @@ public partial class IslandWindow
                 try
                 {
                     var card = LyricCard.Render(new Track("", "", favorite.Title, favorite.Artist, favorite.Album, null, false, TimeSpan.Zero, default, TimeSpan.Zero), favorite.Line, favorite.Second);
-                    LyricCard.Save(card, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Shima"), favorite.Title);
+                    LyricCard.Save(card, LyricCard.Folder, favorite.Title);
                     Clipboard.SetImage(card);
                     Toast(L.T("歌詞卡片已複製"), 4);
                 }
                 catch (Exception x) { Log.Write("歌詞卡片: " + x.Message); }
             };
+            _stats.ShareRequested += ShareRecap;
             var switcher = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8) };
             foreach (var (glyph, favorites) in new[] { ("", false), ("", true) })
             {
@@ -114,6 +115,21 @@ public partial class IslandWindow
         _stats.Visibility = _libraryShowsFavorites ? Visibility.Collapsed : Visibility.Visible;
         _favoritesView!.Visibility = _libraryShowsFavorites ? Visibility.Visible : Visibility.Collapsed;
         if (_libraryShowsFavorites) _favoritesView.Refresh(); else _stats.Load();
+    }
+
+    /// <summary>把聆聽分頁目前選的期間做成回顧卡片：複製、存到圖片\Shima。</summary>
+    private void ShareRecap()
+    {
+        try
+        {
+            if (_stats?.Summary is not { } summary) return;
+            var card = RecapCard.Render(summary, _stats.Period, _stats.Now, _track?.Cover);
+            if (card == null) { Toast(L.T("這個期間還沒有聽歌"), 3, false); return; }
+            LyricCard.Save(card, LyricCard.Folder, "Shima Recap");
+            Clipboard.SetImage(card);
+            Toast(L.T("聆聽回顧已複製"), 4);
+        }
+        catch (Exception x) { Log.Write("聆聽回顧: " + x.Message); }
     }
 
     private void Favorite_Click(object sender, RoutedEventArgs e)
@@ -240,7 +256,7 @@ public partial class IslandWindow
     /// <summary>今天用了多少：打開 AI 分頁時算一次，之後最多一分鐘算一次（要掃很多檔案）。</summary>
     private async void RefreshUsage()
     {
-        if (_usageLine == null || DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;
+        if (Demo.On || _usageLine == null || DateTime.Now - _usageAt < TimeSpan.FromSeconds(60)) return;   // 示範模式不讀自己的用量
         _usageAt = DateTime.Now;
         try
         {

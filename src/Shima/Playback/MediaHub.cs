@@ -34,8 +34,12 @@ public sealed class MediaHub
     /// <summary>約每秒呼叫一次：看看有沒有別的播放器開始播了。</summary>
     public void Poll() => _smtc.Choose();
 
+    /// <summary>示範模式：固定顯示這一首，不看 Roon 與系統的媒體資訊。</summary>
+    public Track? Demo { get; set; }
+
     private IMediaSource? Active(out Track? track)
     {
+        if (Demo != null) { track = Demo; return null; }
         var roon = _roon.Current;
         var other = _smtc.Current;
         if (roon == null) { _roonShown = false; track = other; return other == null ? null : _smtc; }

@@ -13,6 +13,7 @@ public partial class App : Application
     /// <summary>換語言要重新啟動：先放掉「只開一個」的鎖，新的那個才起得來。</summary>
     public void Restart()
     {
+        if (Demo.On) { Log.Write("示範模式不重新啟動"); return; }
         try
         {
             _single?.ReleaseMutex();
@@ -27,11 +28,18 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        // 示範模式要在讀設定之前就把資料夾換掉
+        if (e.Args.Contains("--demo"))
+        {
+            try { Demo.Prepare(); }
+            catch (Exception x) { Log.Write("demo: " + x); Shutdown(); return; }
+        }
         int shot = Array.IndexOf(e.Args, "--shot");
         string? shotFolder = shot >= 0 && shot + 1 < e.Args.Length ? e.Args[shot + 1] : null;
         bool smoke = e.Args.Contains("--smoke") || shotFolder != null || e.Args.Contains("--hear-test");
 
-        _single = new Mutex(true, smoke ? "Shima.Smoke" : "Shima.Carinoasd", out bool first);
+        // 示範模式不佔「只能開一份」的名額：資料各自獨立，可以同時開好幾份
+        _single = new Mutex(true, Demo.On ? "Shima.Demo." + Environment.ProcessId : smoke ? "Shima.Smoke" : "Shima.Carinoasd", out bool first);
         if (!first) { Shutdown(); return; }
 
         DispatcherUnhandledException += (_, x) => { Log.Write("ui: " + x.Exception); x.Handled = true; };
