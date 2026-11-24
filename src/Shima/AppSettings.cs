@@ -17,7 +17,10 @@ public sealed class AppSettings
     // 排在後面的話那時它還是 null，整個類別初始化失敗，全新安裝的人一啟動就當掉（0.6.1 到 0.7.0）。
     private static readonly object Saving = new();
 
-    /// <summary>還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。</summary>
+    /// <summary>
+    /// 還原備份換掉資料夾的那段時間不寫設定檔：記憶體裡是還原前的設定，寫出去會把剛換好的蓋掉。
+    /// 提醒（alarms.json）與收藏（favorites.json）的存檔也看這個；其他寫進資料夾的只會新增檔案，不會用舊內容蓋掉還原的。
+    /// </summary>
     /// <remarks>排在 Current 前面：Load() 存檔時會看它。</remarks>
     public static volatile bool Frozen;
 

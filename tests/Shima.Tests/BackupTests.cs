@@ -375,3 +375,54 @@ public sealed class BackupTests : IDisposable
         Assert.Equal("settings.json", Backup.Known("Settings.JSON"));
     }
 }
+
+/// <summary>
+/// AppSettings.Frozen 是整個程式共用的：開著的時候別的測試存的設定、提醒、收藏都會被略過。
+/// 所以會動到它的測試放在不平行的集合裡，跟其他測試錯開跑。
+/// </summary>
+[CollectionDefinition("Frozen", DisableParallelization = true)]
+public sealed class FrozenCollection;
+
+[Collection("Frozen")]
+public sealed class BackupFrozenTests : IDisposable
+{
+    private readonly string _temp = Path.Combine(Path.GetTempPath(), "Shima-frozen-test-" + Guid.NewGuid().ToString("N"));
+
+    public BackupFrozenTests() { Directory.CreateDirectory(_temp); }
+    public void Dispose() { AppSettings.Frozen = false; try { Directory.Delete(_temp, true); } catch { } }
+
+    [Fact]
+    public void 還原換上去之後_提醒與收藏的存檔不會蓋掉還原的檔案()
+    {
+        var alarmsPath = Path.Combine(_temp, "alarms.json");
+        var favoritesPath = Path.Combine(_temp, "favorites.json");
+        var alarms = new Shima.Agents.Alarms(alarmsPath);
+        var favorites = new Shima.Listening.LyricFavorites(favoritesPath, _ => { });
+        alarms.Add(new DateTime(2030, 1, 1, 8, 0, 0), "還原前");
+        favorites.Add("還原前", "", "歌", "人", "", TimeSpan.Zero, DateTimeOffset.Now);
+
+        // 備份換上去了
+        File.WriteAllText(alarmsPath, "[\"restored\"]");
+        File.WriteAllText(favoritesPath, "[\"restored\"]");
+        AppSettings.Frozen = true;
+        try
+        {
+            alarms.Add(new DateTime(2030, 1, 2, 8, 0, 0), "還原後");
+            alarms.Cancel("還原前");
+            alarms.Check(new DateTime(2031, 1, 1));
+            var added = favorites.Add("又一句", "", "歌", "人", "", TimeSpan.Zero, DateTimeOffset.Now);
+            favorites.Remove(added!.Id);
+        }
+        finally { AppSettings.Frozen = false; }
+        Assert.Equal("[\"restored\"]", File.ReadAllText(alarmsPath));
+        Assert.Equal("[\"restored\"]", File.ReadAllText(favoritesPath));
+        Assert.False(File.Exists(alarmsPath + ".part"));
+        Assert.False(File.Exists(favoritesPath + ".tmp"));
+
+        // 沒有凍結時照常存
+        alarms.Add(new DateTime(2030, 1, 3, 8, 0, 0), "平常");
+        favorites.Add("平常", "", "歌", "人", "", TimeSpan.Zero, DateTimeOffset.Now);
+        Assert.Contains("平常", File.ReadAllText(alarmsPath));
+        Assert.Contains("平常", File.ReadAllText(favoritesPath));
+    }
+}
