@@ -119,8 +119,14 @@ public sealed class AppSettings
     public string CharacterImage { get; set; } = "";
     /// <summary>島的底色有多不透明（0.55–1）。</summary>
     public double Opacity { get; set; } = 1;
-    /// <summary>掃光與進度條的顏色：`cover`（取自封面）、`white`、`clay`。</summary>
+    /// <summary>掃光與進度條的顏色：`cover`（取自封面）、`Accent.Presets` 裡的 id（`white`、`clay`…）、`custom`。</summary>
     public string AccentMode { get; set; } = "cover";
+    /// <summary>`AccentMode` 是 `custom` 時用的色碼（`#RRGGBB`）。換回別的顏色時留著，下次點自訂還在。</summary>
+    public string AccentCustom { get; set; } = "";
+    /// <summary>膠囊收著時底部那條細細的進度線。</summary>
+    public bool PillProgress { get; set; }
+    /// <summary>音樂分頁的歌詞區顯示幾行：3、5、7。</summary>
+    public int LyricsLines { get; set; } = 5;
     /// <summary>桌面歌詞：一條浮在桌面上的歌詞，全螢幕時也看得到。</summary>
     public bool DesktopLyrics { get; set; }
     public bool DesktopLyricsLocked { get; set; } = true;

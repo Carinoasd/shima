@@ -40,6 +40,7 @@ public static class Demo
         s.RoonHost = "";
         s.CheckUpdates = false;
         s.Welcomed = true;
+        s.SetApiKey("claude", "demo");   // 當成已經設定好：AI 分頁顯示的是平常的樣子，不是第一次設定的樣子
         s.Todos =
         [
             new TodoItem { Text = "把新歌加進歌單", Done = true },
@@ -58,7 +59,7 @@ public static class Demo
         File.WriteAllText(Path.Combine(folder, "alarms.json"), Alarms.Serialize(
         [
             new Alarm(1, now.Date.AddDays(now.Hour >= 15 ? 1 : 0).AddHours(15).AddMinutes(30), "跟設計開會"),
-            new Alarm(2, now.AddMinutes(20), "喝水"),
+            new Alarm(2, Alarms.NextAfter(now.Date.AddHours(9).AddMinutes(30), "weekdays", now), "站會", "weekdays"),
         ]));
         var favorites = new LyricFavorites();
         favorites.Add("ひかりは水面でほどけていく", "光在水面上慢慢散開", Title, Artist, Album, TimeSpan.FromSeconds(52), now.AddDays(-2));
@@ -107,6 +108,11 @@ public static class Demo
         "- **ほどける**：鬆開、散開；接 `〜ていく` 表示慢慢變成那樣\n\n" +
         "整句是「光在水面上慢慢散開」。";
 
+    /// <summary>長的回答：超過回答區的高度，用來看捲動與淡出（一次到齊的回答應該停在開頭）。</summary>
+    public static string LongAnswer => "# 這首歌在說什麼\n\n" + string.Join("\n\n", Enumerable.Range(1, 9).Select(i =>
+        $"**第 {i} 段**：河與海交會的地方，水是半鹹的；歌裡用它比喻「哪一邊都不算」的心情。" +
+        (i % 3 == 0 ? "\n\n1. 先是清晨的公車\n2. 再到傍晚的橋\n3. 最後是 `潮の匂い`" : ""))) + "\n\n參考 [歌詞資料夾](https://example.com/lyrics)。";
+
     /// <summary>畫一張封面：河海交界的顏色，幾道光。</summary>
     private static BitmapSource Cover()
     {
@@ -148,7 +154,7 @@ public static class Demo
 
     public static float Level => 0.45f + 0.2f * (float)Math.Sin((DateTimeOffset.Now - Started).TotalSeconds * 2.1);
 
-    /// <summary>過去五個星期的聆聽紀錄：固定的亂數種子，每次產生的都一樣。</summary>
+    /// <summary>過去約十個月的聆聽紀錄：固定的亂數種子，每次產生的都一樣。</summary>
     private static IEnumerable<Listen> Listens(DateTime now)
     {
         (string Title, string Artist, string Album, int Seconds, int Weight)[] songs =
@@ -165,11 +171,11 @@ public static class Demo
         ];
         var random = new Random(20261123);
         int total = songs.Sum(s => s.Weight);
-        for (int day = 34; day >= 0; day--)
+        for (int day = 300; day >= 0; day--)
         {
             // 週末聽得多，有幾天沒聽；最近七天每天都有，「連續幾天」才有數字
             int plays = day < 7 ? 3 + random.Next(5) : random.Next(10) < 3 ? 0 : 1 + random.Next(now.AddDays(-day).DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday ? 9 : 5);
-            var at = now.Date.AddDays(-day).AddHours(8 + random.Next(4));
+            var at = now.Date.AddDays(-day).AddHours(random.Next(3) switch { 0 => 8, 1 => 13, _ => 20 } + random.Next(3));
             for (int i = 0; i < plays; i++)
             {
                 int pick = random.Next(total);

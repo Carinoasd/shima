@@ -11,6 +11,50 @@ public static class Accent
 {
     public static readonly Color Default = Colors.White;
 
+    /// <summary>
+    /// 設定頁那一排的固定顏色，依序排。都挑在黑底上夠亮、彼此分得出來的；
+    /// `white`、`clay` 是舊設定檔就有的值，id 不能改。
+    /// </summary>
+    public static readonly IReadOnlyList<(string Id, string Name, Color Color)> Presets =
+    [
+        ("white", "白", Colors.White),
+        ("clay", "橘", Color.FromRgb(0xD9, 0x77, 0x57)),
+        ("sky", "天藍", Color.FromRgb(0x6C, 0xC4, 0xFF)),
+        ("mint", "薄荷", Color.FromRgb(0x5E, 0xE0, 0xB0)),
+        ("sakura", "櫻花粉", Color.FromRgb(0xFF, 0x9C, 0xC4)),
+        ("lavender", "薰衣草", Color.FromRgb(0xB4, 0x9C, 0xFF)),
+        ("lemon", "檸檬", Color.FromRgb(0xFF, 0xD8, 0x66)),
+    ];
+
+    /// <summary>
+    /// 設定值 → 固定的顏色；null 表示跟著封面（`cover`、不認得的值、自訂的色碼壞掉）。
+    /// </summary>
+    public static Color? Fixed(string? mode, string? custom)
+    {
+        if (mode == "custom") return TryParseHex(custom, out var c) ? c : null;
+        foreach (var p in Presets) if (p.Id == mode) return p.Color;
+        return null;
+    }
+
+    /// <summary>
+    /// 色碼 `#RRGGBB`：前後空白、大小寫都可以，少了 # 也認。
+    /// 只收六位：三位或帶透明度的八位放到細細的光上看不出差別，反而容易打錯。
+    /// </summary>
+    public static bool TryParseHex(string? text, out Color color)
+    {
+        color = default;
+        var s = (text ?? "").Trim();
+        if (s.StartsWith('#')) s = s[1..];
+        if (s.Length != 6 || !uint.TryParse(s, System.Globalization.NumberStyles.AllowHexSpecifier, null, out uint v)) return false;
+        color = Color.FromRgb((byte)(v >> 16), (byte)(v >> 8), (byte)v);
+        return true;
+    }
+
+    public static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    /// <summary>輸入框的內容 → 要存的色碼：合法就整理成 `#RRGGBB`，不合法就維持原本的值。</summary>
+    public static string Commit(string? input, string previous) => TryParseHex(input, out var c) ? Hex(c) : previous;
+
     /// <summary>封面的代表色：把圖縮小後取最鮮豔的那群顏色，再調亮到在黑底上看得清楚。</summary>
     public static Color From(ImageSource? cover)
     {

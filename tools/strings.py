@@ -41,6 +41,16 @@ ROWS = """
 無法取得 Shima 的連線金鑰，沒有更動 {0} 的設定 | 无法获取 Shima 的连接密钥，没有改动 {0} 的设置 | Couldn't get Shima's connection key, so {0}'s settings were left untouched | Shima の接続キーを取得できなかったため、{0} の設定は変更していません | Shima 연결 키를 가져오지 못해 {0} 설정을 변경하지 않았습니다 | No se pudo obtener la clave de conexión de Shima; no se cambió la configuración de {0} | Impossible d'obtenir la clé de connexion de Shima ; les réglages de {0} n'ont pas été modifiés | Der Verbindungsschlüssel von Shima konnte nicht gelesen werden; die Einstellungen von {0} wurden nicht geändert | Não foi possível obter a chave de ligação do Shima; as definições do {0} não foram alteradas | Impossibile ottenere la chiave di connessione di Shima; le impostazioni di {0} non sono state modificate | Не удалось получить ключ подключения Shima, настройки {0} не изменены
 開始／暫停 | 开始／暂停 | Start / pause | 開始／一時停止 | 시작／일시정지 | Iniciar / pausar | Démarrer / pause | Start / Pause | Iniciar / pausar | Avvia / pausa | Старт / пауза
 重來 | 重来 | Restart | やり直す | 다시 시작 | Reiniciar | Recommencer | Neu starten | Recomeçar | Ricomincia | Заново
+每天 | 每天 | Daily | 毎日 | 매일 | Cada día | Chaque jour | Täglich | Todos os dias | Ogni giorno | Каждый день
+平日 | 工作日 | Weekdays | 平日 | 평일 | Entre semana | Jours ouvrés | Werktags | Dias úteis | Feriali | По будням
+週日 | 周日 | Sun | 日曜 | 일 | Dom | Dim | So | Dom | Dom | Вс
+週一 | 周一 | Mon | 月曜 | 월 | Lun | Lun | Mo | Seg | Lun | Пн
+週二 | 周二 | Tue | 火曜 | 화 | Mar | Mar | Di | Ter | Mar | Вт
+週三 | 周三 | Wed | 水曜 | 수 | Mié | Mer | Mi | Qua | Mer | Ср
+週四 | 周四 | Thu | 木曜 | 목 | Jue | Jeu | Do | Qui | Gio | Чт
+週五 | 周五 | Fri | 金曜 | 금 | Vie | Ven | Fr | Sex | Ven | Пт
+週六 | 周六 | Sat | 土曜 | 토 | Sáb | Sam | Sa | Sáb | Sab | Сб
+清掉做完的 | 清除已完成的 | Clear completed | 完了したものを消去 | 완료된 항목 지우기 | Borrar completadas | Effacer les terminées | Erledigte entfernen | Limpar concluídas | Cancella completate | Убрать выполненные
 把檔案拖到島上暫放 | 把文件拖到岛上暂存 | Drop files on the island to keep them here | ファイルを島にドロップして一時保管 | 파일을 섬에 끌어다 놓아 보관 | Suelta archivos en la isla para guardarlos aquí | Déposez des fichiers sur l'île pour les garder ici | Dateien auf die Insel ziehen, um sie abzulegen | Largue ficheiros na ilha para os guardar aqui | Trascina i file sull'isola per tenerli qui | Перетащите файлы на остров, чтобы отложить их
 新增待辦，按 Enter | 新增待办，按 Enter | Add a to-do, then press Enter | やることを追加して Enter | 할 일을 입력하고 Enter | Añade una tarea y pulsa Intro | Ajoutez une tâche, puis Entrée | Aufgabe hinzufügen, dann Enter | Adicione uma tarefa e prima Enter | Aggiungi un'attività e premi Invio | Добавьте задачу и нажмите Enter
 把檔案、文字或圖片拖到島上暫放 | 把文件、文字或图片拖到岛上暂存 | Drop files, text or images on the island to keep them here | ファイル・テキスト・画像を島にドロップして一時保管 | 파일, 텍스트, 이미지를 섬에 끌어다 놓아 보관 | Suelta archivos, texto o imágenes en la isla para guardarlos aquí | Déposez fichiers, texte ou images sur l'île pour les garder ici | Dateien, Text oder Bilder auf die Insel ziehen, um sie abzulegen | Largue ficheiros, texto ou imagens na ilha para os guardar aqui | Trascina file, testo o immagini sull'isola per tenerli qui | Перетащите файлы, текст или изображения на остров, чтобы отложить их
@@ -54,6 +64,16 @@ ROWS = """
 開機時啟動 | 开机时启动 | Start with Windows | Windows 起動時に開始 | Windows 시작 시 실행 | Iniciar con Windows | Lancer au démarrage de Windows | Mit Windows starten | Iniciar com o Windows | Avvia con Windows | Запускать вместе с Windows
 全螢幕時隱藏 | 全屏时隐藏 | Hide in full screen | 全画面のときは隠す | 전체 화면에서 숨기기 | Ocultar en pantalla completa | Masquer en plein écran | Im Vollbild ausblenden | Ocultar em ecrã inteiro | Nascondi a schermo intero | Скрывать в полноэкранном режиме
 跟著聲音動 | 跟着声音动 | React to sound | 音に合わせて動く | 소리에 맞춰 움직이기 | Reaccionar al sonido | Réagir au son | Auf Ton reagieren | Reagir ao som | Reagisci al suono | Реагировать на звук
+膠囊顯示進度 | 胶囊显示进度 | Progress line on the pill | カプセルに再生位置を表示 | 캡슐에 재생 위치 표시 | Progreso en la cápsula | Progression sur la capsule | Fortschritt auf der Kapsel | Progresso na cápsula | Avanzamento sulla capsula | Прогресс на капсуле
+歌詞行數 | 歌词行数 | Lyrics lines | 歌詞の行数 | 가사 줄 수 | Líneas de letra | Lignes de paroles | Textzeilen | Linhas da letra | Righe del testo | Строк текста
+少 | 少 | Few | 少なめ | 적게 | Pocas | Peu | Wenige | Poucas | Poche | Мало
+中 | 中 | Medium | ふつう | 보통 | Normal | Moyen | Mittel | Médio | Medio | Средне
+多 | 多 | Many | 多め | 많이 | Muchas | Beaucoup | Viele | Muitas | Molte | Много
+天藍 | 天蓝 | Sky blue | スカイブルー | 하늘색 | Celeste | Bleu ciel | Himmelblau | Azul-celeste | Azzurro | Небесный
+薄荷 | 薄荷 | Mint | ミント | 민트 | Menta | Menthe | Mint | Menta | Menta | Мятный
+櫻花粉 | 樱花粉 | Sakura pink | 桜色 | 벚꽃색 | Rosa sakura | Rose sakura | Kirschblütenrosa | Rosa-sakura | Rosa ciliegio | Сакура
+薰衣草 | 薰衣草 | Lavender | ラベンダー | 라벤더 | Lavanda | Lavande | Lavendel | Lavanda | Lavanda | Лавандовый
+檸檬 | 柠檬 | Lemon | レモン | 레몬 | Limón | Citron | Zitrone | Limão | Limone | Лимонный
 一般 | 常规 | General | 一般 | 일반 | General | Général | Allgemein | Geral | Generale | Общие
 AI 與工具 | AI 与工具 | AI & tools | AI とツール | AI 및 도구 | IA y herramientas | IA et outils | KI & Werkzeuge | IA e ferramentas | IA e strumenti | ИИ и инструменты
 顯示訊息通知 | 显示消息通知 | Show message notifications | メッセージ通知を表示 | 메시지 알림 표시 | Mostrar notificaciones de mensajes | Afficher les notifications de messages | Nachrichten anzeigen | Mostrar notificações de mensagens | Mostra notifiche dei messaggi | Показывать уведомления о сообщениях
@@ -128,6 +148,14 @@ Windows 沒有允許通知存取 | Windows 没有允许通知访问 | Windows di
 展開的快速鍵：{0} | 展开的快捷键：{0} | Expand shortcut: {0} | 展開のショートカット：{0} | 펼치기 단축키: {0} | Atajo para expandir: {0} | Raccourci pour déployer : {0} | Tastenkürzel zum Aufklappen: {0} | Atalho para expandir: {0} | Scorciatoia per espandere: {0} | Сочетание для раскрытия: {0}
 找不到其他歌詞 | 找不到其他歌词 | No other lyrics found | ほかの歌詞が見つかりません | 다른 가사를 찾지 못했습니다 | No se encontraron otras letras | Aucune autre parole trouvée | Kein anderer Songtext gefunden | Não foram encontradas outras letras | Nessun altro testo trovato | Других текстов не найдено
 只有 {0} 有這首歌的歌詞 | 只有 {0} 有这首歌的歌词 | Only {0} has lyrics for this song | この曲の歌詞があるのは {0} だけです | 이 곡의 가사는 {0}에만 있습니다 | Solo {0} tiene la letra de esta canción | Seul {0} a les paroles de ce titre | Nur {0} hat den Text dieses Titels | Só {0} tem a letra desta música | Solo {0} ha il testo di questo brano | Текст этой песни есть только в {0}
+存成 .lrc | 存成 .lrc | Save as .lrc | .lrc として保存 | .lrc로 저장 | Guardar como .lrc | Enregistrer en .lrc | Als .lrc speichern | Guardar como .lrc | Salva come .lrc | Сохранить как .lrc
+歌詞已存成 {0} | 歌词已存为 {0} | Lyrics saved as {0} | 歌詞を {0} に保存しました | 가사를 {0}(으)로 저장했습니다 | Letra guardada como {0} | Paroles enregistrées sous {0} | Songtext gespeichert als {0} | Letra guardada como {0} | Testo salvato come {0} | Текст сохранён как {0}
+無法儲存歌詞 | 无法保存歌词 | Couldn't save the lyrics | 歌詞を保存できません | 가사를 저장할 수 없습니다 | No se pudo guardar la letra | Impossible d'enregistrer les paroles | Songtext konnte nicht gespeichert werden | Não foi possível guardar a letra | Impossibile salvare il testo | Не удалось сохранить текст
+複製全文 | 复制全文 | Copy all lyrics | 歌詞をすべてコピー | 가사 전체 복사 | Copiar toda la letra | Copier toutes les paroles | Ganzen Songtext kopieren | Copiar toda a letra | Copia tutto il testo | Скопировать весь текст
+用 AI 翻譯 | 用 AI 翻译 | Translate with AI | AI で翻訳 | AI로 번역 | Traducir con IA | Traduire avec l'IA | Mit KI übersetzen | Traduzir com IA | Traduci con l'IA | Перевести с помощью ИИ
+翻譯中… | 翻译中… | Translating… | 翻訳中… | 번역 중… | Traduciendo… | Traduction… | Wird übersetzt… | A traduzir… | Traduzione in corso… | Перевод…
+翻譯好了 | 翻译好了 | Translation ready | 翻訳できました | 번역했습니다 | Traducción lista | Traduction prête | Übersetzung fertig | Tradução pronta | Traduzione pronta | Перевод готов
+AI 的翻譯跟歌詞對不上 | AI 的翻译跟歌词对不上 | The AI translation doesn't match the lyrics | AI の翻訳が歌詞と合いません | AI 번역이 가사와 맞지 않습니다 | La traducción de la IA no coincide con la letra | La traduction de l'IA ne correspond pas aux paroles | Die KI-Übersetzung passt nicht zum Songtext | A tradução da IA não corresponde à letra | La traduzione dell'IA non corrisponde al testo | Перевод ИИ не совпадает с текстом
 歌詞：{0} | 歌词：{0} | Lyrics: {0} | 歌詞：{0} | 가사: {0} | Letra: {0} | Paroles : {0} | Songtext: {0} | Letra: {0} | Testo: {0} | Текст: {0}
 歌詞時間：原本 | 歌词时间：原始 | Lyrics timing: original | 歌詞のタイミング：元のまま | 가사 타이밍: 원래대로 | Tiempo de la letra: original | Synchronisation : d'origine | Songtext-Timing: Original | Tempo da letra: original | Sincronia del testo: originale | Синхронизация: исходная
 歌詞提早 {0} 秒 | 歌词提前 {0} 秒 | Lyrics {0} s earlier | 歌詞を {0} 秒早く | 가사 {0}초 빠르게 | Letra {0} s antes | Paroles {0} s plus tôt | Songtext {0} s früher | Letra {0} s antes | Testo {0} s prima | Текст на {0} с раньше

@@ -164,26 +164,38 @@ public static class Skills
         {
             case "add":
             {
-                var at = Alarms.When(Arg("at"), Number(arguments, "minutes"), now);
+                var repeat = Alarms.NormalizeRepeat(Arg("repeat"));
+                if (Arg("repeat") is { Length: > 0 } given && repeat == null && given.ToLowerInvariant() is not ("none" or "once" or "no"))
+                    return "看不懂這個重複方式（只有 daily、weekdays、mon…sun）";
+                // 重複的只看幾點：同時給了 minutes 的話不要讓它搶走（When 會先用 minutes）
+                var at = Alarms.When(Arg("at"), repeat != null && Arg("at").Length > 0 ? null : Number(arguments, "minutes"), now);
                 if (at == null) return Arg("at").Length == 0 && Number(arguments, "minutes") == null
                     ? "沒有給時間：要幾分鐘後還是幾點？"
                     : "看不懂這個時間（只能排一星期內，幾點請用 24 小時制 HH:mm）";
                 var text = Arg("text") is { Length: > 0 } words ? words : "時間到了";
-                var alarm = alarms.Add(at.Value, text);
+                // 重複的只看幾點：第一次是現在之後第一個符合的那天
+                if (repeat != null)
+                {
+                    if (Arg("at").Length == 0) return "重複的提醒要用 at 指定幾點（HH:mm）";
+                    at = Alarms.NextAfter(at.Value, repeat, now);
+                }
+                var alarm = alarms.Add(at.Value, text, repeat);
                 var left = at.Value - now;
                 var wait = left.TotalMinutes < 60 ? $"{Math.Max(1, (int)Math.Round(left.TotalMinutes))} 分鐘後" : $"{(int)left.TotalHours} 小時 {left.Minutes} 分後";
-                return $"已設定提醒 #{alarm.Id}：{Alarms.Describe(at.Value, now)}（{wait}）「{alarm.Text}」";
+                return repeat != null
+                    ? $"已設定重複提醒 #{alarm.Id}：{Alarms.RepeatName(repeat)} {at:HH:mm}，下一次 {Alarms.Describe(at.Value, now)}（{wait}）「{alarm.Text}」"
+                    : $"已設定提醒 #{alarm.Id}：{Alarms.Describe(at.Value, now)}（{wait}）「{alarm.Text}」";
             }
             case "cancel":
             {
                 var what = Arg("text");
                 if (what.Length == 0) return "沒有說要取消哪一個";
-                return alarms.Cancel(what) is { } gone ? $"已取消提醒 #{gone.Id}：{Alarms.Describe(gone.At, now)}「{gone.Text}」" : $"找不到「{what}」的提醒";
+                return alarms.Cancel(what) is { } gone ? $"已取消提醒 #{gone.Id}：{Alarms.Describe(gone, now)}「{gone.Text}」" : $"找不到「{what}」的提醒";
             }
             default:
             {
                 var list = alarms.List;
-                return list.Count == 0 ? "沒有排定的提醒" : string.Join("\n", list.Select(a => $"#{a.Id} {Alarms.Describe(a.At, now)}「{a.Text}」"));
+                return list.Count == 0 ? "沒有排定的提醒" : string.Join("\n", list.Select(a => $"#{a.Id} {Alarms.Describe(a, now)}「{a.Text}」"));
             }
         }
     }

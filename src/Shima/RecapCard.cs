@@ -55,11 +55,12 @@ public static class RecapCard
     }
 
     /// <summary>畫卡片；沒有資料回 null。cover 是目前播放的封面，當模糊的背景並取強調色。</summary>
-    public static BitmapSource? Render(StatsSummary summary, StatsPeriod period, DateTime now, ImageSource? cover)
+    /// <param name="light">標題、長條與名次的顏色；不給就取自封面（島上設定的強調色由呼叫的人傳進來）。</param>
+    public static BitmapSource? Render(StatsSummary summary, StatsPeriod period, DateTime now, ImageSource? cover, Color? light = null)
     {
         var culture = Loc.Culture;
         if (Content(summary, period, now, culture) is not { } content) return null;
-        var accent = Accent.From(cover);
+        var accent = light ?? Accent.From(cover);
         var bars = Stats.Bars(summary.Daily, period);
 
         var visual = new DrawingVisual();
@@ -120,7 +121,29 @@ public static class RecapCard
             // 長條圖：夾在文字與 Shima 之間，貼著下方
             double chartBottom = brandY - 26, chartTop = Math.Max(lineY + plays.Height + 28, chartBottom - 150);
             double chartH = chartBottom - chartTop;
-            if (bars.Count > 0 && chartH > 20)
+            if (period == StatsPeriod.Year && chartH > 60)
+            {
+                // 年：熱力圖，格子一律正方形，貼著下方；月份數字在上面
+                var heat = Stats.Heat(summary.Daily, summary.From.Year, culture.DateTimeFormat.FirstDayOfWeek, now);
+                const double Gap = 3;
+                double cell = Math.Min((LeftW - (heat.Weeks - 1) * Gap) / heat.Weeks, (chartH - 28 - 6 * Gap) / 7);
+                double gridH = 7 * cell + 6 * Gap, gridTop = chartBottom - gridH;
+                var levels = new Brush[] { White(30), WithAlpha(90), WithAlpha(145), WithAlpha(200), WithAlpha(255) };
+                Brush WithAlpha(byte a) => new SolidColorBrush(Color.FromArgb(a, accent.R, accent.G, accent.B));
+                for (int w = 0; w < heat.Weeks; w++)
+                    for (int r = 0; r < 7; r++)
+                    {
+                        if (heat.Cells[w, r] is not { } c) continue;
+                        var rect = new Rect(Pad + w * (cell + Gap), gridTop + r * (cell + Gap), cell, cell);
+                        dc.DrawRoundedRectangle(c.Future ? White(12) : levels[c.Level], c.Day == now.Date ? new Pen(Brushes.White, 2) : null, rect, 3, 3);
+                    }
+                foreach (var (month, week) in heat.MonthWeeks)
+                {
+                    var m = Text(month.ToString(CultureInfo.InvariantCulture), 18, FontWeights.Normal, White(150));
+                    dc.DrawText(m, new Point(Math.Min(Pad + week * (cell + Gap), Pad + LeftW - m.Width), gridTop - m.Height - 6));
+                }
+            }
+            else if (bars.Count > 0 && chartH > 20)
             {
                 double slot = LeftW / (period == StatsPeriod.Week ? Math.Max(7, bars.Count) : bars.Count), bar = Math.Clamp(slot * 0.62, 2, 26);
                 double max = Math.Max(1, bars.Max(b => b.Time.TotalSeconds));

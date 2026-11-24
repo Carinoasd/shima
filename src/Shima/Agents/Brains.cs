@@ -24,6 +24,11 @@ public interface IBrain
     /// 回傳值跟不串流時一樣，只有最後一輪的回答。
     /// </param>
     Task<string> ThinkAsync(string said, CancellationToken stop, Action<string>? progress = null);
+    /// <summary>
+    /// 單純問一段文字、拿回一段文字（例如翻譯歌詞）：不帶工具、不串流，也不記進這段對話。
+    /// 拒絕回答時回空字串。
+    /// </summary>
+    Task<string> CompleteAsync(string system, string text, CancellationToken stop);
     /// <summary>出錯時給人看的一句話。</summary>
     string Explain(Exception e);
     /// <summary>這把金鑰能用的模型。</summary>
@@ -130,6 +135,7 @@ public sealed record AssistantTool(string Name, string Description, JsonObject P
                 ["action"] = Choice("add：新增；list：列出全部；cancel：取消一個", "add", "list", "cancel"),
                 ["minutes"] = Number("add 時，幾分鐘後提醒（相對時間用這個，例如「半小時後」給 30）"),
                 ["at"] = Text("add 時，幾點提醒（絕對時間用這個），24 小時制 HH:mm，例如 07:30、19:05；明天的寫「明天 07:30」。只給時間而今天已經過了就是明天。minutes 和 at 擇一"),
+                ["repeat"] = Choice("add 時可選，要重複才給：daily：每天；weekdays：週一到週五；mon、tue、wed、thu、fri、sat、sun：每週的那一天。重複的一定要用 at 給幾點；不重複就不要給", "daily", "weekdays", "mon", "tue", "wed", "thu", "fri", "sat", "sun"),
                 ["text"] = Text("add 時是到時要說的內容（例如「關火」）；cancel 時是提醒的編號或內容關鍵字"),
             }, ["action"]),
         new("datetime", "查詢現在的日期、時間、星期幾。使用者問幾點、今天幾號、星期幾，或你需要知道現在時間才能回答（例如「還有幾天到週末」）時使用。",
@@ -311,6 +317,20 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
         }
     }
 
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    {
+        var response = await Client.Messages.Create(new MessageCreateParams
+        {
+            Model = model.Length > 0 ? model : DefaultModel,
+            MaxTokens = 16000,
+            System = system,
+            OutputConfig = new OutputConfig { Effort = Effort.Low },
+            Messages = [new UserMessageParam { Content = text }],
+        }, stop);
+        if (response.StopReason == "refusal") return "";
+        return string.Concat(response.Content.Select(b => b.TryPickText(out TextBlock? t) ? t.Text : ""));
+    }
+
     public string Explain(Exception e) => e switch
     {
         AnthropicUnauthorizedException => L.T("API 金鑰無效"),
@@ -461,6 +481,22 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
         // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回
         Brain.Rewind(_messages, start);
         return L.T("我有點卡住了，再說一次好嗎？");
+    }
+
+    public async Task<string> CompleteAsync(string system, string text, CancellationToken stop)
+    {
+        var body = Body(model, system, [new JsonObject { ["role"] = "user", ["content"] = text }], tools: false);
+        using var response = await Http.SendAsync(Request(HttpMethod.Post, "/chat/completions", body), stop);
+        var raw = await response.Content.ReadAsStringAsync(stop);
+        if (!response.IsSuccessStatusCode) throw new ApiError(response.StatusCode, raw);
+        var plain = JsonNode.Parse(raw);
+        // 出錯照樣回 200、錯誤放在內文裡的代理：跟 ThinkAsync 一樣當成錯誤
+        if ((plain as JsonObject)?["error"] is { } refused)
+        {
+            var kind = (refused as JsonObject)?["code"] is JsonValue given && given.TryGetValue(out int http) && http is >= 400 and < 600 ? (HttpStatusCode)http : HttpStatusCode.InternalServerError;
+            throw new ApiError(kind, refused.ToJsonString());
+        }
+        return plain?["choices"]?[0]?["message"]?["content"]?.ToString() ?? "";
     }
 
     /// <summary>

@@ -44,7 +44,17 @@ public partial class IslandWindow
         RefreshTools();
     }
 
+    /// <summary>正在重建工具分頁：這時輸入框失焦是被移走的，不是使用者離開。</summary>
+    private bool _rebuildingTools;
+
     private void RefreshTools()
+    {
+        _rebuildingTools = true;
+        try { RebuildTools(); }
+        finally { _rebuildingTools = false; }
+    }
+
+    private void RebuildTools()
     {
         // 暫存架：檔案放的是位置；文字與圖片是 shelf 資料夾裡的複本
         ShelfBox.Children.Clear();
@@ -79,33 +89,138 @@ public partial class IslandWindow
         }
         ShelfHint.Visibility = AppSettings.Current.Shelf.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-        TodoBox.Children.Clear();
-        foreach (var todo in AppSettings.Current.Todos.ToList())
-        {
-            var row = new Grid { Height = 28 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-            row.ColumnDefinitions.Add(new ColumnDefinition());
-            var check = new Button { Content = todo.Done ? "" : "", Style = (Style)FindResource("Key"), Width = 28, Height = 28, FontSize = 14 };
-            check.Click += (_, _) => { todo.Done = !todo.Done; AppSettings.Current.Save(); RefreshTools(); };
-            var text = new TextBlock
-            {
-                Text = todo.Text, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(6, 0, 0, 0),
-                Foreground = todo.Done ? new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)) : Brushes.White,
-                TextDecorations = todo.Done ? TextDecorations.Strikethrough : null,
-            };
-            Grid.SetColumn(text, 1);
-            row.Children.Add(check);
-            row.Children.Add(text);
-            row.MouseRightButtonUp += (_, e) => { e.Handled = true; AppSettings.Current.Todos.Remove(todo); AppSettings.Current.Save(); RefreshTools(); };
-            row.Background = Brushes.Transparent;
-            TodoBox.Children.Add(row);
-        }
+        RefreshTodos();
         RefreshAlarms();
         UpdateTimer();
         Month.Today = DateTime.Today;
         MonthTitle.Text = DateTime.Today.ToString("Y", Loc.Culture);
         Month.InvalidateVisual();
         if (_tab == Tab.Tools && _expanded) Morph();
+    }
+
+    private static readonly Brush DropLine = Frozen(Color.FromRgb(0xD9, 0x77, 0x57));
+    private const double TodoRowHeight = 28;
+
+    private void RefreshTodos()
+    {
+        TodoBox.Children.Clear();
+        var todos = AppSettings.Current.Todos;
+        var hasDone = todos.Any(t => t.Done);
+        TodoClear.Visibility = hasDone ? Visibility.Visible : Visibility.Collapsed;
+        // 清掉做完的按鈕疊在清單右下角：不多佔一列，所以清單右邊讓出它的位置
+        TodoBox.Margin = new Thickness(0, 0, hasDone ? 30 : 0, 0);
+
+        // 拖曳時的插入位置提示：第 gap 條線在第 gap 列的上緣，最後一條在最後一列的下緣
+        var lines = new List<System.Windows.Shapes.Rectangle>();
+        System.Windows.Shapes.Rectangle NewLine(VerticalAlignment where)
+        {
+            var line = new System.Windows.Shapes.Rectangle { Height = 2, Fill = DropLine, RadiusX = 1, RadiusY = 1, VerticalAlignment = where, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+            System.Windows.Controls.Panel.SetZIndex(line, 5);
+            lines.Add(line);
+            return line;
+        }
+
+        foreach (var todo in todos.ToList())
+        {
+            var row = new Grid { Height = TodoRowHeight, Background = Brushes.Transparent, RenderTransform = new TranslateTransform() };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            var check = new Button { Content = todo.Done ? "\uE73A" : "\uE739", Style = (Style)FindResource("Key"), Width = 28, Height = 28, FontSize = 14 };
+            check.Click += (_, _) => { todo.Done = !todo.Done; AppSettings.Current.Save(); RefreshTools(); };
+            var text = new TextBlock
+            {
+                Text = todo.Text, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = todo.Done ? new SolidColorBrush(Color.FromArgb(0x70, 0xFF, 0xFF, 0xFF)) : Brushes.White,
+                TextDecorations = todo.Done ? TextDecorations.Strikethrough : null,
+            };
+            var hit = new Border { Background = Brushes.Transparent, Margin = new Thickness(6, 0, 0, 0), Child = text };
+            Grid.SetColumn(hit, 1);
+            row.Children.Add(check);
+            row.Children.Add(hit);
+            row.Children.Add(NewLine(VerticalAlignment.Top));
+            if (todo == todos[^1]) row.Children.Add(NewLine(VerticalAlignment.Bottom));
+            row.MouseRightButtonUp += (_, e) => { e.Handled = true; todos.Remove(todo); AppSettings.Current.Save(); RefreshTools(); };
+
+            // 按兩下改文字；按住上下拖換順序（自己追蹤滑鼠，不用 DragDrop：外面那層的拖放是給暫存架用的）
+            Point start = default;
+            var pressed = false;
+            var dragging = false;
+            var gap = 0;
+            hit.MouseLeftButtonDown += (_, e) =>
+            {
+                e.Handled = true;
+                if (e.ClickCount >= 2) { EditTodo(hit, todo); return; }
+                start = e.GetPosition(TodoBox);
+                pressed = true;
+                dragging = false;
+                hit.CaptureMouse();
+            };
+            hit.MouseMove += (_, e) =>
+            {
+                if (!pressed) return;
+                var at = e.GetPosition(TodoBox);
+                if (!dragging && Math.Abs(at.Y - start.Y) < 6) return;
+                dragging = true;
+                row.Opacity = 0.6;
+                ((TranslateTransform)row.RenderTransform).Y = at.Y - start.Y;
+                gap = (int)Math.Clamp(Math.Floor(at.Y / TodoRowHeight + 0.5), 0, todos.Count);
+                var from = todos.IndexOf(todo);
+                for (var i = 0; i < lines.Count; i++)
+                    lines[i].Visibility = i == gap && gap != from && gap != from + 1 ? Visibility.Visible : Visibility.Collapsed;
+            };
+            hit.MouseLeftButtonUp += (_, _) =>
+            {
+                if (!pressed) return;
+                pressed = false;
+                hit.ReleaseMouseCapture();
+                if (dragging && TodoOps.Move(todos, todos.IndexOf(todo), gap)) AppSettings.Current.Save();
+                RefreshTools();
+            };
+            hit.LostMouseCapture += (_, _) =>
+            {
+                if (!pressed) return;
+                pressed = false;
+                RefreshTools();
+            };
+            TodoBox.Children.Add(row);
+        }
+    }
+
+    /// <summary>原地改一筆待辦的文字：Enter 或失焦存檔、Esc 取消，改成空的就是刪掉。</summary>
+    private void EditTodo(Border host, TodoItem todo)
+    {
+        var box = new TextBox { Text = todo.Text, Style = (Style)FindResource("Input"), Height = 26, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(-6, 0, 0, 0) };
+        host.Child = box;
+        var finished = false;
+        void Finish(bool save)
+        {
+            if (finished) return;
+            finished = true;
+            if (save && TodoOps.Rename(AppSettings.Current.Todos, todo, box.Text)) AppSettings.Current.Save();
+            RefreshTools();
+        }
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { e.Handled = true; Finish(true); }
+            else if (e.Key == Key.Escape) { e.Handled = true; Finish(false); }
+        };
+        box.LostKeyboardFocus += (_, _) =>
+        {
+            // 清單被重建（點了別列的勾、語音助手改了待辦）把輸入框移走：當成取消，不要把打到一半的字存下來
+            if (_rebuildingTools || PresentationSource.FromVisual(box) == null) { finished = true; return; }
+            // 失焦時是空的不算刪除（可能只是全選刪掉準備重打）：要刪請按 Enter
+            Finish(box.Text.Trim().Length > 0);
+        };
+        // 在輸入框裡按右鍵不要冒泡到那一列的「右鍵刪除」；內建的英文選單也不要
+        box.ContextMenu = null;
+        box.MouseRightButtonUp += (_, e) => e.Handled = true;
+        box.Dispatcher.BeginInvoke(() => { box.Focus(); Keyboard.Focus(box); box.SelectAll(); }, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
+    private void TodoClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (TodoOps.ClearDone(AppSettings.Current.Todos) > 0) AppSettings.Current.Save();
+        RefreshTools();
     }
 
     private void TodoInput_KeyDown(object sender, KeyEventArgs e)
@@ -246,12 +361,20 @@ public partial class IslandWindow
         foreach (var alarm in list)
         {
             var row = new Grid { Height = 26, Background = Brushes.Transparent };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
             row.ColumnDefinitions.Add(new ColumnDefinition());
-            var time = new TextBlock { Text = Alarms.Short(alarm.At, now, L.T("明天")), FontSize = 12, Foreground = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF)), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            var dim = new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF));
+            // 重複的：前面一個循環圖示，時間前面寫每天、平日或週幾；單次的照舊
+            var when = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            if (Alarms.NormalizeRepeat(alarm.Repeat) is { } repeat)
+            {
+                when.Children.Add(new TextBlock { Text = "\uE8EE", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 10, Foreground = DropLine, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 1, 5, 0) });
+                when.Children.Add(new TextBlock { Text = $"{RepeatLabel(repeat)} {alarm.At:HH:mm}", FontSize = 12, Foreground = dim });
+            }
+            else when.Children.Add(new TextBlock { Text = Alarms.Short(alarm.At, now, L.T("明天")), FontSize = 12, Foreground = dim });
             var text = new TextBlock { Text = alarm.Text, FontSize = 13, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(text, 1);
-            row.Children.Add(time);
+            row.Children.Add(when);
             row.Children.Add(text);
             var id = alarm.Id;
             row.MouseRightButtonUp += (_, e) => { e.Handled = true; _alarms?.Cancel("#" + id); };
@@ -261,11 +384,18 @@ public partial class IslandWindow
         if (_tab == Tab.Tools && _expanded) Morph();
     }
 
+    private static string RepeatLabel(string repeat) => repeat switch
+    {
+        "daily" => L.T("每天"),
+        "weekdays" => L.T("平日"),
+        _ => L.T("週" + "日一二三四五六"[Alarms.WeeklyDay(repeat) ?? 0]),
+    };
+
     private void AlarmInput_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter || _alarms is not { } alarms || AlarmInput.Text.Trim() is not { Length: > 0 } line) return;
         if (Alarms.ParseLine(line, DateTime.Now) is not { } parsed) { Toast(L.T("看不懂這個時間"), 4, false); return; }
-        alarms.Add(parsed.At, parsed.Text);
+        alarms.Add(parsed.At, parsed.Text, parsed.Repeat);
         AlarmInput.Text = "";
     }
 
@@ -280,7 +410,7 @@ public partial class IslandWindow
     private void TimerReset_Click(object sender, RoutedEventArgs e) { _pomodoro.Reset(); UpdateTimer(); }
 
     /// <summary>每個 tick 呼叫：時間到了就提醒並換段。</summary>
-    private (int, int, bool, bool) _timerShown = (-1, -1, false, false);
+    private (int, int, bool, bool, int) _timerShown = (-1, -1, false, false, -1);
     private static readonly Brush RestGreen = Frozen(Color.FromRgb(0x7D, 0xE0, 0xA8));
     private static Brush Frozen(Color color) { var brush = new SolidColorBrush(color); brush.Freeze(); return brush; }
 
@@ -293,10 +423,12 @@ public partial class IslandWindow
         }
         // 這裡每 0.1 秒跑一次：畫面上的字沒變就不要碰控制項
         var left = _pomodoro.Left(DateTime.Now);
-        var shown = ((int)left.TotalMinutes, left.Seconds, _pomodoro.Resting, _pomodoro.Running);
+        var completed = _pomodoro.CompletedToday(DateTime.Now);
+        var shown = ((int)left.TotalMinutes, left.Seconds, _pomodoro.Resting, _pomodoro.Running, completed);
         if (shown == _timerShown) return;
         _timerShown = shown;
         TimerText.Text = $"{(int)left.TotalMinutes}:{left.Seconds:00}";
+        TimerDots.Text = Pomodoro.Dots(completed);
         TimerText.Foreground = _pomodoro.Resting ? RestGreen : Brushes.White;
         TimerButton.Content = _pomodoro.Running ? "" : "";
     }
@@ -314,4 +446,34 @@ public sealed class TodoItem
 {
     public string Text { get; set; } = "";
     public bool Done { get; set; }
+}
+
+/// <summary>待辦清單的資料操作，不碰畫面。</summary>
+public static class TodoOps
+{
+    /// <summary>
+    /// 把第 from 筆移到第 gap 個空隙（0 是最前面、Count 是最後面，空隙是照移動前的清單算）。
+    /// 放回原地（空隙在自己前後）或超出範圍是 false，什麼都沒動。
+    /// </summary>
+    public static bool Move(List<TodoItem> list, int from, int gap)
+    {
+        if (from < 0 || from >= list.Count || gap < 0 || gap > list.Count || gap == from || gap == from + 1) return false;
+        var item = list[from];
+        list.RemoveAt(from);
+        list.Insert(gap > from ? gap - 1 : gap, item);
+        return true;
+    }
+
+    /// <summary>移除所有打勾的，回傳移除了幾筆。</summary>
+    public static int ClearDone(List<TodoItem> list) => list.RemoveAll(t => t.Done);
+
+    /// <summary>改文字：前後空白去掉；改成空的就刪掉這一筆。有變動回傳 true。</summary>
+    public static bool Rename(List<TodoItem> list, TodoItem item, string text)
+    {
+        text = text.Trim();
+        if (text.Length == 0) return list.Remove(item);
+        if (text == item.Text) return false;
+        item.Text = text;
+        return true;
+    }
 }

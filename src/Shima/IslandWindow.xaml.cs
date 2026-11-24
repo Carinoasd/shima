@@ -54,6 +54,7 @@ public partial class IslandWindow : Window
         InitializeComponent();
         FontFamily = Loc.Font;
         Loc.Translate(this);
+        ApplyLyricsLines();
 
         Place();
 
@@ -220,10 +221,7 @@ public partial class IslandWindow : Window
         if (!ReferenceEquals(track?.Cover, _coverShown))
         {
             _coverShown = track?.Cover;
-            var accent = ThemeAccent(_coverShown);
-            PillLine.Light = LyricsList.Light = Meter.Color = Spectrum.Color = accent;
-            if (_desk != null) _desk.Light = accent;
-            BarFill.Background = new SolidColorBrush(accent);
+            ApplyAccent();
             BackdropImage.Background = Accent.Blurred(_coverShown) is { } blur ? new ImageBrush(blur) { Stretch = Stretch.UniformToFill } : null;
         }
 
@@ -247,7 +245,7 @@ public partial class IslandWindow : Window
         var hit = Demo.On ? Demo.Lyrics() : await _lyrics.FindAsync(track);
         Log.Write($"歌詞: {track.Title} → {(hit == null ? "找不到" : hit.Provider + (hit.Exact ? "" : "（原曲，版本不同）"))}");
         if (key != _trackKey) return;   // 查的時候已經換歌了
-        _sheet = hit?.Sheet;
+        _sheet = WithAiTranslation(track, hit?.Sheet);
         _lyricsFrom = hit?.Provider ?? "";
         _lyricIndex = int.MinValue;
         UpdateTexts();
@@ -272,6 +270,7 @@ public partial class IslandWindow : Window
             if (capture && !_meter.Running) _meter.Start(); else if (!capture && _meter.Running) _meter.Stop(); else if (capture) _meter.FollowDefault(_system.OutputId);
             Meter.Visibility = listen || _micOpen ? Visibility.Visible : Visibility.Collapsed;
         }
+        if (_ticks % 5 == 0) UpdatePillProgress();
         SleepTick();
         UpdateTimer();
         UpdateTexts();
@@ -609,7 +608,7 @@ public partial class IslandWindow : Window
         var next = all[(all.FindIndex(h => h.Provider == _lyricsFrom) + 1) % all.Count];
         AppSettings.Current.LyricsPick[LyricsFinder.IdOf(track)] = next.Provider;
         AppSettings.Current.Save();
-        _sheet = next.Sheet;
+        _sheet = WithAiTranslation(track, next.Sheet);
         _lyricsFrom = next.Provider;
         _lyricIndex = int.MinValue;
         Toast(all.Count == 1 ? L.F("只有 {0} 有這首歌的歌詞", next.Provider) : L.F("歌詞：{0}", next.Provider), 3);
@@ -658,7 +657,7 @@ public partial class IslandWindow : Window
             };
             if (line.Length > 0 && extra != null && i < extra.Count) second = extra[i];
         }
-        return LyricCard.Render(track, line, second);
+        return LyricCard.Render(track, line, second, ThemeAccent(track.Cover));
     }
 
     private void LyricsReset_Click(object sender, RoutedEventArgs e)
