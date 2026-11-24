@@ -128,7 +128,28 @@ public sealed class UsageLedger
         public List<(string Model, long Input, long Output, long Write5m, long Write1h, long Read)> Extra = NoExtra;   // 共用的空清單：絕不就地修改，只整個換掉
     }
 
-    private readonly Dictionary<string, Entry> _entries = [];
+    private Dictionary<string, Entry> _entries = [];
+
+    /// <summary>
+    /// 帳本自己的字串池：同一個工作階段、專案、模型的幾千則共用一個字串物件。
+    /// 不用 string.Intern：那是整個程序共用、永遠不回收的池子，常駐跑久了每個工作階段的 UUID 都會留著；這個池子跟著帳本清掉。
+    /// </summary>
+    private HashSet<string> _strings = new(StringComparer.Ordinal);
+
+    private string Share(string s)
+    {
+        if (s.Length == 0) return "";
+        if (_strings.TryGetValue(s, out var have)) return have;
+        _strings.Add(s);
+        return s;
+    }
+
+    /// <summary>拿掉紀錄之後，池子只留還有人用的字串。</summary>
+    private void Reshare()
+    {
+        _strings = new(StringComparer.Ordinal);
+        foreach (var e in _entries.Values) { Share(e.Session); Share(e.Project); Share(e.Model); }
+    }
 
     public int Count => _entries.Count;
 
@@ -166,9 +187,9 @@ public sealed class UsageLedger
             if (stamp < Oldest) return false;
             if (!_entries.TryGetValue(id, out var e)) _entries[id] = e = new Entry();
             // 字串共用：同一個模型、工作階段、專案的幾千則不用各配一份
-            e.Session = string.Intern(Str(root, "sessionId") is { Length: > 0 } s ? s : e.Session.Length > 0 ? e.Session : fallbackSession);
-            if (Str(root, "cwd") is { Length: > 0 } cwd) e.Project = string.Intern(AgentSessions.ProjectOf(cwd));
-            e.Model = string.Intern(model);
+            e.Session = Share(Str(root, "sessionId") is { Length: > 0 } s ? s : e.Session.Length > 0 ? e.Session : fallbackSession);
+            if (Str(root, "cwd") is { Length: > 0 } cwd) e.Project = Share(AgentSessions.ProjectOf(cwd));
+            e.Model = Share(model);
             if (stamp != null) e.Time = stamp.Value;
             e.Speed = Str(usage, "speed") ?? e.Speed;
             e.Geo = Str(usage, "inference_geo") ?? e.Geo;
@@ -222,14 +243,21 @@ public sealed class UsageLedger
     {
         var last = _entries.Values.GroupBy(e => e.Session).ToDictionary(g => g.Key, g => g.Max(e => e.Time));
         foreach (var key in _entries.Where(p => last[p.Value.Session] < before).Select(p => p.Key).ToList()) _entries.Remove(key);
+        Reshare();
     }
 
-    public void Clear() => _entries.Clear();
+    /// <summary>全部清掉；換成新的空集合，連原本撐大的容量一起放掉（Clear() 會留著）。</summary>
+    public void Clear()
+    {
+        _entries = [];
+        _strings = new(StringComparer.Ordinal);
+    }
 
     /// <summary>拿掉有時間、而且早於 before 的紀錄（已經收進來、後來超出範圍的）。</summary>
     public void Trim(DateTime before)
     {
         foreach (var key in _entries.Where(p => p.Value.Time != default && p.Value.Time < before).Select(p => p.Key).ToList()) _entries.Remove(key);
+        Reshare();
     }
 
     /// <summary>
