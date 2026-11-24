@@ -76,6 +76,7 @@ public partial class IslandWindow
             _tray.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) ToggleHidden(); };
         }
         catch (Exception e) { Log.Write("tray: " + e.Message); }
+        AnnounceUpdate();
     }
 
     /// <summary>勿擾中：喝水、通訊軟體通知、系統狀態先不顯示。權限請求、提醒、番茄鐘、換歌照常。</summary>
