@@ -60,7 +60,8 @@ public partial class IslandWindow : Window
         SourceInitialized += (_, _) =>
         {
             _hwnd = new WindowInteropHelper(this).Handle;
-            if (!_smoke) InitHotkeys();
+            // 示範模式不註冊全域快捷鍵：會跟平常那一份搶，搶不到還會跳「被佔用」的提示
+            if (!_smoke && !Demo.On) InitHotkeys();
             // 不出現在 Alt+Tab
             SetWindowLong(_hwnd, GWL_EXSTYLE, GetWindowLong(_hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
         };
