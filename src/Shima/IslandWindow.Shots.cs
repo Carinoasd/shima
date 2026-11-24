@@ -319,6 +319,32 @@ public partial class IslandWindow
                 await Save(folder, "c-todo-drag");
                 RefreshTools();
             }
+            // 小螢幕上放大：假裝螢幕只有 728（768 高扣掉工作列）、大小 130%，聊天、設定、通知頁都要塞得進去；拍完還原
+            if (Demo.On)
+            {
+                AppSettings.Current.Scale = 1.3;
+                ApplyScale();
+                foreach (var fake in new double?[] { null, 728 })
+                {
+                    _workHeightOverride = fake;
+                    FitPages();
+                    foreach (var (tab, name) in new[] { (Tab.Chat, "chat"), (Tab.Settings, "settings"), (Tab.Tools, "recent") })
+                    {
+                        _expanded = true;
+                        _tab = tab;
+                        (tab switch { Tab.Chat => TabChat, Tab.Settings => TabSettings, _ => TabTools }).IsChecked = true;
+                        if (tab == Tab.Settings) { _settingsSection = SettingsSection.Look; RefreshSettings(); SettingsScroll.ScrollToVerticalOffset(0); }
+                        if (tab == Tab.Tools) { SetRecentOpen(true); RefreshTools(); }
+                        Snap(); UpdateTexts();
+                        if (fake != null) await Save(folder, "c-fit-130-" + name);
+                        if (tab == Tab.Tools) SetRecentOpen(false);
+                    }
+                    _settingsSection = SettingsSection.General;
+                }
+                _workHeightOverride = null;
+                AppSettings.Current.Scale = 1;
+                ApplyScale();
+            }
             Log.Write("shots: " + folder);
         }
         catch (Exception e) { Log.Write("shots: " + e); }

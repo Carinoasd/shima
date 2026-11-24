@@ -434,6 +434,7 @@ public partial class IslandWindow : Window
         if (!expanded && _tab == Tab.Ask) return;
         _expanded = expanded;
         if (expanded && _tab == Tab.Tools) EnterTools();
+        if (expanded) FitPages();
         if (expanded && _tab == Tab.Chat) Place();   // 收著時拖到邊上：聊天比較寬，展開前再夾一次
         if (expanded && _tab == Tab.Chat) _ = EnsureChatAsync();
         Morph();
@@ -453,6 +454,7 @@ public partial class IslandWindow : Window
             EnterTools();
         }
         if (tab == Tab.Chat && _expanded) _ = EnsureChatAsync();
+        if (_expanded) FitPages();
         Place();   // 聊天比別頁寬：靠邊時重新夾一次，切回別頁也會回到存的位置
         if (tab == Tab.Ai) RefreshAi();
         if (tab == Tab.Settings) RefreshSettings();
