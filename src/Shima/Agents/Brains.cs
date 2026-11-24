@@ -169,6 +169,24 @@ public static class Brain
     /// <summary>執行一個工具：名稱、參數 → 給 AI 看的結果。</summary>
     public delegate string Run(string tool, JsonObject arguments);
 
+    /// <summary>兩家共用的工具呼叫：寫一行紀錄再執行。</summary>
+    public static string Call(Run run, string tool, JsonObject arguments)
+    {
+        Log.Write(LogLine(tool, arguments));
+        return run(tool, arguments);
+    }
+
+    /// <summary>
+    /// 紀錄檔裡的一行：只有工具名稱與 action。其他參數是待辦的文字、提醒的內容、要開的網址，不該留在 log.txt；
+    /// 名稱與 action 也是模型給的，不是預期的短字就換成「?」，免得整段話從這裡溜進紀錄檔。
+    /// </summary>
+    public static string LogLine(string tool, JsonObject arguments)
+    {
+        static string Word(string? s, int max) => s != null && s.Length <= max && s.Length > 0 && s.All(c => c is >= 'a' and <= 'z' or '_') ? s : "?";
+        var action = arguments["action"] is JsonValue v && v.TryGetValue(out string? a) ? Word(a, 20) : "";
+        return $"tool: {Word(tool, 32)}{(action.Length > 0 ? " " + action : "")}";
+    }
+
     /// <summary>照設定建立目前選的服務；金鑰或模型還沒填好就是 null，problem 說缺什麼。</summary>
     public static IBrain? Create(Run run, string language, out string problem)
     {
@@ -261,7 +279,7 @@ public sealed class ClaudeBrain(string apiKey, string model, string language, Br
                     echo.Add(new ToolUseBlockParam { ID = use.ID, Name = use.Name, Input = use.Input });
                     var arguments = new JsonObject();
                     foreach (var (key, value) in use.Input) arguments[key] = JsonNode.Parse(value.GetRawText());
-                    results.Add(new ToolResultBlockParam { ToolUseID = use.ID, Content = run(use.Name, arguments) });
+                    results.Add(new ToolResultBlockParam { ToolUseID = use.ID, Content = Brain.Call(run, use.Name, arguments) });
                 }
             }
             _messages.Add(new AssistantMessageParam { Content = echo });
@@ -475,7 +493,7 @@ public sealed class OpenAiBrain(string baseUrl, string apiKey, string model, str
             {
                 JsonObject arguments = [];
                 try { arguments = JsonNode.Parse(call?["function"]?["arguments"]?.ToString() is { Length: > 0 } raw ? raw : "{}") as JsonObject ?? []; } catch { }
-                _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = run(call?["function"]?["name"]?.ToString() ?? "", arguments) });
+                _messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = call?["id"]?.ToString() ?? "", ["content"] = Brain.Call(run, call?["function"]?["name"]?.ToString() ?? "", arguments) });
             }
         }
         // 工具一路叫到上限：歷史的尾巴停在工具的結果上，下一句接上去會被 API 退回，所以整輪收回

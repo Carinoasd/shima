@@ -434,7 +434,6 @@ public partial class IslandWindow
     /// <summary>助手要用某個工具：做完之後回一句話讓它知道結果。（給 AI 看的，所以不翻譯。）</summary>
     private string Tool(string tool, System.Text.Json.Nodes.JsonObject arguments)
     {
-        Log.Write($"tool: {tool} {arguments.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })}");
         string Arg(string name) => arguments[name]?.ToString() ?? "";
         double Number(string name, double fallback) => double.TryParse(Arg(name), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
         var s = AppSettings.Current;
