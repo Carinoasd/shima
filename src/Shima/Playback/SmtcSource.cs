@@ -213,6 +213,9 @@ public sealed class SmtcSource : IMediaSource
         catch { return []; /* 清單本身拿不到 */ }
     }
 
+    /// <summary>有沒有任何會被 PauseAll 暫停的工作階段正在播：不看標題，也不限島上跟著的那一個。</summary>
+    public bool AnyPlaying => SessionsToPause().Count > 0;
+
     /// <summary>所有正在播的都暫停（睡眠定時用），不只是島上跟著的那一個。</summary>
     public async void PauseAll()
     {

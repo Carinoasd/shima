@@ -66,14 +66,18 @@ public sealed class SleepTimer
     /// 時間到了但沒在播：剛剛還在播的話是換歌的空檔（Roon 的 loading、SMTC 的 Changing、短暫的 Paused），
     /// 等 <see cref="Grace"/> 看下一首會不會開始播，開始了就暫停；早就停著的（使用者自己按了暫停）只是取消，
     /// 不然使用者過幾秒手動恢復播放，又會被補暫停一次。
+    /// <paramref name="anyPlaying"/>：「幾分鐘後」到點時問的是所有播放器有沒有在出聲（沒有標題的串流、
+    /// 島上沒顯示的那個播放器也算），不只看島上這一首；只在到點之後才問（要跨程序問每個播放器，不能每個 tick 都問）。
+    /// 「這首播完」跟的是島上這一首，照樣看 <paramref name="playing"/>。
     /// </summary>
-    public bool Tick(DateTime now, string? track, TimeSpan position, TimeSpan duration, bool playing)
+    public bool Tick(DateTime now, string? track, TimeSpan position, TimeSpan duration, bool playing, Func<bool>? anyPlaying = null)
     {
         if (Mode == SleepMode.Off) return false;
+        bool Sounding() => Mode == SleepMode.After && anyPlaying != null ? anyPlaying() : playing;
         if (_dueAt is { } dueAt)
         {
             // 已經到點了，只等有沒有開始播：曲目、進度都不用再看
-            if (playing) { Cancel(); return true; }
+            if (Sounding()) { Cancel(); return true; }
             if (now - dueAt >= Grace) Cancel();
             return false;
         }
@@ -101,7 +105,7 @@ public sealed class SleepTimer
                 break;
         }
         if (!due) return false;
-        if (playing) { Cancel(); return true; }
+        if (Sounding()) { Cancel(); return true; }
         if (_playedAt is { } at && now - at <= Gone) _dueAt = now;
         else Cancel();
         return false;

@@ -86,7 +86,7 @@ public partial class IslandWindow
         var track = _track;
         bool playing = track?.Playing == true;
         var key = track == null ? null : SleepTimer.KeyOf(track.Title, track.Artist);
-        if (_sleep.Tick(DateTime.Now, key, track?.Now ?? default, track?.Duration ?? default, playing))
+        if (_sleep.Tick(DateTime.Now, key, track?.Now ?? default, track?.Duration ?? default, playing, () => _media.AnyPlaying))
         {
             _media.PauseAll();
             Toast(L.T("睡眠定時：已暫停播放"), 4, cheer: false);

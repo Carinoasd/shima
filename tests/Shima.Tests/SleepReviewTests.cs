@@ -124,4 +124,63 @@ public class SleepReviewTests
         Assert.False(timer.Tick(T0.AddMinutes(1).AddSeconds(1), "c\nd", S(0), Len, true));
         Assert.Equal(SleepMode.After, timer.Mode);
     }
+    // ---------------------------------------------------------------- 倒數到點問所有播放器（#9 審查 2）
+
+    [Fact]
+    public void 倒數到點_島上這首沒在播但別的播放器在播_要暫停()
+    {
+        // 沒有標題的串流（島上沒有曲目），或 Roon 暫停著、旁邊的瀏覽器在播
+        var timer = new SleepTimer();
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        Assert.True(timer.Tick(T0.AddMinutes(30), null, default, default, false, () => true));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        Assert.True(timer.Tick(T0.AddMinutes(30), "a\nb", S(61), Len, false, () => true));
+    }
+
+    [Fact]
+    public void 倒數到點_什麼都沒在播就只取消()
+    {
+        var timer = new SleepTimer();
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        Assert.False(timer.Tick(T0.AddMinutes(30), "a\nb", S(61), Len, false, () => false));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
+
+    [Fact]
+    public void 倒數到點撞上空檔_寬限期內別的播放器開始播也算()
+    {
+        var timer = new SleepTimer();
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        bool any = true;
+        Assert.False(timer.Tick(T0.AddMinutes(30).AddSeconds(-0.1), "a\nb", S(239), Len, true, () => any));
+        any = false;
+        Assert.False(timer.Tick(T0.AddMinutes(30), "a\nb", Len, Len, false, () => any));
+        any = true;
+        Assert.True(timer.Tick(T0.AddMinutes(30).AddSeconds(2), null, default, default, false, () => any));
+    }
+
+    [Fact]
+    public void 所有播放器的狀態只在到點之後才問()
+    {
+        var timer = new SleepTimer();
+        timer.After(TimeSpan.FromMinutes(30), T0);
+        int asked = 0;
+        for (int i = 0; i < 100; i++)
+            Assert.False(timer.Tick(T0.AddSeconds(i), "a\nb", S(i), Len, true, () => { asked++; return true; }));
+        Assert.Equal(0, asked);
+        Assert.True(timer.Tick(T0.AddMinutes(30), "a\nb", S(5), Len, true, () => { asked++; return true; }));
+        Assert.Equal(1, asked);
+    }
+
+    [Fact]
+    public void 這首播完只看島上這一首_不管別的播放器()
+    {
+        // Roon 暫停著時換了歌，旁邊的瀏覽器在播：「這首」沒有播下去，不該去暫停瀏覽器
+        var timer = new SleepTimer();
+        timer.AfterTrack("a\nb", S(30));
+        Assert.False(timer.Tick(T0, "c\nd", S(0), Len, false, () => true));
+        Assert.Equal(SleepMode.Off, timer.Mode);
+    }
 }

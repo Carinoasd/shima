@@ -75,6 +75,12 @@ public sealed class MediaHub
         _roon.PauseAll();
         _smtc.PauseAll();
     }
+
+    /// <summary>
+    /// 有沒有任何東西在出聲（睡眠定時到點時問）：沒有標題的串流、島上沒顯示的那一邊也算。
+    /// Roon 顯示的 zone 本來就優先挑正在播的，所以它沒在播就是每個 zone 都沒在播。
+    /// </summary>
+    public bool AnyPlaying => Demo != null ? Demo.Playing : _roon.Current?.Playing == true || _smtc.AnyPlaying;
     public void Next() => Active(out _)?.Next();
     public void Previous() => Active(out _)?.Previous();
     public void Seek(TimeSpan position) => Active(out _)?.Seek(position);
