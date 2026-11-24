@@ -149,11 +149,16 @@ public sealed partial class LocalProvider : ILyricsProvider
 public sealed class LrclibProvider : ILyricsProvider
 {
     public string Name => "lrclib";
-    private static readonly HttpClient Http = Client();
+    private readonly HttpClient Http;
 
-    private static HttpClient Client()
+    private static readonly Lazy<HttpClient> Shared = new(() => Client(null));
+
+    /// <param name="handler">測試用：換掉真的網路。</param>
+    public LrclibProvider(HttpMessageHandler? handler = null) => Http = handler == null ? Shared.Value : Client(handler);
+
+    private static HttpClient Client(HttpMessageHandler? handler)
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
+        var http = HttpLimits.Create(TimeSpan.FromSeconds(12), handler);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Shima/0.1");
         return http;
     }
@@ -193,11 +198,11 @@ public sealed class LrclibProvider : ILyricsProvider
         return approximate;
     }
 
-    private static async Task<JsonDocument?> GetAsync(string path)
+    private async Task<JsonDocument?> GetAsync(string path)
     {
-        using var response = await Http.GetAsync("https://lrclib.net/api/" + path);
+        using var response = await Http.GetAsync("https://lrclib.net/api/" + path, HttpCompletionOption.ResponseHeadersRead);
         if (!response.IsSuccessStatusCode) return null;
-        return JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return await HttpLimits.ReadAsync(response) is { } body ? JsonDocument.Parse(body) : null;
     }
 
     private static string Text(JsonElement e, string name) =>
@@ -210,6 +215,7 @@ public sealed class LrclibProvider : ILyricsProvider
 
     private static LyricSheet? Sheet(JsonElement e)
     {
+        if (Text(e, "syncedLyrics").Length > HttpLimits.MaxText || Text(e, "plainLyrics").Length > HttpLimits.MaxText) return null;
         if (Lrc.Parse(Text(e, "syncedLyrics")) is { Count: > 0 } synced) return new LyricSheet(synced, true);
         if (Lrc.Plain(Text(e, "plainLyrics")) is { Count: > 0 } plain) return new LyricSheet(plain, false);
         return null;
@@ -220,11 +226,16 @@ public sealed class LrclibProvider : ILyricsProvider
 public sealed class NetEaseProvider : ILyricsProvider
 {
     public string Name => "netease";
-    private static readonly HttpClient Http = Client();
+    private readonly HttpClient Http;
 
-    private static HttpClient Client()
+    private static readonly Lazy<HttpClient> Shared = new(() => Client(null));
+
+    /// <param name="handler">測試用：換掉真的網路。</param>
+    public NetEaseProvider(HttpMessageHandler? handler = null) => Http = handler == null ? Shared.Value : Client(handler);
+
+    private static HttpClient Client(HttpMessageHandler? handler)
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var http = HttpLimits.Create(TimeSpan.FromSeconds(10), handler);
         // 這個站只回應來自它自己網頁的請求
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36");
         http.DefaultRequestHeaders.Referrer = new Uri("https://music.163.com/");
@@ -234,7 +245,7 @@ public sealed class NetEaseProvider : ILyricsProvider
     public async Task<LyricsHit?> FindAsync(SongQuery q)
     {
         var artist = Titles.MainArtist(q.Artist);
-        var json = await Http.GetStringAsync($"https://music.163.com/api/search/get?s={Uri.EscapeDataString((q.Title + " " + artist).Trim())}&type=1&limit=20");
+        if (await HttpLimits.GetStringAsync(Http, $"https://music.163.com/api/search/get?s={Uri.EscapeDataString((q.Title + " " + artist).Trim())}&type=1&limit=20") is not { } json) return null;
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("result", out var result) || !result.TryGetProperty("songs", out var songs) || songs.ValueKind != JsonValueKind.Array) return null;
 
@@ -254,14 +265,15 @@ public sealed class NetEaseProvider : ILyricsProvider
         if (index < 0) return null;
 
         // yv=1：有逐字歌詞（yrc）的話一起給
-        var lyric = await Http.GetStringAsync($"https://music.163.com/api/song/lyric?id={ids[index]}&lv=1&tv=-1&rv=-1&yv=1");
+        if (await HttpLimits.GetStringAsync(Http, $"https://music.163.com/api/song/lyric?id={ids[index]}&lv=1&tv=-1&rv=-1&yv=1") is not { } lyric) return null;
         using var l = JsonDocument.Parse(lyric);
         if (!l.RootElement.TryGetProperty("lrc", out var lrc) || !lrc.TryGetProperty("lyric", out var text) || text.ValueKind != JsonValueKind.String) return null;
+        if (text.GetString()!.Length > HttpLimits.MaxText) return null;
         var lines = Lrc.Parse(Lrc.StripCredits(text.GetString()!));
         if (lines.Count == 0) return null;
 
         string Extra(string name) =>
-            l.RootElement.TryGetProperty(name, out var e) && e.TryGetProperty("lyric", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? "" : "";
+            l.RootElement.TryGetProperty(name, out var e) && e.TryGetProperty("lyric", out var t) && t.ValueKind == JsonValueKind.String && t.GetString() is { } x && x.Length <= HttpLimits.MaxText ? x : "";
         // 句子還是照 LRC，翻譯才對得上；逐字時間只是掛上去
         if (Extra("yrc") is { Length: > 0 } yrc) lines = WordTiming.Attach(lines, WordTiming.ParseYrc(yrc));
         var sheet = new LyricSheet(lines, true)
